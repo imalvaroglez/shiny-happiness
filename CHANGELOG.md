@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-05-05
+
+### Added
+
+**Ingest Pipeline (Commit 6)**
+- `Normalizer` — converts `RawTransaction` to SwiftData `Transaction` with Account/Statement relationships
+- `Deduplicator` — fuzzy duplicate detection by (amount, date ±1 day, similar description)
+- `Categorizer` — priority-sorted regex rule matching, assigns Category relationships
+- `IngestPipeline` — `@MainActor` orchestrator: detect → parse → normalize → dedupe → categorize → persist
+- SHA-256 statement hash deduplication prevents re-importing the same file
+- Account auto-creation from `DetectionResult` with institution name lookup
+- Encrypted PDF detection via `PDFDocument.isLocked`
+- `StatementParser` protocol simplified: removed `Account` parameter (parsers are account-agnostic)
+- 21 new tests (31 total, all passing): Normalizer, Deduplicator, Categorizer, IngestPipeline integration
+
+**Import UI (Commit 7)**
+- `ImportView` — drag-drop zone for PDF/CSV bank statements with visual feedback
+- `ImportViewModel` — `@Observable`, `@MainActor`, orchestrates pipeline calls
+- File browser via `fileImporter` (PDF + CSV content types)
+- `IngestReport` results list with per-file status badges (new/duplicate/error)
+- Summary stats (total new, duplicates, errors) with clear history
+- Files copied to Application Support/FinanceTracker/Statements for archiving
+- DashboardView sidebar links to ImportView
+
+**Dashboard Queries + UI (Commits 8-9)**
+- `DashboardViewModel` — aggregates monthly cash flow, net worth over time, spending by category, recent transactions
+- `MonthlyCashFlow` — income vs expenses per month with savings rate
+- `CategorySpending` — top spending categories with amounts
+- `NetWorthPoint` — cumulative balance by month
+- Time range picker: month, quarter, year, all
+- Summary cards: income (green), expenses (red), net (blue)
+- Swift Charts: cash flow bar chart, net worth line chart with area fill, spending donut chart
+- Recent transactions list with merchant, date, amount, color-coded sign
+- Empty state when no transactions imported
+- In-memory aggregation (per AD-001: migrate to SQLite/DuckDB if >200ms at 50k transactions)
+
 ## [0.1.0] - 2025-05-05
 
 ### Added
