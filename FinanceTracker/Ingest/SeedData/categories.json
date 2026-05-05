@@ -1,0 +1,74 @@
+{
+  "categories": [
+    {
+      "name": "Food & Drink",
+      "kind": "expense",
+      "subcategories": ["Restaurants", "Groceries", "Coffee", "Fast Food", "Bars & Nightlife"]
+    },
+    {
+      "name": "Transport",
+      "kind": "expense",
+      "subcategories": ["Rideshare", "Gas", "Parking", "Public Transit", "Toll"]
+    },
+    {
+      "name": "Shopping",
+      "kind": "expense",
+      "subcategories": ["Clothing", "Electronics", "Department Store", "General Merchandise"]
+    },
+    {
+      "name": "Entertainment",
+      "kind": "expense",
+      "subcategories": ["Streaming", "Movies", "Games", "Music", "Events"]
+    },
+    {
+      "name": "Bills & Utilities",
+      "kind": "expense",
+      "subcategories": ["Electricity", "Internet", "Phone", "Water", "Insurance"]
+    },
+    {
+      "name": "Health",
+      "kind": "expense",
+      "subcategories": ["Pharmacy", "Doctor", "Gym", "Wellness"]
+    },
+    {
+      "name": "Home",
+      "kind": "expense",
+      "subcategories": ["Rent", "Maintenance", "Furniture", "Services"]
+    },
+    {
+      "name": "Education",
+      "kind": "expense",
+      "subcategories": ["Courses", "Books", "Certifications"]
+    },
+    {
+      "name": "Transfers",
+      "kind": "transfer",
+      "subcategories": ["Internal Transfer", "SPEI Transfer", "International Transfer"]
+    },
+    {
+      "name": "Income",
+      "kind": "income",
+      "subcategories": ["Salary", "Freelance", "Interest", "Refund", "Other Income"]
+    },
+    {
+      "name": "Investment",
+      "kind": "investment",
+      "subcategories": ["Securities", "CETES", "Funds", "Crypto"]
+    },
+    {
+      "name": "Fees & Charges",
+      "kind": "expense",
+      "subcategories": ["Bank Fees", "Commissions", "Interest Charges", "Late Fees"]
+    },
+    {
+      "name": "Travel",
+      "kind": "expense",
+      "subcategories": ["Flights", "Hotels", "Car Rental", "Travel Insurance"]
+    },
+    {
+      "name": "Subscriptions",
+      "kind": "expense",
+      "subcategories": ["Software", "Cloud Services", "Memberships", "News"]
+    }
+  ]
+}
