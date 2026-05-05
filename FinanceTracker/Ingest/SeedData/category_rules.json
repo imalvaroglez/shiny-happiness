@@ -1,0 +1,124 @@
+{
+  "rules": [
+    {
+      "pattern": "(?i)UBER\\s*BV|UBER\\s*EATS|UBER\\*TRIP",
+      "merchant": "Uber",
+      "category": "Transport.Rideshare",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)DIDI|DIDI\\s*FOOD|DIDI\\s*RIDER",
+      "merchant": "DiDi",
+      "category": "Transport.Rideshare",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)OXXO|CADENA\\s*OXXO|OXX\\*",
+      "merchant": "OXXO",
+      "category": "Shopping.General Merchandise",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)AMAZON|AMZN|AMAZON\\s*MEXICO",
+      "merchant": "Amazon",
+      "category": "Shopping.General Merchandise",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)MERCADO\\s*PAGO|MERCADO\\s*LIBRE|MP\\s*",
+      "merchant": "Mercado Pago",
+      "category": "Shopping.General Merchandise",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)WALMART|WAL\\s*MART",
+      "merchant": "Walmart",
+      "category": "Shopping.General Merchandise",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)STARBUCKS|STARBUCK",
+      "merchant": "Starbucks",
+      "category": "Food & Drink.Coffee",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)NETFLIX",
+      "merchant": "Netflix",
+      "category": "Entertainment.Streaming",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)SPOTIFY",
+      "merchant": "Spotify",
+      "category": "Entertainment.Streaming",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)APPLE\\s*BILL|APPLE\\.COM|ITUNES",
+      "merchant": "Apple",
+      "category": "Subscriptions.Software",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)GOOGLE|GOOGLE\\s*SERVICES",
+      "merchant": "Google",
+      "category": "Subscriptions.Software",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)PAGO\\s*RECIBIDO|ABONO|PAGO",
+      "merchant": "",
+      "category": "Transfers.Internal Transfer",
+      "priority": 5
+    },
+    {
+      "pattern": "(?i)TRANSFERENCIA\\s*SPEI|SPEI",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 5
+    },
+    {
+      "pattern": "(?i)SPEI\\s*ENVIADA|TRANSFERENCIA\\s*ENVIADA",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 6
+    },
+    {
+      "pattern": "(?i)COMISION|COMISI[NÓ]N",
+      "merchant": "",
+      "category": "Fees & Charges.Bank Fees",
+      "priority": 8
+    },
+    {
+      "pattern": "(?i)INTERES|INTER[EÉ]S",
+      "merchant": "",
+      "category": "Fees & Charges.Interest Charges",
+      "priority": 8
+    },
+    {
+      "pattern": "(?i)SALDO\\s*PROMEDIO|RENDIMIENTO",
+      "merchant": "",
+      "category": "Income.Interest",
+      "priority": 5
+    },
+    {
+      "pattern": "(?i)NOMINA|SUELDO|PAGO\\s*NOMINA",
+      "merchant": "",
+      "category": "Income.Salary",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)SUPERAMA|LA\\s*COMER|FRESCO|CITY\\s*MARKET|SUMESA",
+      "merchant": "La Comer",
+      "category": "Food & Drink.Groceries",
+      "priority": 10
+    },
+    {
+      "pattern": "(?i)7-ELEVEN|7\\s*ELEVEN|7ELEVEN",
+      "merchant": "7-Eleven",
+      "category": "Food & Drink.Groceries",
+      "priority": 10
+    }
+  ]
+}
