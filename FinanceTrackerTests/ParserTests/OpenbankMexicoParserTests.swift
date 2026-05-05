@@ -30,7 +30,7 @@ struct OpenbankMexicoParserTests {
     func parsesOpenbankPDF() async throws {
         let data = try Data(contentsOf: sampleDataURL)
 
-        let transactions = try await parser.parse(data: data, account: sampleAccount)
+        let transactions = try await parser.parse(data: data)
 
         #expect(!transactions.isEmpty)
 
@@ -49,7 +49,7 @@ struct OpenbankMexicoParserTests {
     func amountsAreValid() async throws {
         let data = try Data(contentsOf: sampleDataURL)
 
-        let transactions = try await parser.parse(data: data, account: sampleAccount)
+        let transactions = try await parser.parse(data: data)
 
         for tx in transactions {
             #expect(tx.amount != 0)
@@ -60,7 +60,7 @@ struct OpenbankMexicoParserTests {
     func datesAreValid() async throws {
         let data = try Data(contentsOf: sampleDataURL)
 
-        let transactions = try await parser.parse(data: data, account: sampleAccount)
+        let transactions = try await parser.parse(data: data)
         let reasonableStart = Calendar.current.date(from: DateComponents(year: 2020, month: 1, day: 1))!
         let reasonableEnd = Calendar.current.date(from: DateComponents(year: 2030, month: 12, day: 31))!
 
@@ -74,7 +74,7 @@ struct OpenbankMexicoParserTests {
     func transferDetection() async throws {
         let data = try Data(contentsOf: sampleDataURL)
 
-        let transactions = try await parser.parse(data: data, account: sampleAccount)
+        let transactions = try await parser.parse(data: data)
         let transfers = transactions.filter { $0.isTransfer }
 
         #expect(!transfers.isEmpty)
