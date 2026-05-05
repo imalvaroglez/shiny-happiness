@@ -15,7 +15,7 @@ struct OpenbankMexicoParser: StatementParser, Sendable {
         self.dateFormatter = df
     }
 
-    func parse(data: Data, account: Account) async throws -> [RawTransaction] {
+    func parse(data: Data) async throws -> [RawTransaction] {
         guard let document = PDFDocument(data: data) else {
             throw ParserError.invalidData("Cannot open PDF document")
         }

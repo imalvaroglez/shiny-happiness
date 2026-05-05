@@ -29,7 +29,7 @@ struct AmexMexicoParserTests {
     @Test("Parses Amex PDF without crashing (encrypted/restricted PDFs handled)")
     func parsesWithoutCrashing() async throws {
         let data = try Data(contentsOf: sampleDataURL)
-        let transactions = try await parser.parse(data: data, account: sampleAccount)
+        let transactions = try await parser.parse(data: data)
         for tx in transactions {
             #expect(tx.currency == "MXN")
             #expect(!tx.descriptionRaw.isEmpty)
