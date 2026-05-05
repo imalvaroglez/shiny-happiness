@@ -41,3 +41,9 @@
 **Context:** Floating-point arithmetic introduces rounding errors unacceptable for financial data.
 **Decision:** All monetary values stored as `Decimal`. Pre-commit hook rejects `Double`/`Float` in `Domain/` directory.
 **Consequence:** Exact arithmetic. Slight performance overhead vs Double — acceptable for local single-user app.
+
+## AD-008: StatementParser protocol — parsers are account-agnostic
+**Date:** 2025-05-05
+**Context:** Original protocol had `parse(data:account:)` but no parser uses the Account parameter. Passing `@Model` objects across actor boundaries triggers Swift 6 concurrency errors.
+**Decision:** Remove `account` from `StatementParser.parse()`. Account assignment happens in the Normalizer step, not during parsing. Parsers only produce `[RawTransaction]`.
+**Consequence:** Clean actor isolation. Parsers are pure `Sendable` computation units.
