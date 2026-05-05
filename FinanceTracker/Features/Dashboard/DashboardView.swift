@@ -9,7 +9,7 @@ struct DashboardView: View {
             List {
                 NavigationLink("Dashboard", destination: Text("Dashboard"))
                 NavigationLink("Transactions", destination: Text("Transactions"))
-                NavigationLink("Import", destination: Text("Import"))
+                NavigationLink("Import Statements", destination: ImportView(modelContext: modelContext))
                 NavigationLink("Settings", destination: Text("Settings"))
             }
             .navigationTitle("FinanceTracker")
