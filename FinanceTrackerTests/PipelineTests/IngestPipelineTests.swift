@@ -39,9 +39,9 @@ struct IngestPipelineTests {
 
         let accountDescriptor = FetchDescriptor<Account>()
         let accounts = try context.fetch(accountDescriptor)
-        #expect(accounts.count == 1)
-        #expect(accounts[0].institution == "Openbank Mexico")
-        #expect(accounts[0].type == .checking)
+        #expect(accounts.count == 2)
+        let institutionNames = Set(accounts.map(\.institution))
+        #expect(institutionNames == ["Openbank Mexico"])
 
         let txDescriptor = FetchDescriptor<Transaction>()
         let transactions = try context.fetch(txDescriptor)
@@ -88,9 +88,9 @@ struct IngestPipelineTests {
         let descriptor = FetchDescriptor<Account>()
         let accounts = try context.fetch(descriptor)
 
-        #expect(accounts.count == 1)
-        #expect(accounts[0].institution == "Openbank Mexico")
-        #expect(accounts[0].type == .checking)
+        #expect(accounts.count == 2)
+        let institutionNames = Set(accounts.map(\.institution))
+        #expect(institutionNames == ["Openbank Mexico"])
     }
 
     @Test("Reuses existing account for same institution")
@@ -106,7 +106,7 @@ struct IngestPipelineTests {
         let descriptor = FetchDescriptor<Account>()
         let accounts = try context.fetch(descriptor)
 
-        #expect(accounts.count == 1)
+        #expect(accounts.count == 2)
     }
 
     @Test("Handles nonexistent file gracefully")

@@ -8,6 +8,7 @@ final class Account {
     var type: AccountType
     var currency: String
     var nickname: String
+    var accountNumber: String?
     var openedAt: Date
     var closedAt: Date?
 
@@ -17,6 +18,7 @@ final class Account {
         type: AccountType,
         currency: String = "MXN",
         nickname: String? = nil,
+        accountNumber: String? = nil,
         openedAt: Date = .now,
         closedAt: Date? = nil
     ) {
@@ -25,6 +27,7 @@ final class Account {
         self.type = type
         self.currency = currency
         self.nickname = nickname ?? institution
+        self.accountNumber = accountNumber
         self.openedAt = openedAt
         self.closedAt = closedAt
     }
