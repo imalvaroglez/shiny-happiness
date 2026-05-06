@@ -83,7 +83,8 @@ struct SeedDataLoader {
                     patternRegex: ruleJSON.pattern,
                     merchantMatch: ruleJSON.merchant,
                     category: category,
-                    priority: ruleJSON.priority
+                    priority: ruleJSON.priority,
+                    source: "seed"
                 )
                 context.insert(rule)
             }
