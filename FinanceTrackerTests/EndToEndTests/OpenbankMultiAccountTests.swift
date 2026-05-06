@@ -21,7 +21,7 @@ struct OpenbankMultiAccountTests {
 
     private func ingestOpenbankPDF(context: ModelContext) async -> IngestReport {
         let pipeline = IngestPipeline(context: context)
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/202508.pdf")
+        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
         let reports = await pipeline.ingest(files: [url])
         return reports[0]
     }
