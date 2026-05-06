@@ -62,6 +62,11 @@ final class ImportViewModel {
                 try? fm.removeItem(at: destination)
             }
 
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { url.stopAccessingSecurityScopedResource() }
+            }
+
             do {
                 try fm.copyItem(at: url, to: destination)
                 return destination
