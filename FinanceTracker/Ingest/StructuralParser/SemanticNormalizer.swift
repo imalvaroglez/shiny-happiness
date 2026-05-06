@@ -135,6 +135,10 @@ struct SemanticNormalizer: Sendable {
                 return extractBanorteCutoffContext(from: match, in: text, monthMap: monthMap)
             } else if periodPattern.id == "suburbia_period" {
                 return extractSuburbiaPeriodContext(from: match, in: text, monthMap: monthMap)
+            } else if periodPattern.id == "didi_period" {
+                return extractNumericPeriodContext(from: match, in: text)
+            } else if periodPattern.id == "cetes_period" {
+                return extractNumericPeriodContext(from: match, in: text)
             }
         }
         return nil
@@ -367,6 +371,30 @@ struct SemanticNormalizer: Sendable {
               let cutoffYear = Int(cutoffYearStr) else { return nil }
 
         return StatementContext(cutoffMonth: cutoffMonth, cutoffYear: cutoffYear, startMonth: nil)
+    }
+
+    private func extractNumericPeriodContext(
+        from match: NSTextCheckingResult,
+        in text: String
+    ) -> StatementContext? {
+        guard match.numberOfRanges >= 7 else { return nil }
+
+        guard let endMonthRange = Range(match.range(at: 5), in: text),
+              let endYearRange = Range(match.range(at: 6), in: text) else { return nil }
+
+        let endMonthStr = String(text[endMonthRange])
+        let endYearStr = String(text[endYearRange])
+
+        guard let endMonth = Int(endMonthStr),
+              let endYear = Int(endYearStr) else { return nil }
+
+        var startMonth: Int? = nil
+        if let startMonthRange = Range(match.range(at: 2), in: text),
+           let sm = Int(String(text[startMonthRange])) {
+            startMonth = sm
+        }
+
+        return StatementContext(cutoffMonth: endMonth, cutoffYear: endYear, startMonth: startMonth)
     }
 
     private func lookupMonth(_ name: String, in map: [String: Int]) -> Int? {
