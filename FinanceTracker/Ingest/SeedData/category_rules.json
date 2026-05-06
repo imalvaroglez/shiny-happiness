@@ -210,6 +210,55 @@
       "category": "Taxes.ISR Retenido",
       "priority": 90,
       "_comment": "Openbank Apartados income tax withholding"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a 2now",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 85,
+      "_comment": "Payment to 2now credit card (HSBC)"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a Priority",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 85,
+      "_comment": "Transfer to own Banamex Priority"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a Nu",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 85,
+      "_comment": "Transfer to own Nu account"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a.*INVEX Volaris",
+      "merchant": "",
+      "category": "Travel.Flights",
+      "priority": 85,
+      "_comment": "Volaris credit card payment"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a Moneypool",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 85,
+      "_comment": "Moneypool transfer"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a TDC Explora",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 85,
+      "_comment": "TDC Explora credit card payment"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a BBVA 7777",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 85,
+      "_comment": "Transfer to own BBVA account"
     }
   ]
 }
