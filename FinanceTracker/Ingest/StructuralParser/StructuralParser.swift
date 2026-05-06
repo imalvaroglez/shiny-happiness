@@ -1,5 +1,6 @@
 import Foundation
 import PDFKit
+import os
 
 struct StructuralParser: StatementParser {
     static var supportedIssuers: [String] { [] }
@@ -31,6 +32,9 @@ struct StructuralParser: StatementParser {
             throw ParserError.invalidData("Could not create PDF document from data")
         }
 
+        let log = Logger.parser
+        log.info("StructuralParser: processing \(document.pageCount) pages")
+
         var statementContext: StatementContext?
 
         var allTransactions: [RawTransaction] = []
@@ -44,17 +48,25 @@ struct StructuralParser: StatementParser {
             }
 
             let rows = PDFTextExtractor.extractRows(from: page)
+            log.debug("Page \(pageIndex): \(rows.count) rows extracted")
             guard !rows.isEmpty else { continue }
 
             let pageTransactions = parseRows(rows, context: statementContext)
+            log.debug("Page \(pageIndex): \(pageTransactions.count) transactions extracted")
             allTransactions.append(contentsOf: pageTransactions)
         }
 
+        log.info("StructuralParser: total \(allTransactions.count) transactions from \(document.pageCount) pages")
         return allTransactions
     }
 
     private func parseRows(_ rows: [TableRow], context: StatementContext?) -> [RawTransaction] {
-        guard let table = columnDetector.detectTable(in: rows) else { return [] }
+        guard let table = columnDetector.detectTable(in: rows) else {
+            Logger.parser.debug("No table detected in \(rows.count) rows")
+            return []
+        }
+
+        Logger.parser.debug("Detected table: layout=\(String(describing: table.layout)), columns=\(table.columns.count), convention=\(table.amountConvention ?? "none"), dataRows=\(table.dataRowRange.count)")
 
         if table.columns.count >= 2, table.columns.allSatisfy({ abs($0.xCenter - table.columns[0].xCenter) < 50 }) {
             return parseWideHeaderTable(rows: rows, table: table, context: context)
