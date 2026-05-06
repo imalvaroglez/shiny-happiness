@@ -61,6 +61,14 @@ targets:
     platform: macOS
     sources:
       - path: FinanceTrackerTests
+      - path: FinanceTracker/Ingest/SeedData
+        buildPhase: resources
+        excludes:
+          - "**/*.swift"
+      - path: FinanceTracker/Ingest/StructuralParser/Knowledge
+        buildPhase: resources
+        excludes:
+          - "**/*.swift"
     dependencies:
       - target: FinanceTracker
     settings:

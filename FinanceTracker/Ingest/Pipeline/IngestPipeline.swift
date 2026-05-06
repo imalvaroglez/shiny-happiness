@@ -134,7 +134,6 @@ final class IngestPipeline {
 
     private func parseWithFallback(data: Data, fileName: String, detection: DetectionResult) async -> [RawTransaction] {
         if let structural = StructuralParser() {
-            Logger.pipeline.info("Attempting structural parse for \(fileName)")
             do {
                 let rawTxns = try await structural.parse(data: data)
                 if !rawTxns.isEmpty {

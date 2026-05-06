@@ -116,10 +116,14 @@ struct DatePatterns: Sendable {
             var monthMaps: [String: [String: Int]] = [:]
             if let rawMaps = json["month_maps"] as? [String: Any] {
                 for (name, value) in rawMaps {
-                    guard let stringMap = value as? [String: String] else { continue }
+                    guard let anyMap = value as? [String: Any] else { continue }
                     var intMap: [String: Int] = [:]
-                    for (month, val) in stringMap {
-                        intMap[month] = Int(val)
+                    for (key, val) in anyMap where key != "_comment" {
+                        if let intVal = val as? Int {
+                            intMap[key] = intVal
+                        } else if let strVal = val as? String, let parsed = Int(strVal) {
+                            intMap[key] = parsed
+                        }
                     }
                     monthMaps[name] = intMap
                 }

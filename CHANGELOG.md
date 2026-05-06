@@ -8,11 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-**Runtime Bugfixes — Bundle Resources & Sandbox File Access**
-- `project.yml`: Added seed data JSONs (`categories.json`, `category_rules.json`) and knowledge JSONs (`header_vocabulary.json`, `date_patterns.json`, `amount_conventions.json`) as bundled resources via `buildPhase: resources` with `.swift` excludes
-- `SeedDataLoader.swift`, `KnowledgeLoader.swift`: Removed `subdirectory:` parameter from `Bundle.main.url()` calls (XcodeGen flattens resources into `Contents/Resources/` with no subdirectory hierarchy)
-- `ImportViewModel.swift`: Added `startAccessingSecurityScopedResource()` / `stopAccessingSecurityScopedResource()` in `copyToStorage()` so sandboxed app can read user-selected files
-- `ImportView.swift`: Added security-scoped URL access in `handleFilePickerResult()` and `handleDrop()` for both file picker and drag-drop import paths
+**Critical Bugfix — KnowledgeLoader month map type mismatch**
+- `KnowledgeLoader.swift`: Fixed `DatePatterns.load()` — JSON month maps use integer values (`"Ene": 1`) but code cast as `[String: String]` which always returned nil, making all month maps empty. Changed to `[String: Any]` with explicit Int/String handling. This was the root cause of 0 transactions from every PDF.
+- `project.yml`: Added seed data and knowledge JSON resources to test target so tests exercise real JSON loading, not hardcoded structs
+- `StructuralParserTests.swift`: Replaced 170+ lines of hardcoded `HeaderVocabulary`, `DatePatterns`, `AmountConventions` with `StructuralParser()` which loads from bundled JSON
+
+### Added
+
+**TDD Hardening**
+- `KnowledgeLoaderTests.swift` — 8 tests verifying `DatePatterns.load()`, `HeaderVocabulary.load()`, `AmountConventions.load()` from bundle: month maps non-empty with correct values, all keyword categories populated, `StructuralParser()` init succeeds
+- `EndToEndPDFTests.swift` — Full pipeline integration tests: Amex PDF produces transactions with credits/charges, Openbank PDF produces transactions with deposits/withdrawals, verifies known transaction "PAGO RECIBIDO"
+- `ImportView.swift`: Error details now displayed below each report row when errors exist
+
+### Removed
+
+- All NSLog diagnostic calls from `StructuralParser.swift` (5 locations) and `IngestPipeline.swift` (3 locations) — no longer needed after root cause was identified and fixed
 
 ### Added
 
