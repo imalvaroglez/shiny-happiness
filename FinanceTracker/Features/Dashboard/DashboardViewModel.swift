@@ -33,6 +33,7 @@ final class DashboardViewModel {
     var totalExpenses: Decimal = 0
     var totalTransactions: Int = 0
     var currentNetWorth: Decimal = 0
+    var totalInterestEarned: Decimal = 0
 
     var dateRange: DateRange = .year(.now)
 
@@ -58,6 +59,7 @@ final class DashboardViewModel {
         computeSpendingByCategory(transactions)
         computeNetWorthFromStatements()
         computeTotals(transactions)
+        computeInterestEarned(transactions)
 
         var recentDescriptor = FetchDescriptor<Transaction>(
             predicate: buildPredicate(),
@@ -196,6 +198,16 @@ final class DashboardViewModel {
                 totalIncome += tx.amount
             } else {
                 totalExpenses += tx.amount
+            }
+        }
+    }
+
+    private func computeInterestEarned(_ transactions: [Transaction]) {
+        totalInterestEarned = 0
+        for tx in transactions {
+            guard !tx.isDuplicate else { continue }
+            if tx.category?.name == "Interest" && tx.amount > 0 {
+                totalInterestEarned += tx.amount
             }
         }
     }

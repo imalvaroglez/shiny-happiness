@@ -3,32 +3,42 @@ import SwiftData
 
 struct TransactionsView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Transaction.postedAt, order: .reverse) private var transactions: [Transaction]
+    @Query(sort: \Transaction.postedAt, order: .reverse) private var allTransactions: [Transaction]
+    @Query private var accounts: [Account]
     @State private var searchText = ""
     @State private var selectedTransaction: Transaction?
     @State private var showingCategoryPicker = false
     @State private var showingApplyToSimilar = false
     @State private var pendingCategory: Category?
     @State private var pendingKeyword: String?
+    @State private var accountFilter: Account?
+    @State private var sortOrder = [KeyPathComparator(\Transaction.postedAt, order: .reverse)]
 
     private var filteredTransactions: [Transaction] {
-        guard !searchText.isEmpty else { return transactions }
-        return transactions.filter {
-            $0.descriptionRaw.localizedCaseInsensitiveContains(searchText) ||
-            $0.merchantNormalized.localizedCaseInsensitiveContains(searchText)
+        var result = allTransactions
+
+        if let filter = accountFilter {
+            result = result.filter { $0.account?.id == filter.id }
         }
+
+        if !searchText.isEmpty {
+            result = result.filter {
+                $0.descriptionRaw.localizedCaseInsensitiveContains(searchText) ||
+                $0.merchantNormalized.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+
+        return result
+    }
+
+    private var sortedTransactions: [Transaction] {
+        filteredTransactions.sorted(using: sortOrder)
     }
 
     var body: some View {
-        List {
-            ForEach(filteredTransactions) { tx in
-                TransactionListRow(transaction: tx)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        selectedTransaction = tx
-                        showingCategoryPicker = true
-                    }
-            }
+        VStack(spacing: 0) {
+            filterBar
+            tableContent
         }
         .searchable(text: $searchText, prompt: "Search transactions")
         .navigationTitle("Transactions")
@@ -56,46 +66,83 @@ struct TransactionsView: View {
             }
         }
     }
-}
 
-private struct TransactionListRow: View {
-    let transaction: Transaction
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(transaction.merchantNormalized.isEmpty ? transaction.descriptionRaw : transaction.merchantNormalized)
-                    .font(.body)
-                    .lineLimit(2)
-                HStack(spacing: 6) {
-                    Text(transaction.postedAt, format: .dateTime.day().month(.abbreviated).year())
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    categoryBadge
+    private var filterBar: some View {
+        HStack {
+            Picker("Account", selection: $accountFilter) {
+                Text("All Accounts").tag(nil as Account?)
+                ForEach(accounts) { account in
+                    Text(account.nickname).tag(account as Account?)
                 }
             }
+            .frame(width: 200)
+
             Spacer()
-            Text(formatMoney(transaction.amount))
-                .font(.body.bold())
-                .foregroundStyle(transaction.amount >= 0 ? .green : .primary)
+
+            Text("\(filteredTransactions.count) transactions")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    private var tableContent: some View {
+        Table(sortedTransactions, sortOrder: $sortOrder) {
+            TableColumn("Date", value: \.postedAt) { tx in
+                Text(tx.postedAt, format: .dateTime.day().month(.abbreviated).year())
+                    .font(.system(.body, design: .monospaced))
+            }
+            .width(min: 110, ideal: 120)
+
+            TableColumn("Description") { tx in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(tx.descriptionRaw)
+                        .font(.body)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let nickname = tx.account?.nickname {
+                        Text(nickname)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .width(min: 200, ideal: 350)
+
+            TableColumn("Amount", value: \.amount) { tx in
+                Text(formatMoney(tx.amount))
+                    .font(.body.bold().monospacedDigit())
+                    .foregroundStyle(tx.amount >= 0 ? .green : .red)
+                    .frame(minWidth: 100, alignment: .trailing)
+            }
+            .width(min: 110, ideal: 130)
+
+            TableColumn("Category") { tx in
+                categoryBadge(for: tx)
+                    .onTapGesture {
+                        selectedTransaction = tx
+                        showingCategoryPicker = true
+                    }
+            }
+            .width(min: 130, ideal: 160)
+        }
     }
 
     @ViewBuilder
-    private var categoryBadge: some View {
-        if let cat = transaction.category {
+    private func categoryBadge(for tx: Transaction) -> some View {
+        if let cat = tx.category {
             Text(cat.name)
-                .font(.caption2)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
                 .background(Color.accentColor.opacity(0.15))
                 .clipShape(Capsule())
         } else {
             Text("Uncategorized")
-                .font(.caption2)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
                 .background(Color.secondary.opacity(0.1))
                 .clipShape(Capsule())
         }
@@ -107,9 +154,4 @@ private struct TransactionListRow: View {
         formatter.currencyCode = "MXN"
         return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
     }
-}
-
-#Preview {
-    TransactionsView()
-        .modelContainer(for: Transaction.self, inMemory: true)
 }

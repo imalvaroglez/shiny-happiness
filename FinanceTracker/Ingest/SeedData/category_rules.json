@@ -235,9 +235,9 @@
     {
       "pattern": "(?i)SPEI enviada a.*INVEX Volaris",
       "merchant": "",
-      "category": "Travel.Flights",
-      "priority": 85,
-      "_comment": "Volaris credit card payment"
+      "category": "Transfers.SPEI Transfer",
+      "priority": 86,
+      "_comment": "Payment to Volaris INVEX credit card, NOT a flight"
     },
     {
       "pattern": "(?i)SPEI enviada a Moneypool",
