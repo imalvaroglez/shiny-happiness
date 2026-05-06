@@ -185,7 +185,14 @@ struct ColumnDetector: Sendable {
             if matchesCombinedHeader { continue }
 
             if let role = vocabulary.roleForKeyword(cellText) {
-                if !columns.contains(where: { $0.role == role }) {
+                if let existingIndex = columns.firstIndex(where: { $0.role == role }) {
+                    columns[existingIndex] = DetectedColumn(
+                        role: role,
+                        xCenter: cell.bounds.midX,
+                        xRange: cell.bounds.minX...cell.bounds.maxX,
+                        headerText: cellText
+                    )
+                } else {
                     columns.append(DetectedColumn(
                         role: role,
                         xCenter: cell.bounds.midX,
