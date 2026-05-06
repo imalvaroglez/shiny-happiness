@@ -51,7 +51,6 @@ final class DashboardViewModel {
         )
 
         guard let transactions = try? context.fetch(descriptor) else { return }
-        NSLog("Dashboard refresh: fetched %d transactions, range %@ to %@", transactions.count, String(describing: dateRange.start), String(describing: dateRange.end))
         totalTransactions = transactions.count
 
         computeMonthlyCashFlow(transactions)
