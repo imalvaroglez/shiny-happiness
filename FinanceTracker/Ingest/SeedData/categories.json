@@ -69,6 +69,11 @@
       "name": "Subscriptions",
       "kind": "expense",
       "subcategories": ["Software", "Cloud Services", "Memberships", "News"]
+    },
+    {
+      "name": "Taxes",
+      "kind": "expense",
+      "subcategories": ["ISR Retenido", "IVA", "Other Taxes"]
     }
   ]
 }

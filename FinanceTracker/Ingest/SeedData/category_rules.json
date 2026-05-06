@@ -126,6 +126,34 @@
       "category": "Transfers.Internal Transfer",
       "priority": 90,
       "_comment": "Amex installment notation — Phase 2 for proper installment tracking"
+    },
+    {
+      "pattern": "(?i)Traspaso a tu cuenta de ahorro.*Transferencia.*(enviada|recibida).*cuenta.*(3852|3996).*OPENBANK",
+      "merchant": "",
+      "category": "Transfers.Internal Transfer",
+      "priority": 95,
+      "_comment": "Openbank internal sweep between Débito and Apartados accounts"
+    },
+    {
+      "pattern": "(?i)(Tdc explora|Fantasy|Pago tdc|Pago tdc 2now).*Transferencia.*(enviada|recibida).*cuenta.*(3852|3996).*OPENBANK",
+      "merchant": "",
+      "category": "Transfers.Internal Transfer",
+      "priority": 94,
+      "_comment": "Openbank labeled internal transfers between accounts"
+    },
+    {
+      "pattern": "(?i)Abono de intereses",
+      "merchant": "",
+      "category": "Income.Interest",
+      "priority": 90,
+      "_comment": "Openbank Apartados daily interest accrual"
+    },
+    {
+      "pattern": "(?i)ISR retenido",
+      "merchant": "",
+      "category": "Taxes.ISR Retenido",
+      "priority": 90,
+      "_comment": "Openbank Apartados income tax withholding"
     }
   ]
 }
