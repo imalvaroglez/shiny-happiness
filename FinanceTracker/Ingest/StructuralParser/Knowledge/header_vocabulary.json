@@ -76,7 +76,9 @@
     "Detalle de movimientos en M.N.",
     "DETALLE DE MOVIMIENTOS",
     "DETALLE MOVIMIENTOS",
-    "Movimientos del período"
+    "Movimientos del período",
+    "Detalles de movimientos",
+    "DETALLE DE MOVIMIENTOS Período"
   ],
 
   "section_end_markers": [
@@ -98,6 +100,11 @@
     "PRÓXIMOS CARGOS",
     "Proximos Cargos",
     "TOTAL DE MOVIMIENTOS",
-    "Si solo realizas el pago mínimo"
+    "Si solo realizas el pago mínimo",
+    "Solución Factible",
+    "Proveedor Autorizado",
+    "Resumen del portafolio",
+    "Comisión por transferencia",
+    "Hoja:"
   ]
 }

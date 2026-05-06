@@ -122,6 +122,20 @@
       "month_map": "spanish_short",
       "year_padding": 2000,
       "sourced_from": "Suburbia 201607.pdf — 'PERÍODO: 27/JUN/16 - 25/JUL/16'"
+    },
+    {
+      "id": "didi_period",
+      "regex": "El periodo:\\s*(\\d{1,2})/(\\d{1,2})/(\\d{2,4})\\s*-\\s*(\\d{1,2})/(\\d{1,2})/(\\d{2,4})",
+      "fields": ["start_day", "start_month", "start_year", "end_day", "end_month", "end_year"],
+      "month_map": null,
+      "sourced_from": "DiDi Cuenta julio.pdf — 'El periodo: 01/07/25 - 31/07/25'"
+    },
+    {
+      "id": "cetes_period",
+      "regex": "Período del:\\s*(\\d{1,2})/(\\d{1,2})/(\\d{4})\\s*al\\s*(\\d{1,2})/(\\d{1,2})/(\\d{4})",
+      "fields": ["start_day", "start_month", "start_year", "end_day", "end_month", "end_year"],
+      "month_map": null,
+      "sourced_from": "CETES/CI Banco 202102.pdf — 'Período del: 01/02/2021 al 28/02/2021'"
     }
   ],
 

@@ -52,6 +52,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `StructuralParser`: pending-amount mechanism in line-based parser — when a date+description row has no amount, stores as pending and associates with the next amount-only row; handles `$ -amount` format (leading minus between `$` and digits)
 - 3 new tests (73 total, all passing): Suburbia transaction extraction, date validation, payment detection
 
+**Remaining Institution Patterns (Commits H,I,J,L)**
+- Added knowledge patterns for DiDi Cuenta (julio.pdf), DiDi/Stori (202509.pdf), CETES/CI Banco (202102.pdf), Skandia (2023.pdf)
+- `date_patterns.json`: `didi_period` (numeric DD/MM/YYYY range), `cetes_period` (numeric DD/MM/YYYY range), `dd_mm_yyyy_slash_full` and `dd_mon_yyyy_with_time` date patterns
+- `header_vocabulary.json`: section markers (`Detalles de movimientos`, `Movimientos del período`), end markers (`Solución Factible`, `Resumen del portafolio`)
+- `SemanticNormalizer`: generic `extractNumericPeriodContext` for purely numeric date ranges
+- 4 new tests (77 total, all passing): smoke tests for each institution (parses without crashing, MXN currency)
+- Note: DiDi Cuenta and DiDi/Stori have complex multi-line transaction formats requiring future parser enhancements for full extraction
+
 ### Changed
 
 **Pipeline Improvements (Commit F)**

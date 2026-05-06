@@ -33,7 +33,11 @@ struct StructuralParserTests {
                 "TARJETA ADICIONAL",
                 "Detalle de movimientos del Titular en M.N.",
                 "Detalle de movimientos de TDC Digital",
-                "Detalle de movimientos en M.N."
+                "Detalle de movimientos en M.N.",
+                "Detalles de movimientos",
+                "DETALLE DE MOVIMIENTOS",
+                "DETALLE MOVIMIENTOS",
+                "Movimientos del período"
             ],
             "section_end_markers": [
                 "Total de las transacciones",
@@ -50,7 +54,10 @@ struct StructuralParserTests {
                 "Consolidado de compras",
                 "Resumen de Mensualidades",
                 "Detalle de programas a plazos",
-                "Mensajes importantes"
+                "Mensajes importantes",
+                "PRÓXIMOS CARGOS",
+                "Solución Factible",
+                "Resumen del portafolio"
             ]
         ])
 
@@ -143,6 +150,20 @@ struct StructuralParserTests {
                     regex: "(\\d{1,2})/(\\w{3})/(\\d{2})\\s*-\\s*(\\d{1,2})/(\\w{3})/(\\d{2})",
                     fields: ["start_day", "start_month_short", "start_year_short", "end_day", "end_month_short", "end_year_short"],
                     month_map: "spanish_short",
+                    sourced_from: nil
+                ),
+                DatePatterns.PeriodPattern(
+                    id: "didi_period",
+                    regex: "El periodo:\\s*(\\d{1,2})/(\\d{1,2})/(\\d{2,4})\\s*-\\s*(\\d{1,2})/(\\d{1,2})/(\\d{2,4})",
+                    fields: ["start_day", "start_month", "start_year", "end_day", "end_month", "end_year"],
+                    month_map: nil,
+                    sourced_from: nil
+                ),
+                DatePatterns.PeriodPattern(
+                    id: "cetes_period",
+                    regex: "Período del:\\s*(\\d{1,2})/(\\d{1,2})/(\\d{4})\\s*al\\s*(\\d{1,2})/(\\d{1,2})/(\\d{4})",
+                    fields: ["start_day", "start_month", "start_year", "end_day", "end_month", "end_year"],
+                    month_map: nil,
                     sourced_from: nil
                 ),
             ],
@@ -400,6 +421,58 @@ struct StructuralParserTests {
 
         let payments = transactions.filter { $0.amount > 0 }
         #expect(!payments.isEmpty, "Should detect at least one payment (PAGO RECIBIDO GRACIAS)")
+    }
+
+    // MARK: - DiDi Cuenta (Multi-line)
+
+    private var didiPDF: URL {
+        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/julio.pdf")
+    }
+
+    @Test("Parses DiDi Cuenta PDF without crashing")
+    func parsesDidiPDF() async throws {
+        let data = try Data(contentsOf: didiPDF)
+        let transactions = try await parser.parse(data: data)
+        #expect(transactions.allSatisfy { $0.currency == "MXN" })
+    }
+
+    // MARK: - CETES/CI Banco (Investment)
+
+    private var cetesPDF: URL {
+        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/202102.pdf")
+    }
+
+    @Test("Parses CETES PDF without crashing")
+    func parsesCetesPDF() async throws {
+        let data = try Data(contentsOf: cetesPDF)
+        let transactions = try await parser.parse(data: data)
+        #expect(transactions.allSatisfy { $0.currency == "MXN" })
+    }
+
+    // MARK: - Skandia (Retirement/Pension)
+
+    private var skandiaPDF: URL {
+        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/2023.pdf")
+    }
+
+    @Test("Parses Skandia PDF without crashing")
+    func parsesSkandiaPDF() async throws {
+        let data = try Data(contentsOf: skandiaPDF)
+        let transactions = try await parser.parse(data: data)
+        #expect(transactions.allSatisfy { $0.currency == "MXN" })
+    }
+
+    // MARK: - DiDi/Stori (Wallet)
+
+    private var didiStoriPDF: URL {
+        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/202509.pdf")
+    }
+
+    @Test("Parses DiDi/Stori PDF without crashing")
+    func parsesDidiStoriPDF() async throws {
+        let data = try Data(contentsOf: didiStoriPDF)
+        let transactions = try await parser.parse(data: data)
+        #expect(transactions.allSatisfy { $0.currency == "MXN" })
     }
 
     // MARK: - Invalid Data
