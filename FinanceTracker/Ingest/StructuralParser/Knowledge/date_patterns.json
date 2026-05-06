@@ -114,6 +114,14 @@
       "fields": ["cutoff_day", "cutoff_month_name", "cutoff_year"],
       "month_map": "spanish_full",
       "sourced_from": "Banorte POR Ti EdoCta 202208.pdf — '12 Agosto, 2022' as Fecha de corte"
+    },
+    {
+      "id": "suburbia_period",
+      "regex": "(\\d{1,2})/(\\w{3})/(\\d{2})\\s*-\\s*(\\d{1,2})/(\\w{3})/(\\d{2})",
+      "fields": ["start_day", "start_month_short", "start_year_short", "end_day", "end_month_short", "end_year_short"],
+      "month_map": "spanish_short",
+      "year_padding": 2000,
+      "sourced_from": "Suburbia 201607.pdf — 'PERÍODO: 27/JUN/16 - 25/JUL/16'"
     }
   ],
 
