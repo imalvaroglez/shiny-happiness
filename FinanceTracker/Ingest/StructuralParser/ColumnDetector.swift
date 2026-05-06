@@ -51,27 +51,44 @@ struct ColumnDetector: Sendable {
     }
 
     private func findNextTable(from startIndex: Int, in rows: [TableRow]) -> DetectedTable? {
-        for i in startIndex..<rows.count {
+        var i = startIndex
+
+        while i < rows.count {
             let combinedColumns = tryCombinedHeader(in: rows[i])
             let isStart = vocabulary.isSectionStart(rowText(rows[i]))
 
             let columns: [DetectedColumn]
-            if let combined = combinedColumns {
+            let headerIndex: Int
+
+            if let combined = combinedColumns, combined.count >= 2 {
                 columns = combined
+                headerIndex = i
             } else if isStart {
-                columns = detectColumns(in: rows[i])
+                let lookAhead = scanForHeader(from: i, in: rows)
+                columns = lookAhead.columns
+                headerIndex = lookAhead.headerIndex
+            } else if let combined = combinedColumns {
+                columns = combined
+                headerIndex = i
             } else {
-                continue
+                let detected = detectColumns(in: rows[i])
+                if detected.count >= 2 {
+                    columns = detected
+                    headerIndex = i
+                } else {
+                    i += 1
+                    continue
+                }
             }
 
-            guard !columns.isEmpty else { continue }
+            guard !columns.isEmpty else { i += 1; continue }
 
-            let layout = determineLayout(columns: columns, rows: rows, headerIndex: i)
-            let endRowIndex = findSectionEnd(from: i + 1, in: rows)
+            let layout = determineLayout(columns: columns, rows: rows, headerIndex: headerIndex)
+            let endRowIndex = findSectionEnd(from: headerIndex + 1, in: rows)
 
-            let dataStart = i + 1
+            let dataStart = headerIndex + 1
             let dataEnd = min(endRowIndex, rows.count)
-            if dataStart >= dataEnd { continue }
+            if dataStart >= dataEnd { i += 1; continue }
 
             let convention = detectAmountConvention(
                 rows: Array(rows[dataStart..<dataEnd]),
@@ -86,6 +103,20 @@ struct ColumnDetector: Sendable {
             )
         }
         return nil
+    }
+
+    private func scanForHeader(from sectionStart: Int, in rows: [TableRow]) -> (columns: [DetectedColumn], headerIndex: Int) {
+        for j in (sectionStart + 1)..<min(sectionStart + 5, rows.count) {
+            if let combined = tryCombinedHeader(in: rows[j]), combined.count >= 2 {
+                return (columns: combined, headerIndex: j)
+            }
+            let detected = detectColumns(in: rows[j])
+            if detected.count >= 2 {
+                return (columns: detected, headerIndex: j)
+            }
+        }
+        let fallback = detectColumns(in: rows[sectionStart])
+        return (columns: fallback, headerIndex: sectionStart)
     }
 
     private func detectColumns(in row: TableRow) -> [DetectedColumn] {
@@ -111,11 +142,19 @@ struct ColumnDetector: Sendable {
     private func tryCombinedHeader(in row: TableRow) -> [DetectedColumn]? {
         let text = rowText(row)
         var columns: [DetectedColumn] = []
+        var matchedAnyCombined = false
 
         for (headerPattern, roles) in vocabulary.combinedHeaders {
             if text.localizedCaseInsensitiveContains(headerPattern) {
-                let xCenter = row.cells.first?.bounds.midX ?? 0
-                let xRange = row.cells.first.flatMap { $0.bounds.minX...$0.bounds.maxX } ?? (0...0)
+                matchedAnyCombined = true
+
+                let matchingCell = row.cells.first { cell in
+                    cell.text.trimmingCharacters(in: .whitespaces)
+                        .localizedCaseInsensitiveContains(headerPattern)
+                }
+                let xCenter = matchingCell?.bounds.midX ?? row.cells.first?.bounds.midX ?? 0
+                let xRange = matchingCell.map { $0.bounds.minX...$0.bounds.maxX }
+                    ?? row.cells.first.map { $0.bounds.minX...$0.bounds.maxX } ?? (0...0)
 
                 for roleString in roles {
                     if let role = ColumnRole(rawValue: roleString) {
@@ -130,13 +169,21 @@ struct ColumnDetector: Sendable {
             }
         }
 
+        guard matchedAnyCombined else { return nil }
+
         for cell in row.cells {
             let cellText = cell.text.trimmingCharacters(in: .whitespaces)
-            for (headerPattern, roles) in vocabulary.combinedHeaders {
+            guard !cellText.isEmpty else { continue }
+
+            var matchesCombinedHeader = false
+            for (headerPattern, _) in vocabulary.combinedHeaders {
                 if cellText.localizedCaseInsensitiveContains(headerPattern) {
-                    continue
+                    matchesCombinedHeader = true
+                    break
                 }
             }
+            if matchesCombinedHeader { continue }
+
             if let role = vocabulary.roleForKeyword(cellText) {
                 if !columns.contains(where: { $0.role == role }) {
                     columns.append(DetectedColumn(
