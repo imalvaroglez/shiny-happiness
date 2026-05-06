@@ -89,8 +89,8 @@ struct OpenbankMultiAccountTests {
         }
     }
 
-    @Test("Cash flow excludes internal transfers")
-    func testCashFlowExcludesTransfers() async throws {
+    @Test("Cash flow excludes only internal transfers, includes SPEI")
+    func testCashFlowExcludesInternalTransfers() async throws {
         let container = try makeContainer()
         let context = container.mainContext
 
@@ -102,24 +102,26 @@ struct OpenbankMultiAccountTests {
         var totalIncome: Decimal = 0
         var totalExpenses: Decimal = 0
         for tx in transactions {
-            let kind = tx.category?.kind
-            if kind == .transfer { continue }
-            if kind == .income || (kind == nil && tx.amount > 0) {
+            if tx.category?.name == "Internal Transfer" { continue }
+            if tx.amount > 0 {
                 totalIncome += tx.amount
-            } else if kind == .expense || kind == .investment || (kind == nil && tx.amount < 0) {
+            } else {
                 totalExpenses += tx.amount
             }
         }
 
-        let transfers = transactions.filter { $0.category?.kind == .transfer }
-        let transferTotal = transfers.reduce(Decimal.zero) { $0 + $1.amount }
+        let internalTransfers = transactions.filter { $0.category?.name == "Internal Transfer" }
+        #expect(!internalTransfers.isEmpty, "Should have internal transfer transactions")
 
-        #expect(transfers.count > 0, "Should have transfer transactions")
-        #expect(transferTotal != 0, "Transfers should have non-zero amounts")
+        let speiTransfers = transactions.filter { $0.category?.name == "SPEI Transfer" }
+        #expect(!speiTransfers.isEmpty, "Should have SPEI transfer transactions")
 
-        let hasTransferInIncome = transfers.contains { $0.amount > 0 }
-        #expect(hasTransferInIncome, "Some transfers are positive (deposits)")
+        let speiOutgoing = speiTransfers.filter { $0.amount < 0 }
+        let speiIncoming = speiTransfers.filter { $0.amount > 0 }
+        #expect(!speiOutgoing.isEmpty, "Should have outgoing SPEI transfers (expenses)")
+        #expect(!speiIncoming.isEmpty, "Should have incoming SPEI transfers (income)")
 
-        #expect(totalIncome > 0, "Should have non-transfer income")
+        #expect(totalIncome > 0, "Should have income (including SPEI incoming)")
+        #expect(totalExpenses < 0, "Should have expenses (including SPEI outgoing)")
     }
 }

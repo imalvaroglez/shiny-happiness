@@ -81,15 +81,14 @@ final class DashboardViewModel {
 
         for tx in transactions {
             guard !tx.isDuplicate else { continue }
-            let kind = tx.category?.kind
-            if kind == .transfer { continue }
+            if tx.category?.name == "Internal Transfer" { continue }
 
             let month = calendar.date(from: calendar.dateComponents([.year, .month], from: tx.postedAt))!
             let existing = grouped[month] ?? (0, 0)
 
-            if kind == .income || (kind == nil && tx.amount > 0) {
+            if tx.amount > 0 {
                 grouped[month] = (existing.income + tx.amount, existing.expenses)
-            } else if kind == .expense || kind == .investment || (kind == nil && tx.amount < 0) {
+            } else {
                 grouped[month] = (existing.income, existing.expenses + tx.amount)
             }
         }
@@ -105,7 +104,7 @@ final class DashboardViewModel {
 
         for tx in transactions {
             guard !tx.isDuplicate else { continue }
-            if tx.category?.kind == .transfer { continue }
+            if tx.category?.name == "Internal Transfer" { continue }
             guard tx.amount < 0 else { continue }
             let key: ObjectIdentifier
             if let cat = tx.category {
@@ -192,11 +191,10 @@ final class DashboardViewModel {
         totalExpenses = 0
         for tx in transactions {
             guard !tx.isDuplicate else { continue }
-            let kind = tx.category?.kind
-            if kind == .transfer { continue }
-            if kind == .income || (kind == nil && tx.amount > 0) {
+            if tx.category?.name == "Internal Transfer" { continue }
+            if tx.amount > 0 {
                 totalIncome += tx.amount
-            } else if kind == .expense || kind == .investment || (kind == nil && tx.amount < 0) {
+            } else {
                 totalExpenses += tx.amount
             }
         }
