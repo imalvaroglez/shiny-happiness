@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+**Sort all columns in transactions table**
+- Description column now sortable (alphabetical) via `value: \.descriptionRaw`
+- Category column now sortable via `value: \.categoryName` on new computed property
+- Date and Amount columns were already sortable
+
+**Filter transactions by category**
+- New category Picker in filter bar next to account Picker
+- Hierarchical menu: parent categories as section headers, subcategories indented below
+- Selecting a parent category matches transactions with that parent OR any of its subcategories
+- "All Categories" default shows everything
+
+### Changed
+
 **Apply to Similar — review matching transactions before applying**
 - `ApplyToSimilarView.swift`: Replaced simple count+confirm sheet with scrollable list of all matching transactions showing date, description (80 chars), and amount per row
 - Each row has a checkbox (default: checked); user can uncheck transactions they don't want recategorized

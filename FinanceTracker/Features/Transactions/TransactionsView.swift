@@ -5,6 +5,7 @@ struct TransactionsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Transaction.postedAt, order: .reverse) private var allTransactions: [Transaction]
     @Query private var accounts: [Account]
+    @Query private var categories: [Category]
     @State private var searchText = ""
     @State private var selectedTransaction: Transaction?
     @State private var showingCategoryPicker = false
@@ -12,13 +13,24 @@ struct TransactionsView: View {
     @State private var pendingCategory: Category?
     @State private var pendingKeyword: String?
     @State private var accountFilter: Account?
+    @State private var categoryFilter: Category?
     @State private var sortOrder = [KeyPathComparator(\Transaction.postedAt, order: .reverse)]
+
+    private var topLevelCategories: [Category] {
+        categories.filter { $0.parent == nil }.sorted { $0.name < $1.name }
+    }
 
     private var filteredTransactions: [Transaction] {
         var result = allTransactions
 
         if let filter = accountFilter {
             result = result.filter { $0.account?.id == filter.id }
+        }
+
+        if let filter = categoryFilter {
+            result = result.filter { tx in
+                tx.category?.id == filter.id || tx.category?.parent?.id == filter.id
+            }
         }
 
         if !searchText.isEmpty {
@@ -84,6 +96,19 @@ struct TransactionsView: View {
             }
             .frame(width: 200)
 
+            Picker("Category", selection: $categoryFilter) {
+                Text("All Categories").tag(nil as Category?)
+                ForEach(topLevelCategories) { parent in
+                    Section(header: Text(parent.name)) {
+                        Text(parent.name).tag(parent as Category?)
+                        ForEach(parent.subcategories.sorted { $0.name < $1.name }) { sub in
+                            Text("  \(sub.name)").tag(sub as Category?)
+                        }
+                    }
+                }
+            }
+            .frame(width: 220)
+
             Spacer()
 
             Text("\(filteredTransactions.count) transactions")
@@ -102,7 +127,7 @@ struct TransactionsView: View {
             }
             .width(min: 110, ideal: 120)
 
-            TableColumn("Description") { tx in
+            TableColumn("Description", value: \.descriptionRaw) { tx in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(tx.descriptionRaw)
                         .font(.body)
@@ -125,7 +150,7 @@ struct TransactionsView: View {
             }
             .width(min: 110, ideal: 130)
 
-            TableColumn("Category") { tx in
+            TableColumn("Category", value: \.categoryName) { tx in
                 Button {
                     selectedTransaction = tx
                     showingCategoryPicker = true

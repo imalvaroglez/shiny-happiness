@@ -43,4 +43,8 @@ final class Transaction {
         self.isTransfer = isTransfer
         self.isDuplicate = isDuplicate
     }
+
+    var categoryName: String {
+        category?.name ?? ""
+    }
 }
