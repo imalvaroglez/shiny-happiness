@@ -45,6 +45,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - When table detection succeeds but produces 0 transactions, falls back to line-based parsing
 - 4 new tests (70 total, all passing): Banorte transaction extraction, date validation, payment detection, charge detection
 
+### Changed
+
+**Pipeline Improvements (Commit F)**
+- `StructuralParser` wired into `IngestPipeline` as primary parser with legacy fallback — structural parse attempted first, falls back to institution-specific parsers (Openbank, Amex) if structural returns 0 transactions or fails
+- Fixed `isLocked` gate: PDFs with `isLocked=true` are now only rejected if text extraction actually fails (`page.string == nil`), allowing restricted-but-readable PDFs (e.g., Amex Mexico) through the pipeline
+- Garbled-text detection heuristic: rejects PDFs where >30% of characters are Unicode replacement characters (U+FFFD) or non-printable control characters, with clear error message pointing to OCR (Phase 2)
+- Diagnostic `os.log` entries throughout parse pipeline: page row counts, detected table layout/convention, transaction counts per page, parser selection (structural vs legacy), garbled-text ratio
+- Improved error messages for unsupported/unknown PDFs with actionable guidance
+- `StructuralParser` logs: page count, rows per page, transactions per page, table detection details (layout, columns, convention, data row count)
+
+### Added
+
+**Layout Infrastructure (Commit E)**
+- `LayoutFingerprint` — `Sendable` value type capturing a successful parse configuration (institution hint, header pattern, layout mode, amount convention, column roles, source file hash, transaction count)
+- `LayoutStore` — `@MainActor` in-memory store for layout fingerprints, supports save/query-by-key/query-by-institution/list/remove/count
+- 4 new tests (66 total, all passing): LayoutStore save+query, query-by-institution, remove, list-all
+
 ## [0.2.0] - 2025-05-05
 
 ### Added
