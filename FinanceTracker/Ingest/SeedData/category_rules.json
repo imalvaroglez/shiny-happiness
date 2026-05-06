@@ -128,28 +128,84 @@
       "_comment": "Amex installment notation — Phase 2 for proper installment tracking"
     },
     {
-      "pattern": "(?i)Traspaso a tu cuenta de ahorro.*Transferencia.*(enviada|recibida).*cuenta.*(3852|3996).*OPENBANK",
+      "pattern": "(?i)Traspaso a tu cuenta de ahorro.*Transferencia.*(enviada|recibida)",
       "merchant": "",
       "category": "Transfers.Internal Transfer",
       "priority": 95,
-      "_comment": "Openbank internal sweep between Débito and Apartados accounts"
+      "_comment": "Openbank internal sweep between Débito and Apartados, 2025 format"
     },
     {
-      "pattern": "(?i)(Tdc explora|Fantasy|Pago tdc|Pago tdc 2now).*Transferencia.*(enviada|recibida).*cuenta.*(3852|3996).*OPENBANK",
+      "pattern": "(?i)(Tdc explora|Fantasy|Pago tdc|Pago tdc 2now).*Transferencia.*(enviada|recibida)",
       "merchant": "",
       "category": "Transfers.Internal Transfer",
       "priority": 94,
       "_comment": "Openbank labeled internal transfers between accounts"
     },
     {
-      "pattern": "(?i)Abono de intereses",
+      "pattern": "(?i)^Retiro a Apartado Open$",
+      "merchant": "",
+      "category": "Transfers.Internal Transfer",
+      "priority": 95,
+      "_comment": "Openbank Débito→Apartado sweep, 2026 format"
+    },
+    {
+      "pattern": "(?i)^Abono desde Apartado Open$",
+      "merchant": "",
+      "category": "Transfers.Internal Transfer",
+      "priority": 95,
+      "_comment": "Openbank Apartado→Débito sweep, 2026 format"
+    },
+    {
+      "pattern": "(?i)^Retiro a Cuenta Débito Open",
+      "merchant": "",
+      "category": "Transfers.Internal Transfer",
+      "priority": 95,
+      "_comment": "Openbank Apartado→Débito, from Apartado side"
+    },
+    {
+      "pattern": "(?i)^Abono desde Cuenta Débito Open",
+      "merchant": "",
+      "category": "Transfers.Internal Transfer",
+      "priority": 95,
+      "_comment": "Openbank Débito→Apartado, from Apartado side"
+    },
+    {
+      "pattern": "(?i)^Renta",
+      "merchant": "",
+      "category": "Home.Rent",
+      "priority": 85,
+      "_comment": "Rent payment via labeled SPEI"
+    },
+    {
+      "pattern": "(?i)^Pago (AMEX|TDC|tdc)",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 94,
+      "_comment": "Credit card payment via labeled SPEI"
+    },
+    {
+      "pattern": "(?i)^Volaris",
+      "merchant": "",
+      "category": "Travel.Flights",
+      "priority": 85,
+      "_comment": "Airline payment via labeled SPEI"
+    },
+    {
+      "pattern": "(?i)^deposito$",
+      "merchant": "",
+      "category": "Transfers.SPEI Transfer",
+      "priority": 85,
+      "_comment": "Generic deposit to another account"
+    },
+    {
+      "pattern": "(?i)^Abono de intereses$",
       "merchant": "",
       "category": "Income.Interest",
       "priority": 90,
       "_comment": "Openbank Apartados daily interest accrual"
     },
     {
-      "pattern": "(?i)ISR retenido",
+      "pattern": "(?i)^ISR retenido$",
       "merchant": "",
       "category": "Taxes.ISR Retenido",
       "priority": 90,

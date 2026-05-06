@@ -51,7 +51,9 @@ struct StructuralParser: StatementParser {
 
             let (accountHint, accountNumber, accountType, nickname) = detectAccountSection(in: fullText)
 
-            if accountHint != nil && accountHint != currentSectionHint {
+            let isLegalPage = fullText.contains("Resumen de tus aclaraciones") || fullText.contains("Glosario de Términos")
+
+            if accountHint != nil && accountHint != currentSectionHint && !isLegalPage {
                 if !currentSectionTransactions.isEmpty {
                     sections.append(ParsedSection(
                         accountHint: currentSectionHint,
@@ -67,7 +69,18 @@ struct StructuralParser: StatementParser {
                 currentSectionType = accountType
                 currentSectionNickname = nickname
                 currentContext = normalizer.extractStatementContext(fullText)
+            } else if currentSectionHint == nil {
+                let detected = detectAccountSection(in: fullText)
+                if detected.hint != nil {
+                    currentSectionHint = detected.hint
+                    currentSectionNumber = detected.number
+                    currentSectionType = detected.type
+                    currentSectionNickname = detected.nickname
+                }
+                currentContext = normalizer.extractStatementContext(fullText)
             }
+
+            if isLegalPage { continue }
 
             if currentContext == nil {
                 currentContext = normalizer.extractStatementContext(fullText)
@@ -94,19 +107,26 @@ struct StructuralParser: StatementParser {
     }
 
     private func detectAccountSection(in text: String) -> (hint: String?, number: String?, type: AccountType?, nickname: String?) {
-        let savingsPatterns = ["Apartados Open", "Apartados Open +", "Cuenta de Ahorro"]
-        for pattern in savingsPatterns {
-            if text.localizedCaseInsensitiveContains(pattern) {
-                let number = extractAccountNumber(from: text)
-                return (pattern, number, .savings, "Openbank Apartados")
+        let lines = text.components(separatedBy: "\n")
+        let headerLines = Array(lines.prefix(12).map { $0.trimmingCharacters(in: .whitespaces) })
+
+        for line in headerLines {
+            let savingsExact = ["Apartado Open +", "Apartados Open +", "Apartado Open", "Apartados Open"]
+            for pattern in savingsExact {
+                if line.caseInsensitiveCompare(pattern) == .orderedSame {
+                    let number = extractAccountNumber(from: text)
+                    return (pattern, number, .savings, "Openbank Apartados")
+                }
             }
         }
 
-        let checkingPatterns = ["Cuenta Débito Open", "Cuenta Débito Open +", "Débito Open"]
-        for pattern in checkingPatterns {
-            if text.localizedCaseInsensitiveContains(pattern) {
-                let number = extractAccountNumber(from: text)
-                return (pattern, number, .checking, "Openbank Débito")
+        for line in headerLines {
+            let checkingExact = ["Cuenta Débito Open +", "Cuenta Débito Open"]
+            for pattern in checkingExact {
+                if line.caseInsensitiveCompare(pattern) == .orderedSame {
+                    let number = extractAccountNumber(from: text)
+                    return (pattern, number, .checking, "Openbank Débito")
+                }
             }
         }
 
