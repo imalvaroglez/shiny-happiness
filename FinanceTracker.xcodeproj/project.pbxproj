@@ -25,6 +25,7 @@
 		3E08E1FC36634352EE090146 /* Date+Period.swift in Sources */ = {isa = PBXBuildFile; fileRef = B833F7810F33D61E067029F4 /* Date+Period.swift */; };
 		3FE44D2B230509CC8545E9EE /* Statement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF4B815E55BBE994A9DF4A5B /* Statement.swift */; };
 		40AA5D56C191AF5969E07208 /* AmexMexicoParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B2A8EE8B8D6A8999231F0C /* AmexMexicoParserTests.swift */; };
+		418BEB37D74099E4E9A2B03C /* CategorizerTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7576D9D476E5D9DCC7CBF42 /* CategorizerTransferTests.swift */; };
 		44A509118BCAF26377B4A607 /* ImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D73477135FA95F12B330DFE /* ImportView.swift */; };
 		4764AD3492AF91397CB37294 /* TransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CA827B92C402DBA4228BDF1 /* TransactionsView.swift */; };
 		47D8CB56B15C500A8E6634DB /* date_patterns.json in Resources */ = {isa = PBXBuildFile; fileRef = B79322B178BC59F4C069263D /* date_patterns.json */; };
@@ -124,6 +125,7 @@
 		A74B0D3E580CAACB839B149C /* OpenbankMexicoParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenbankMexicoParserTests.swift; sourceTree = "<group>"; };
 		AF4B815E55BBE994A9DF4A5B /* Statement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Statement.swift; sourceTree = "<group>"; };
 		B2F130B0509FE843CB686B4E /* CategoryRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRule.swift; sourceTree = "<group>"; };
+		B7576D9D476E5D9DCC7CBF42 /* CategorizerTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategorizerTransferTests.swift; sourceTree = "<group>"; };
 		B79322B178BC59F4C069263D /* date_patterns.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = date_patterns.json; sourceTree = "<group>"; };
 		B833F7810F33D61E067029F4 /* Date+Period.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Date+Period.swift"; sourceTree = "<group>"; };
 		BB0EB885128E2A69A17B135B /* AccountType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountType.swift; sourceTree = "<group>"; };
@@ -381,6 +383,7 @@
 			isa = PBXGroup;
 			children = (
 				D2F8E6BEB13E160FD7823D67 /* CategorizerTests.swift */,
+				B7576D9D476E5D9DCC7CBF42 /* CategorizerTransferTests.swift */,
 				762031234D540053D316B47E /* DeduplicatorTests.swift */,
 				7C0C844E5D35AE5153E8A82B /* IngestPipelineTests.swift */,
 				38B807CA5F0B3CAB0EBF0024 /* NormalizerTests.swift */,
@@ -599,6 +602,7 @@
 			files = (
 				40AA5D56C191AF5969E07208 /* AmexMexicoParserTests.swift in Sources */,
 				DF35C549A740C53F50C47C0A /* CategorizerTests.swift in Sources */,
+				418BEB37D74099E4E9A2B03C /* CategorizerTransferTests.swift in Sources */,
 				66B3D86239B373D1126F9E10 /* ColumnDetectorTests.swift in Sources */,
 				84C26FBE7AA03147CD3EE328 /* DeduplicatorTests.swift in Sources */,
 				C80B8FA576C355F255DC67C0 /* EndToEndPDFTests.swift in Sources */,

@@ -119,6 +119,13 @@
       "merchant": "7-Eleven",
       "category": "Food & Drink.Groceries",
       "priority": 10
+    },
+    {
+      "pattern": "(?i)MONTO\\s*A\\s*DIFERIR",
+      "merchant": "",
+      "category": "Transfers.Internal Transfer",
+      "priority": 90,
+      "_comment": "Amex installment notation — Phase 2 for proper installment tracking"
     }
   ]
 }
