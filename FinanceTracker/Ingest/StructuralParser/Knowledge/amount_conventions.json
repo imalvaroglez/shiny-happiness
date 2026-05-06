@@ -1,0 +1,64 @@
+{
+  "_comment": "Amount parsing conventions discovered in Mexican bank statement PDFs. Each convention describes how to determine the sign of an amount.",
+
+  "number_format": {
+    "thousands_separator": ",",
+    "decimal_separator": ".",
+    "currency_symbols": ["$", "MN", "USD", "MXN", "M.N."],
+    "amount_regex": "(-?)\\$?\\s*([\\d,]+\\.?\\d*)"
+  },
+
+  "conventions": [
+    {
+      "id": "cr_suffix",
+      "description": "Bare positive number = charge (negative). Number followed by 'CR' on same or next line = credit (positive).",
+      "charge_sign": -1,
+      "credit_sign": 1,
+      "credit_marker": "CR",
+      "credit_marker_position": "after_amount",
+      "detect_hint": "Look for isolated 'CR' lines or 'CR' suffix after amounts",
+      "sourced_from": "Amex Mexico 201901.pdf — charges are bare numbers, credits have 'CR' suffix"
+    },
+    {
+      "id": "split_columns",
+      "description": "Separate deposit (positive) and withdrawal (negative) columns. Amount is always positive in its column; sign determined by which column it's in.",
+      "deposit_sign": 1,
+      "withdrawal_sign": -1,
+      "detect_hint": "Two amount columns identified by headers like 'Depósito/Retiro' or 'Abono/Cargo'",
+      "sourced_from": "Openbank Mexico 202508.pdf — 'Depósito Retiro Saldo' three-column amount layout"
+    },
+    {
+      "id": "signed_amounts",
+      "description": "Negative numbers have explicit minus sign. Positive numbers are credits.",
+      "charge_sign": -1,
+      "credit_sign": 1,
+      "detect_hint": "Minus sign visible before some amounts",
+      "sourced_from": "Generic convention — not yet observed in current samples"
+    },
+    {
+      "id": "parenthetical_negative",
+      "description": "Amounts wrapped in parentheses are negative (charges). Plain amounts are credits.",
+      "charge_sign": -1,
+      "credit_sign": 1,
+      "detect_hint": "Some amounts appear as (1,234.56)",
+      "sourced_from": "Generic convention — not yet observed in current samples"
+    }
+  ],
+
+  "amount_regex_patterns": [
+    {
+      "id": "mxn_with_commas",
+      "regex": "(-?)(?:\\$\\s*)?([\\d,]+\\.\\d{2})",
+      "capture_groups": ["sign", "value"],
+      "value_transform": "remove_commas",
+      "sourced_from": "Both Openbank and Amex PDFs — '5,429.12', '186.55', '$ 25,000.00'"
+    },
+    {
+      "id": "mxn_with_dollar_sign",
+      "regex": "\\$\\s*([\\d,]+\\.?\\d*)",
+      "capture_groups": ["value"],
+      "value_transform": "remove_commas",
+      "sourced_from": "Openbank Mexico 202508.pdf — '$ 25,000.00 $ 0.00'"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "_comment": "Date format patterns discovered in Mexican bank statement PDFs. Each pattern includes the institution and PDF that surfaced it.",
+
+  "patterns": [
+    {
+      "id": "dd_mm_yy_slash",
+      "regex": "^(\\d{1,2})/(\\d{1,2})/(\\d{2,4})$",
+      "fields": ["day", "month", "year"],
+      "year_padding": 2000,
+      "sourced_from": "Openbank Mexico debit PDFs (e.g. 202508.pdf)"
+    },
+    {
+      "id": "dd_mmm_yyyy_dash",
+      "regex": "^(\\d{1,2})-(\\w{3,4})-(\\d{4})$",
+      "fields": ["day", "month_name_short", "year"],
+      "month_map": "spanish_short",
+      "sourced_from": "Amex Mexico credit card PDF headers (e.g. 11-Ene-2019 cutoff date)"
+    },
+    {
+      "id": "dd_mmm_yyyy_slash",
+      "regex": "^(\\d{1,2})/(\\w{3,4})/(\\d{4})$",
+      "fields": ["day", "month_name_short", "year"],
+      "month_map": "spanish_short",
+      "sourced_from": "Amex Mexico credit card PDFs, alternate format"
+    },
+    {
+      "id": "dd_de_month_full_inline",
+      "regex": "^(\\d{1,2})\\s+de\\s+(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre)\\b(.*)$",
+      "fields": ["day", "month_name_full", "trailing_description"],
+      "month_map": "spanish_full",
+      "year_source": "statement_context",
+      "sourced_from": "Amex Mexico 201901.pdf — single-line format: '3 de Enero DIDICHUXING...'"
+    },
+    {
+      "id": "dd_de_multiline",
+      "regex": "^(\\d{1,2})\\s*de$",
+      "fields": ["day"],
+      "month_map": "spanish_full",
+      "year_source": "statement_context",
+      "continuation": true,
+      "continuation_pattern": "^(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre)$",
+      "continuation_fields": ["month_name_full"],
+      "sourced_from": "Amex Mexico 201901.pdf — multi-line format: '12 de\\nDiciembre'"
+    },
+    {
+      "id": "dd_de_mmmm_de_yyyy",
+      "regex": "^(\\d{1,2})\\s+de\\s+(\\w+)\\s+de\\s+(\\d{4})$",
+      "fields": ["day", "month_name_full", "year"],
+      "month_map": "spanish_full",
+      "sourced_from": "Amex Mexico 201901.pdf — period header: '12 de Diciembre de 2018'"
+    }
+  ],
+
+  "month_maps": {
+    "spanish_short": {
+      "_comment": "Abbreviated Spanish month names as they appear in PDFs (3-4 chars)",
+      "Ene": 1, "Feb": 2, "Mar": 3, "Abr": 4, "May": 5, "Jun": 6,
+      "Jul": 7, "Ago": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dic": 12,
+      "Sept": 9
+    },
+    "spanish_full": {
+      "_comment": "Full Spanish month names",
+      "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, "Mayo": 5,
+      "Junio": 6, "Julio": 7, "Agosto": 8, "Septiembre": 9,
+      "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+    }
+  },
+
+  "statement_period_patterns": [
+    {
+      "id": "amex_period_header",
+      "regex": "(\\d{1,2})\\s*de\\s*(\\w+)\\s*al\\s*(\\d{1,2})\\s*de\\s*(\\w+)\\s*de\\s*(\\d{4})",
+      "fields": ["start_day", "start_month_name", "end_day", "end_month_name", "end_year"],
+      "month_map": "spanish_full",
+      "sourced_from": "Amex Mexico 201901.pdf — 'Del 12 de Diciembre al 11 de Enero de 2019'"
+    },
+    {
+      "id": "amex_cutoff_dates",
+      "regex": "(\\d{1,2})-(\\w{3,4})-(\\d{4})\\s+(\\d{1,2})-(\\w{3,4})-(\\d{4})",
+      "fields": ["cutoff_day", "cutoff_month_short", "cutoff_year", "next_day", "next_month_short", "next_year"],
+      "month_map": "spanish_short",
+      "sourced_from": "Amex Mexico 201901.pdf page headers — '11-Ene-2019 11-Feb-2019'"
+    }
+  ],
+
+  "year_inference": {
+    "_comment": "When a transaction date has no year, infer it from the statement context",
+    "rule": "If transaction month > cutoff month, year = cutoff_year - 1. Otherwise year = cutoff_year.",
+    "example": "Cutoff: Enero 2019. Transaction 'Diciembre' → year 2018. Transaction 'Enero' → year 2019."
+  }
+}
