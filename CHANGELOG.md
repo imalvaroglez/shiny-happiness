@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+**REGRESSION: SwiftData schema migration failure caused empty app**
+- Adding `source`/`matchCount`/`createdFrom` to `CategoryRule` broke the existing SwiftData store — lightweight migration failed with "Validation error missing attribute values on mandatory destination attribute" for `matchCount`. Store fell back to empty in-memory, making all views show 0 transactions.
+- Fix: deleted incompatible store. App creates fresh database with new schema on next launch.
+- Removed all NSLog diagnostics from DashboardViewModel, ImportViewModel, IngestPipeline, SettingsView
+
 **Dashboard excludes transfers from income/expenses**
 - `DashboardViewModel.swift`: `computeTotals`, `computeMonthlyCashFlow`, and `computeSpendingByCategory` now use `category.kind` when available (fall back to amount-sign heuristic for uncategorized), always exclude `.transfer` transactions
 - Prevents credit card payments (PAGO RECIBIDO) from inflating income totals
