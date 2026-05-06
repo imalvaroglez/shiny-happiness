@@ -225,7 +225,7 @@ struct StructuralParser: StatementParser {
                                 amount: amount,
                                 currency: "MXN",
                                 descriptionRaw: normalizer.normalizeDescription(pendingDesc),
-                                merchantNormalized: "",
+                                merchantNormalized: extractMerchant(from: pendingDesc),
                                 fxRateToBase: 1,
                                 isTransfer: false
                             )
@@ -378,7 +378,7 @@ struct StructuralParser: StatementParser {
             amount: amount,
             currency: "MXN",
             descriptionRaw: description,
-            merchantNormalized: "",
+            merchantNormalized: extractMerchant(from: description),
             fxRateToBase: 1,
             isTransfer: false
         )
@@ -530,7 +530,7 @@ struct StructuralParser: StatementParser {
                 amount: amount,
                 currency: "MXN",
                 descriptionRaw: normalizer.normalizeDescription(desc),
-                merchantNormalized: "",
+                merchantNormalized: extractMerchant(from: desc),
                 fxRateToBase: 1,
                 isTransfer: false
             )
@@ -569,7 +569,7 @@ struct StructuralParser: StatementParser {
             amount: isCredit ? abs(amount) : (amount < 0 ? amount : -abs(amount)),
             currency: "MXN",
             descriptionRaw: normalizer.normalizeDescription(desc),
-            merchantNormalized: "",
+            merchantNormalized: extractMerchant(from: desc),
             fxRateToBase: 1,
             isTransfer: false
         )
@@ -622,7 +622,7 @@ struct StructuralParser: StatementParser {
                 amount: finalAmount,
                 currency: "MXN",
                 descriptionRaw: normalizer.normalizeDescription(descriptionParts.joined(separator: " ")),
-                merchantNormalized: "",
+                merchantNormalized: extractMerchant(from: descriptionParts.joined(separator: " ")),
                 fxRateToBase: 1,
                 isTransfer: false
             )
@@ -630,6 +630,16 @@ struct StructuralParser: StatementParser {
         }
 
         return transactions
+    }
+
+    private func extractMerchant(from description: String) -> String {
+        if description.contains("; Transferencia SPEI") {
+            let parts = description.components(separatedBy: "; Transferencia SPEI")
+            if let first = parts.first?.trimmingCharacters(in: .whitespaces), !first.isEmpty {
+                return first
+            }
+        }
+        return MerchantExtractor.extractMerchant(from: description) ?? ""
     }
 
     private func extractAllAmounts(from text: String) -> [Decimal] {

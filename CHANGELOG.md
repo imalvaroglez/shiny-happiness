@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+**Dashboard accuracy fix — expenses $831→~$100K, net worth -$2M→~$462K→$49K**
+- `SeedDataLoader.swift`: Replaced early-return when categories exist with incremental rule sync — now compares JSON rules against DB by `patternRegex` and inserts only new rules, so added rules load on next app launch
+- `StructuralParser.swift`: Wired `MerchantExtractor` into all 5 `RawTransaction` creation sites (was hardcoded `""`). SPEI descriptions containing "; Transferencia SPEI" extract text before semicolon as merchant
+- `DashboardViewModel.swift`: `computeNetWorth` now excludes `.transfer` transactions from cumulative sum, preventing double-counting of internal transfers
+- `category_rules.json`: Added 7 SPEI destination-specific rules (2now, Priority, Nu, INVEX Volaris, Moneypool, TDC Explora, BBVA 2855) at priority 85
+
 ### Added
 
 **Multi-account PDF parsing — Openbank Débito + Apartados**

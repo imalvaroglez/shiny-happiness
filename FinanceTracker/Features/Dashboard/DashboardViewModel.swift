@@ -131,6 +131,7 @@ final class DashboardViewModel {
         let sorted = transactions.filter { !$0.isDuplicate }.sorted { $0.postedAt < $1.postedAt }
 
         for tx in sorted {
+            if tx.category?.kind == .transfer { continue }
             cumulative += tx.amount
             let month = calendar.date(from: calendar.dateComponents([.year, .month], from: tx.postedAt))!
             monthBalances[month] = cumulative

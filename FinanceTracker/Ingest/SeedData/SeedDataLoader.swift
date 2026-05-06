@@ -26,12 +26,22 @@ struct SeedDataLoader {
 
     static func bootstrapIfNeeded(context: ModelContext) {
         let existingCategories = try? context.fetch(FetchDescriptor<Category>())
-        if let existingCategories, !existingCategories.isEmpty { return }
 
-        Logger.app.info("Bootstrapping seed categories and rules")
+        var categoriesByName: [String: Category]
+        if let existingCategories, !existingCategories.isEmpty {
+            categoriesByName = Dictionary(uniqueKeysWithValues: existingCategories.map { ($0.name, $0) })
+            let existingSubcategories = existingCategories.flatMap { cat in
+                cat.subcategories.map { sub in ("\(cat.name).\(sub.name)", sub) }
+            }
+            for (key, sub) in existingSubcategories {
+                categoriesByName[key] = sub
+            }
+        } else {
+            Logger.app.info("Bootstrapping seed categories and rules")
+            categoriesByName = loadCategories(context: context)
+        }
 
-        let categoriesByName = loadCategories(context: context)
-        loadRules(context: context, categoriesByName: categoriesByName)
+        syncRules(context: context, categoriesByName: categoriesByName)
 
         try? context.save()
     }
@@ -67,7 +77,7 @@ struct SeedDataLoader {
         }
     }
 
-    private static func loadRules(context: ModelContext, categoriesByName: [String: Category]) {
+    private static func syncRules(context: ModelContext, categoriesByName: [String: Category]) {
         guard let url = Bundle.main.url(forResource: "category_rules", withExtension: "json") else {
             Logger.app.error("Could not find category_rules.json in bundle")
             return
@@ -77,7 +87,12 @@ struct SeedDataLoader {
             let data = try Data(contentsOf: url)
             let seed = try JSONDecoder().decode(RuleSeedFile.self, from: data)
 
+            let existingRules = try? context.fetch(FetchDescriptor<CategoryRule>())
+            let existingPatterns = Set((existingRules ?? []).map(\.patternRegex))
+
+            var added = 0
             for ruleJSON in seed.rules {
+                guard !existingPatterns.contains(ruleJSON.pattern) else { continue }
                 let category = categoriesByName[ruleJSON.category]
                 let rule = CategoryRule(
                     patternRegex: ruleJSON.pattern,
@@ -87,6 +102,11 @@ struct SeedDataLoader {
                     source: "seed"
                 )
                 context.insert(rule)
+                added += 1
+            }
+
+            if added > 0 {
+                Logger.app.info("Synced \(added) new category rules from seed JSON")
             }
         } catch {
             Logger.app.error("Failed to load category rules: \(error)")
