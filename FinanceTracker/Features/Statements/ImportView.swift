@@ -91,18 +91,32 @@ struct ImportView: View {
                 defer { group.leave() }
                 guard let data = data as? Data,
                       let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                _ = url.startAccessingSecurityScopedResource()
                 urls.append(url)
             }
         }
 
         group.notify(queue: .main) {
-            Task { await viewModel.importFiles(urls) }
+            Task {
+                await viewModel.importFiles(urls)
+                for url in urls {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
         }
     }
 
     private func handleFilePickerResult(_ result: Result<[URL], Error>) {
         guard let urls = try? result.get() else { return }
-        Task { await viewModel.importFiles(urls) }
+        Task {
+            for url in urls {
+                _ = url.startAccessingSecurityScopedResource()
+            }
+            await viewModel.importFiles(urls)
+            for url in urls {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
     }
 }
 

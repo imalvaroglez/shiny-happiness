@@ -23,8 +23,7 @@ struct HeaderVocabulary: Sendable {
     static func load() -> HeaderVocabulary? {
         guard let url = Bundle.main.url(
             forResource: "header_vocabulary",
-            withExtension: "json",
-            subdirectory: "FinanceTracker/Ingest/StructuralParser/Knowledge"
+            withExtension: "json"
         ) else { return nil }
 
         do {
@@ -101,8 +100,7 @@ struct DatePatterns: Sendable {
     static func load() -> DatePatterns? {
         guard let url = Bundle.main.url(
             forResource: "date_patterns",
-            withExtension: "json",
-            subdirectory: "FinanceTracker/Ingest/StructuralParser/Knowledge"
+            withExtension: "json"
         ) else { return nil }
 
         do {
@@ -165,8 +163,7 @@ struct AmountConventions: Sendable {
     static func load() -> AmountConventions? {
         guard let url = Bundle.main.url(
             forResource: "amount_conventions",
-            withExtension: "json",
-            subdirectory: "FinanceTracker/Ingest/StructuralParser/Knowledge"
+            withExtension: "json"
         ) else { return nil }
 
         do {

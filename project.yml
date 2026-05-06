@@ -25,6 +25,16 @@ targets:
     platform: macOS
     sources:
       - path: FinanceTracker
+        excludes:
+          - "**/*.json"
+      - path: FinanceTracker/Ingest/SeedData
+        buildPhase: resources
+        excludes:
+          - "**/*.swift"
+      - path: FinanceTracker/Ingest/StructuralParser/Knowledge
+        buildPhase: resources
+        excludes:
+          - "**/*.swift"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.financeTracker.app

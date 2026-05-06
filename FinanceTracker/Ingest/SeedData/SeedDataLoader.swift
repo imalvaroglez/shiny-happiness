@@ -38,7 +38,7 @@ struct SeedDataLoader {
 
     @discardableResult
     private static func loadCategories(context: ModelContext) -> [String: Category] {
-        guard let url = Bundle.main.url(forResource: "categories", withExtension: "json", subdirectory: "FinanceTracker/Ingest/SeedData") else {
+        guard let url = Bundle.main.url(forResource: "categories", withExtension: "json") else {
             Logger.app.error("Could not find categories.json in bundle")
             return [:]
         }
@@ -68,7 +68,7 @@ struct SeedDataLoader {
     }
 
     private static func loadRules(context: ModelContext, categoriesByName: [String: Category]) {
-        guard let url = Bundle.main.url(forResource: "category_rules", withExtension: "json", subdirectory: "FinanceTracker/Ingest/SeedData") else {
+        guard let url = Bundle.main.url(forResource: "category_rules", withExtension: "json") else {
             Logger.app.error("Could not find category_rules.json in bundle")
             return
         }

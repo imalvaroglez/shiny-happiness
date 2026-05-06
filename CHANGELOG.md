@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+**Runtime Bugfixes — Bundle Resources & Sandbox File Access**
+- `project.yml`: Added seed data JSONs (`categories.json`, `category_rules.json`) and knowledge JSONs (`header_vocabulary.json`, `date_patterns.json`, `amount_conventions.json`) as bundled resources via `buildPhase: resources` with `.swift` excludes
+- `SeedDataLoader.swift`, `KnowledgeLoader.swift`: Removed `subdirectory:` parameter from `Bundle.main.url()` calls (XcodeGen flattens resources into `Contents/Resources/` with no subdirectory hierarchy)
+- `ImportViewModel.swift`: Added `startAccessingSecurityScopedResource()` / `stopAccessingSecurityScopedResource()` in `copyToStorage()` so sandboxed app can read user-selected files
+- `ImportView.swift`: Added security-scoped URL access in `handleFilePickerResult()` and `handleDrop()` for both file picker and drag-drop import paths
+
 ### Added
 
 **Structural Parser (Commits A-D)**
