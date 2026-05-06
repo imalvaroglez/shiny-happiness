@@ -71,6 +71,7 @@
 		DCBA7F670AEBDCBA9F807D2F /* category_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 258ACDAAC6B78C5485F65FCB /* category_rules.json */; };
 		DF35C549A740C53F50C47C0A /* CategorizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F8E6BEB13E160FD7823D67 /* CategorizerTests.swift */; };
 		E0987749DFFF6491D91BB580 /* Money.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A3B4F465373F147C381A48 /* Money.swift */; };
+		E0B7636C75F0385A4FBB3534 /* OpenbankMultiAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4A44210612FDD708268A9C6 /* OpenbankMultiAccountTests.swift */; };
 		E7865A8364C6676EA6A4C536 /* LayoutStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86C13FAA9217FAD24D5FA905 /* LayoutStoreTests.swift */; };
 		EADBE2FB305A7B4241D78F74 /* CategoryRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F130B0509FE843CB686B4E /* CategoryRule.swift */; };
 		EE981FAE7AF35C481C9B0DC9 /* date_patterns.json in Resources */ = {isa = PBXBuildFile; fileRef = B79322B178BC59F4C069263D /* date_patterns.json */; };
@@ -130,6 +131,7 @@
 		989ACDB4A037230E6C8E9080 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
 		9AEE9B7A28C2B8F8F246426D /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
 		A43EB1070F820ABB2DD25DF6 /* amount_conventions.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = amount_conventions.json; sourceTree = "<group>"; };
+		A4A44210612FDD708268A9C6 /* OpenbankMultiAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenbankMultiAccountTests.swift; sourceTree = "<group>"; };
 		A74B0D3E580CAACB839B149C /* OpenbankMexicoParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenbankMexicoParserTests.swift; sourceTree = "<group>"; };
 		A8FF1C26E42D2DED6095F2E2 /* CategoryCorrectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryCorrectionTests.swift; sourceTree = "<group>"; };
 		AF4B815E55BBE994A9DF4A5B /* Statement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Statement.swift; sourceTree = "<group>"; };
@@ -316,6 +318,7 @@
 			isa = PBXGroup;
 			children = (
 				76945E0492AC714D84088096 /* EndToEndPDFTests.swift */,
+				A4A44210612FDD708268A9C6 /* OpenbankMultiAccountTests.swift */,
 			);
 			path = EndToEndTests;
 			sourceTree = "<group>";
@@ -639,6 +642,7 @@
 				4E9DD966C8CA1635768F89C5 /* MerchantExtractorTests.swift in Sources */,
 				2B541DA9B52145C4D8CE7533 /* NormalizerTests.swift in Sources */,
 				3218EB269C821EE5C6F62552 /* OpenbankMexicoParserTests.swift in Sources */,
+				E0B7636C75F0385A4FBB3534 /* OpenbankMultiAccountTests.swift in Sources */,
 				2E7AEBE1B98E9692093C5E48 /* SemanticNormalizerTests.swift in Sources */,
 				9B454A77B487AA81B149DC56 /* StructuralParserTests.swift in Sources */,
 			);
