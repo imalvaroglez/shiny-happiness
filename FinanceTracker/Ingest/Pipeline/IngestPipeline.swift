@@ -40,13 +40,24 @@ final class IngestPipeline {
         let ext = url.pathExtension
 
         if ext.lowercased() == "pdf" {
-            if let doc = PDFDocument(data: data), doc.isLocked {
-                Logger.pipeline.warning("PDF is encrypted: \(fileName)")
-                return IngestReport(
-                    fileName: fileName,
-                    errorCount: 1,
-                    errors: [IngestError(message: "PDF is encrypted/password-protected")]
-                )
+            if let doc = PDFDocument(data: data) {
+                if doc.isLocked && doc.page(at: 0)?.string == nil {
+                    Logger.pipeline.warning("PDF is encrypted and unreadable: \(fileName)")
+                    return IngestReport(
+                        fileName: fileName,
+                        errorCount: 1,
+                        errors: [IngestError(message: "PDF is encrypted/password-protected and text cannot be extracted")]
+                    )
+                }
+
+                if isGarbledText(document: doc) {
+                    Logger.pipeline.warning("PDF has garbled text (likely custom font encoding): \(fileName)")
+                    return IngestReport(
+                        fileName: fileName,
+                        errorCount: 1,
+                        errors: [IngestError(message: "PDF text is garbled — custom font encoding without Unicode mapping. This requires OCR (planned for Phase 2)")]
+                    )
+                }
             }
         }
 
@@ -66,35 +77,21 @@ final class IngestPipeline {
             return IngestReport(
                 fileName: fileName,
                 errorCount: 1,
-                errors: [IngestError(message: "Could not identify financial institution")]
+                errors: [IngestError(message: "Could not identify financial institution. If this is a valid bank statement, please file a support request")]
             )
         }
 
         let account = findOrCreateAccount(for: detection)
 
-        guard let parser = resolveParser(for: detection.issuer) else {
-            return IngestReport(
-                fileName: fileName,
-                errorCount: 1,
-                errors: [IngestError(message: "No parser available for \(detection.issuer.rawValue)")]
-            )
-        }
-
-        let rawTransactions: [RawTransaction]
-        do {
-            rawTransactions = try await parser.parse(data: data)
-        } catch {
-            Logger.pipeline.error("Parse error for \(fileName): \(error)")
-            return IngestReport(
-                fileName: fileName,
-                errorCount: 1,
-                errors: [IngestError(message: "Parse error: \(error.localizedDescription)")]
-            )
-        }
+        let rawTransactions = await parseWithFallback(data: data, fileName: fileName, detection: detection)
 
         guard !rawTransactions.isEmpty else {
             Logger.pipeline.warning("No transactions found in \(fileName)")
-            return IngestReport(fileName: fileName)
+            return IngestReport(
+                fileName: fileName,
+                errorCount: 1,
+                errors: [IngestError(message: "No transactions could be extracted from this PDF. The format may not yet be supported")]
+            )
         }
 
         let statement = createStatement(
@@ -135,6 +132,63 @@ final class IngestPipeline {
         )
     }
 
+    private func parseWithFallback(data: Data, fileName: String, detection: DetectionResult) async -> [RawTransaction] {
+        if let structural = StructuralParser() {
+            Logger.pipeline.info("Attempting structural parse for \(fileName)")
+            do {
+                let rawTxns = try await structural.parse(data: data)
+                if !rawTxns.isEmpty {
+                    Logger.pipeline.info("Structural parse succeeded for \(fileName): \(rawTxns.count) transactions")
+                    return rawTxns
+                }
+                Logger.pipeline.info("Structural parse returned 0 transactions for \(fileName), trying legacy parser")
+            } catch {
+                Logger.pipeline.warning("Structural parse failed for \(fileName): \(error), trying legacy parser")
+            }
+        } else {
+            Logger.pipeline.info("StructuralParser unavailable (knowledge JSONs not found), using legacy parser for \(fileName)")
+        }
+
+        guard let legacyParser = resolveLegacyParser(for: detection.issuer) else {
+            Logger.pipeline.warning("No parser available for \(detection.issuer.rawValue)")
+            return []
+        }
+
+        do {
+            let rawTxns = try await legacyParser.parse(data: data)
+            Logger.pipeline.info("Legacy parse for \(fileName): \(rawTxns.count) transactions")
+            return rawTxns
+        } catch {
+            Logger.pipeline.error("Legacy parse error for \(fileName): \(error)")
+            return []
+        }
+    }
+
+    private func isGarbledText(document: PDFDocument) -> Bool {
+        var totalChars = 0
+        var badChars = 0
+
+        let pagesToCheck = min(3, document.pageCount)
+        for i in 0..<pagesToCheck {
+            guard let page = document.page(at: i) else { continue }
+            guard let text = page.string else { continue }
+
+            for scalar in text.unicodeScalars {
+                totalChars += 1
+                let v = scalar.value
+                if v == 0xFFFD || (v < 0x20 && v != 0x0A && v != 0x0D && v != 0x09) {
+                    badChars += 1
+                }
+            }
+        }
+
+        guard totalChars > 50 else { return false }
+
+        let ratio = Double(badChars) / Double(totalChars)
+        Logger.pipeline.debug("Garbled text check: \(badChars)/\(totalChars) bad chars (\(String(format: "%.1f", ratio * 100))%)")
+        return ratio > 0.30
+    }
+
     private func computeHash(_ data: Data) -> String {
         let digest = SHA256.hash(data: data)
         return digest.compactMap { String(format: "%02x", $0) }.joined()
@@ -167,7 +221,7 @@ final class IngestPipeline {
         return account
     }
 
-    private func resolveParser(for issuer: DetectedIssuer) -> (any StatementParser)? {
+    private func resolveLegacyParser(for issuer: DetectedIssuer) -> (any StatementParser)? {
         switch issuer {
         case .openbankMexico:
             return OpenbankMexicoParser()
