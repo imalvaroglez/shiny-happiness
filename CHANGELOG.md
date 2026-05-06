@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+**Volaris INVEX rule corrected — credit card payment, not flight**
+- `category_rules.json`: Changed "SPEI enviada a.*INVEX Volaris" from `Travel.Flights` to `Transfers.SPEI Transfer` — this is a credit card payment, not a flight purchase
+
+### Changed
+
+**TransactionsView rewritten with native Table layout**
+- Full `descriptionRaw` displayed — never truncated or replaced by `merchantNormalized`
+- 4-column SwiftUI Table: Date (DD MMM YYYY), Description (multi-line + account nickname subtitle), Amount (green/red, right-aligned), Category (tappable badge)
+- Sortable by date (default) and amount via column headers
+- Account filter dropdown: view all accounts or filter by Débito/Apartado
+- Category badge tap still opens CategoryPicker → ApplyToSimilar flow
+- Search bar preserved
+
+### Added
+
+**Interest earned tracking on dashboard**
+- `DashboardViewModel`: New `totalInterestEarned` property, sums all `Income.Interest` transactions for selected period
+- `DashboardView`: New "Interest Earned" summary card (teal) alongside Net Worth, Income, Expenses
+
 **Dashboard accuracy fix — expenses $831→~$100K, net worth -$2M→~$462K→$49K**
 - `SeedDataLoader.swift`: Replaced early-return when categories exist with incremental rule sync — now compares JSON rules against DB by `patternRegex` and inserts only new rules, so added rules load on next app launch
 - `StructuralParser.swift`: Wired `MerchantExtractor` into all 5 `RawTransaction` creation sites (was hardcoded `""`). SPEI descriptions containing "; Transferencia SPEI" extract text before semicolon as merchant
