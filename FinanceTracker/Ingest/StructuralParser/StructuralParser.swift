@@ -32,9 +32,6 @@ struct StructuralParser: StatementParser {
             throw ParserError.invalidData("Could not create PDF document from data")
         }
 
-        let log = Logger.parser
-        log.info("StructuralParser: processing \(document.pageCount) pages")
-
         var statementContext: StatementContext?
 
         var allTransactions: [RawTransaction] = []
@@ -48,22 +45,17 @@ struct StructuralParser: StatementParser {
             }
 
             let rows = PDFTextExtractor.extractRows(from: page)
-            log.debug("Page \(pageIndex): \(rows.count) rows extracted")
             guard !rows.isEmpty else { continue }
 
             let pageTransactions = parseRows(rows, context: statementContext)
-            log.debug("Page \(pageIndex): \(pageTransactions.count) transactions extracted (line-based or structural)")
             allTransactions.append(contentsOf: pageTransactions)
         }
 
-        log.info("StructuralParser: total \(allTransactions.count) transactions from \(document.pageCount) pages")
         return allTransactions
     }
 
     private func parseRows(_ rows: [TableRow], context: StatementContext?) -> [RawTransaction] {
         if let table = columnDetector.detectTable(in: rows) {
-            Logger.parser.debug("Detected table: layout=\(String(describing: table.layout)), columns=\(table.columns.count), convention=\(table.amountConvention ?? "none"), dataRows=\(table.dataRowRange.count)")
-
             let result: [RawTransaction]
             if table.columns.count >= 2, table.columns.allSatisfy({ abs($0.xCenter - table.columns[0].xCenter) < 50 }) {
                 result = parseWideHeaderTable(rows: rows, table: table, context: context)
@@ -82,7 +74,6 @@ struct StructuralParser: StatementParser {
             return result
         }
 
-        Logger.parser.debug("No table detected in \(rows.count) rows, trying line-based parsing")
         return parseLineByLine(rows: rows, context: context)
     }
 
@@ -165,7 +156,6 @@ struct StructuralParser: StatementParser {
             }
         }
 
-        Logger.parser.debug("Line parser: found \(transactions.count) transactions from \(rows.count) rows")
         return transactions
     }
 

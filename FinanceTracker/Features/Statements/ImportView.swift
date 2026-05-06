@@ -124,36 +124,47 @@ private struct ReportRow: View {
     let report: IngestReport
 
     var body: some View {
-        HStack {
-            Image(systemName: report.errorCount > 0 ? "exclamationmark.triangle" : "checkmark.circle")
-                .foregroundStyle(report.errorCount > 0 ? .red : .green)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Image(systemName: report.errorCount > 0 ? "exclamationmark.triangle" : "checkmark.circle")
+                    .foregroundStyle(report.errorCount > 0 ? .red : .green)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(report.fileName)
-                    .font(.headline)
-                Text(report.summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(report.fileName)
+                        .font(.headline)
+                    Text(report.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if report.newTransactions > 0 {
+                    Text("\(report.newTransactions) new")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(.green.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+
+                if report.duplicateTransactions > 0 {
+                    Text("\(report.duplicateTransactions) dup")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(.orange.opacity(0.15))
+                        .clipShape(Capsule())
+                }
             }
 
-            Spacer()
-
-            if report.newTransactions > 0 {
-                Text("\(report.newTransactions) new")
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(.green.opacity(0.15))
-                    .clipShape(Capsule())
-            }
-
-            if report.duplicateTransactions > 0 {
-                Text("\(report.duplicateTransactions) dup")
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(.orange.opacity(0.15))
-                    .clipShape(Capsule())
+            if !report.errors.isEmpty {
+                ForEach(report.errors, id: \.message) { error in
+                    Text(error.message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 24)
+                }
             }
         }
         .padding(.vertical, 4)
