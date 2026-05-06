@@ -81,11 +81,9 @@ final class IngestPipeline {
             )
         }
 
-        let account = findOrCreateAccount(for: detection)
+        let sections = await parseSectionsWithFallback(data: data, fileName: fileName, detection: detection)
 
-        let rawTransactions = await parseWithFallback(data: data, fileName: fileName, detection: detection)
-
-        guard !rawTransactions.isEmpty else {
+        guard !sections.isEmpty else {
             Logger.pipeline.warning("No transactions found in \(fileName)")
             return IngestReport(
                 fileName: fileName,
@@ -94,28 +92,49 @@ final class IngestPipeline {
             )
         }
 
-        let statement = createStatement(
-            account: account,
-            rawTransactions: rawTransactions,
-            hash: hash
-        )
+        var totalNew = 0
+        var totalDupes = 0
+        var totalUncategorized = 0
+        var allErrors: [IngestError] = []
 
-        let transactions = Normalizer.normalizeAll(rawTransactions, account: account, statement: statement)
+        for section in sections {
+            guard !section.transactions.isEmpty else { continue }
 
-        let existingTransactions = fetchExistingTransactions(for: account)
-        let dedupResult = Deduplicator.deduplicate(incoming: transactions, existing: existingTransactions)
+            let account = findOrCreateAccount(
+                for: detection,
+                sectionHint: section.accountHint,
+                sectionType: section.accountType ?? detection.suggestedAccountType,
+                sectionNumber: section.accountNumber,
+                sectionNickname: section.nickname
+            )
 
-        let rules = fetchCategoryRules()
-        let catResult = Categorizer.categorize(transactions: dedupResult.unique, rules: rules)
-        let _ = Categorizer.categorize(transactions: dedupResult.duplicates, rules: rules)
+            let statement = createStatement(
+                account: account,
+                rawTransactions: section.transactions,
+                hash: hash
+            )
 
-        for rule in rules {
-            if let count = catResult.matchedRules[rule.id] {
-                rule.matchCount += count
+            let transactions = Normalizer.normalizeAll(section.transactions, account: account, statement: statement)
+
+            let existingTransactions = fetchExistingTransactions(for: account)
+            let dedupResult = Deduplicator.deduplicate(incoming: transactions, existing: existingTransactions)
+
+            let rules = fetchCategoryRules()
+            let catResult = Categorizer.categorize(transactions: dedupResult.unique, rules: rules)
+            let _ = Categorizer.categorize(transactions: dedupResult.duplicates, rules: rules)
+
+            for rule in rules {
+                if let count = catResult.matchedRules[rule.id] {
+                    rule.matchCount += count
+                }
             }
-        }
 
-        persist(account: account, statement: statement, transactions: dedupResult.unique + dedupResult.duplicates)
+            persist(account: account, statement: statement, transactions: dedupResult.unique + dedupResult.duplicates)
+
+            totalNew += dedupResult.unique.count
+            totalDupes += dedupResult.duplicates.count
+            totalUncategorized += catResult.uncategorized
+        }
 
         do {
             try context.save()
@@ -128,23 +147,25 @@ final class IngestPipeline {
             )
         }
 
-        Logger.pipeline.info("Ingested \(fileName): \(dedupResult.unique.count) new, \(dedupResult.duplicates.count) dupes, \(catResult.categorized) categorized")
+        Logger.pipeline.info("Ingested \(fileName): \(totalNew) new, \(totalDupes) dupes, \(totalUncategorized) uncategorized across \(sections.count) sections")
 
         return IngestReport(
             fileName: fileName,
-            newTransactions: dedupResult.unique.count,
-            duplicateTransactions: dedupResult.duplicates.count,
-            uncategorizedCount: catResult.uncategorized
+            newTransactions: totalNew,
+            duplicateTransactions: totalDupes,
+            uncategorizedCount: totalUncategorized,
+            errors: allErrors
         )
     }
 
-    private func parseWithFallback(data: Data, fileName: String, detection: DetectionResult) async -> [RawTransaction] {
+    private func parseSectionsWithFallback(data: Data, fileName: String, detection: DetectionResult) async -> [ParsedSection] {
         if let structural = StructuralParser() {
             do {
-                let rawTxns = try await structural.parse(data: data)
-                if !rawTxns.isEmpty {
-                    Logger.pipeline.info("Structural parse succeeded for \(fileName): \(rawTxns.count) transactions")
-                    return rawTxns
+                let sections = try await structural.parseSections(data: data)
+                let totalTxns = sections.flatMap(\.transactions)
+                if !totalTxns.isEmpty {
+                    Logger.pipeline.info("Structural parse succeeded for \(fileName): \(totalTxns.count) transactions in \(sections.count) sections")
+                    return sections
                 }
                 Logger.pipeline.info("Structural parse returned 0 transactions for \(fileName), trying legacy parser")
             } catch {
@@ -162,7 +183,7 @@ final class IngestPipeline {
         do {
             let rawTxns = try await legacyParser.parse(data: data)
             Logger.pipeline.info("Legacy parse for \(fileName): \(rawTxns.count) transactions")
-            return rawTxns
+            return [ParsedSection.single(rawTxns)]
         } catch {
             Logger.pipeline.error("Legacy parse error for \(fileName): \(error)")
             return []
@@ -206,21 +227,40 @@ final class IngestPipeline {
         return try? context.fetch(descriptor).first
     }
 
-    private func findOrCreateAccount(for detection: DetectionResult) -> Account {
+    private func findOrCreateAccount(
+        for detection: DetectionResult,
+        sectionHint: String?,
+        sectionType: AccountType,
+        sectionNumber: String?,
+        sectionNickname: String?
+    ) -> Account {
         let institutionName = detection.issuer.rawValue
-        let descriptor = FetchDescriptor<Account>(
-            predicate: #Predicate<Account> { $0.institution == institutionName }
-        )
 
-        if let existing = try? context.fetch(descriptor).first {
-            return existing
+        if let number = sectionNumber {
+            let num = number
+            let descriptor = FetchDescriptor<Account>(
+                predicate: #Predicate<Account> { $0.institution == institutionName && $0.accountNumber == num }
+            )
+            if let existing = try? context.fetch(descriptor).first {
+                return existing
+            }
+        } else {
+            let descriptor = FetchDescriptor<Account>(
+                predicate: #Predicate<Account> { $0.institution == institutionName }
+            )
+            if let existing = try? context.fetch(descriptor).first {
+                return existing
+            }
         }
 
-        Logger.pipeline.info("Auto-creating account for \(institutionName)")
+        let displayName = sectionNickname ?? institutionName
+        Logger.pipeline.info("Auto-creating account for \(displayName) (\(sectionNumber ?? "no number"))")
         let account = Account(
             institution: institutionName,
-            type: detection.suggestedAccountType,
-            currency: "MXN"
+            type: sectionType,
+            currency: "MXN",
+            nickname: sectionNickname,
+            accountNumber: sectionNumber
         )
         context.insert(account)
         return account

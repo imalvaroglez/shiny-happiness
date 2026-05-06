@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+**Multi-account PDF parsing — Openbank Débito + Apartados**
+- `ParsedSection.swift`: New struct representing a section of a PDF with account hint, type, number, nickname, and transactions
+- `StructuralParser.parseSections(data:)`: New method that detects account section boundaries in multi-section PDFs by checking for account header patterns (e.g., "Cuenta Débito Open", "Apartados Open +") on each page. Groups transactions per section. Backward-compatible `parse(data:)` wraps it by flattening.
+- `IngestPipeline.ingestFile()`: Now iterates `ParsedSection` results, creating separate Account + Statement per section. Each section gets its own dedup, categorization, and persist cycle.
+- `Account.accountNumber`: New optional field for matching accounts by institution + number (not just institution). Enables two Openbank accounts.
+- `findOrCreateAccount`: Matches by institution + accountNumber when available, falls back to institution-only.
+
 ### Fixed
 
 **REGRESSION: SwiftData schema migration failure caused empty app**

@@ -28,30 +28,103 @@ struct StructuralParser: StatementParser {
     }
 
     func parse(data: Data) async throws -> [RawTransaction] {
+        let sections = try await parseSections(data: data)
+        return sections.flatMap(\.transactions)
+    }
+
+    func parseSections(data: Data) async throws -> [ParsedSection] {
         guard let document = PDFDocument(data: data) else {
             throw ParserError.invalidData("Could not create PDF document from data")
         }
 
-        var statementContext: StatementContext?
-
-        var allTransactions: [RawTransaction] = []
+        var sections: [ParsedSection] = []
+        var currentSectionTransactions: [RawTransaction] = []
+        var currentSectionHint: String?
+        var currentSectionNumber: String?
+        var currentSectionType: AccountType?
+        var currentSectionNickname: String?
+        var currentContext: StatementContext?
 
         for pageIndex in 0..<document.pageCount {
             guard let page = document.page(at: pageIndex) else { continue }
+            let fullText = page.string ?? ""
 
-            if statementContext == nil {
-                let fullText = page.string ?? ""
-                statementContext = normalizer.extractStatementContext(fullText)
+            let (accountHint, accountNumber, accountType, nickname) = detectAccountSection(in: fullText)
+
+            if accountHint != nil && accountHint != currentSectionHint {
+                if !currentSectionTransactions.isEmpty {
+                    sections.append(ParsedSection(
+                        accountHint: currentSectionHint,
+                        accountType: currentSectionType,
+                        accountNumber: currentSectionNumber,
+                        nickname: currentSectionNickname,
+                        transactions: currentSectionTransactions
+                    ))
+                }
+                currentSectionTransactions = []
+                currentSectionHint = accountHint
+                currentSectionNumber = accountNumber
+                currentSectionType = accountType
+                currentSectionNickname = nickname
+                currentContext = normalizer.extractStatementContext(fullText)
+            }
+
+            if currentContext == nil {
+                currentContext = normalizer.extractStatementContext(fullText)
             }
 
             let rows = PDFTextExtractor.extractRows(from: page)
             guard !rows.isEmpty else { continue }
 
-            let pageTransactions = parseRows(rows, context: statementContext)
-            allTransactions.append(contentsOf: pageTransactions)
+            let pageTransactions = parseRows(rows, context: currentContext)
+            currentSectionTransactions.append(contentsOf: pageTransactions)
         }
 
-        return allTransactions
+        if !currentSectionTransactions.isEmpty {
+            sections.append(ParsedSection(
+                accountHint: currentSectionHint,
+                accountType: currentSectionType,
+                accountNumber: currentSectionNumber,
+                nickname: currentSectionNickname,
+                transactions: currentSectionTransactions
+            ))
+        }
+
+        return sections
+    }
+
+    private func detectAccountSection(in text: String) -> (hint: String?, number: String?, type: AccountType?, nickname: String?) {
+        let savingsPatterns = ["Apartados Open", "Apartados Open +", "Cuenta de Ahorro"]
+        for pattern in savingsPatterns {
+            if text.localizedCaseInsensitiveContains(pattern) {
+                let number = extractAccountNumber(from: text)
+                return (pattern, number, .savings, "Openbank Apartados")
+            }
+        }
+
+        let checkingPatterns = ["Cuenta Débito Open", "Cuenta Débito Open +", "Débito Open"]
+        for pattern in checkingPatterns {
+            if text.localizedCaseInsensitiveContains(pattern) {
+                let number = extractAccountNumber(from: text)
+                return (pattern, number, .checking, "Openbank Débito")
+            }
+        }
+
+        return (nil, nil, nil, nil)
+    }
+
+    private func extractAccountNumber(from text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"\b\d{4}\b"#) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = regex.matches(in: text, range: range)
+        for match in matches {
+            guard let r = Range(match.range, in: text) else { continue }
+            let candidate = String(text[r])
+            if let num = Int(candidate), num >= 1000 {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private func parseRows(_ rows: [TableRow], context: StatementContext?) -> [RawTransaction] {
