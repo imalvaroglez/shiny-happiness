@@ -35,6 +35,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Improved error messages for unsupported/unknown PDFs with actionable guidance
 - `StructuralParser` logs: page count, rows per page, transactions per page, table detection details (layout, columns, convention, data row count)
 
+**Banorte POR Ti Support (Commit G)**
+- Added knowledge patterns for Banorte POR Ti credit card statements (EdoCta 202208.pdf)
+- `header_vocabulary.json`: section markers (`Detalle de movimientos del Titular en M.N.`, `Detalle de movimientos de TDC Digital`), combined header (`Fecha Concepto RFC/CURP Tipo de transacción Importe`), end markers for installment/noise sections
+- `date_patterns.json`: `dd_mm_no_year` pattern (dates like `14/07` with year inferred from statement context), `dd_mm_yyyy_slash_full` (DiDi dates), `dd_mon_yyyy_with_time` (DiDi/Stori dates), Banorte period/cutoff patterns
+- `amount_conventions.json`: `trailing_minus` convention (bare `$` = charge, `$X-` = payment), `mxn_trailing_minus` regex pattern
+- `SemanticNormalizer`: `trailing_minus` amount handling, Banorte period context extraction (`13 Julio al 12 Agosto, 2022`), Banorte cutoff date extraction
+- `StructuralParser`: line-based fallback parser (`parseLineByLine`) for PDFs where text blocks aren't split into individual cells — splits rows on date patterns and parses each segment independently
+- When table detection succeeds but produces 0 transactions, falls back to line-based parsing
+- 4 new tests (70 total, all passing): Banorte transaction extraction, date validation, payment detection, charge detection
+
 ## [0.2.0] - 2025-05-05
 
 ### Added

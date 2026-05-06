@@ -20,7 +20,8 @@ struct StructuralParserTests {
                 "Fecha Concepto Depósito Retiro Saldo": ["date_column", "description_column", "credit_column", "debit_column", "balance_column"],
                 "Detalle de tus transacciones": ["description_column"],
                 "Importe en MN": ["amount_column"],
-                "Importe en M.N.": ["amount_column"]
+                "Importe en M.N.": ["amount_column"],
+                "Fecha Concepto RFC/CURP Tipo de transacción Importe": ["date_column", "description_column", "amount_column"]
             ],
             "section_start_markers": [
                 "Fecha y Detalle de las operaciones",
@@ -29,7 +30,10 @@ struct StructuralParserTests {
                 "DETALLE DE TRANSACCIONES",
                 "Detalle de tus transacciones",
                 "TARJETA TITULAR",
-                "TARJETA ADICIONAL"
+                "TARJETA ADICIONAL",
+                "Detalle de movimientos del Titular en M.N.",
+                "Detalle de movimientos de TDC Digital",
+                "Detalle de movimientos en M.N."
             ],
             "section_end_markers": [
                 "Total de las transacciones",
@@ -44,7 +48,9 @@ struct StructuralParserTests {
                 "CAT ",
                 "Tasa de Interés",
                 "Consolidado de compras",
-                "Resumen de Mensualidades"
+                "Resumen de Mensualidades",
+                "Detalle de programas a plazos",
+                "Mensajes importantes"
             ]
         ])
 
@@ -100,6 +106,14 @@ struct StructuralParserTests {
                     continuation: nil, continuation_pattern: nil, continuation_fields: nil,
                     sourced_from: nil
                 ),
+                DatePatterns.Pattern(
+                    id: "dd_mm_no_year",
+                    regex: "^(\\d{1,2})/(\\d{1,2})$",
+                    fields: ["day", "month"],
+                    month_map: nil, year_source: "statement_context", year_padding: nil,
+                    continuation: nil, continuation_pattern: nil, continuation_fields: nil,
+                    sourced_from: nil
+                ),
             ],
             periodPatterns: [
                 DatePatterns.PeriodPattern(
@@ -115,6 +129,13 @@ struct StructuralParserTests {
                     fields: ["cutoff_day", "cutoff_month_short", "cutoff_year",
                              "next_day", "next_month_short", "next_year"],
                     month_map: "spanish_short",
+                    sourced_from: nil
+                ),
+                DatePatterns.PeriodPattern(
+                    id: "banorte_period",
+                    regex: "(\\d{1,2})\\s+(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre)\\s+al\\s+(\\d{1,2})\\s+(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre),?\\s+(\\d{4})",
+                    fields: ["start_day", "start_month_name", "end_day", "end_month_name", "end_year"],
+                    month_map: "spanish_full",
                     sourced_from: nil
                 ),
             ],
@@ -150,6 +171,14 @@ struct StructuralParserTests {
                     charge_sign: nil, credit_sign: nil,
                     credit_marker: nil, credit_marker_position: nil,
                     detect_hint: nil, deposit_sign: 1, withdrawal_sign: -1,
+                    sourced_from: nil
+                ),
+                AmountConventions.Convention(
+                    id: "trailing_minus",
+                    description: "Trailing minus convention",
+                    charge_sign: -1, credit_sign: 1,
+                    credit_marker: "-", credit_marker_position: "after_amount",
+                    detect_hint: nil, deposit_sign: nil, withdrawal_sign: nil,
                     sourced_from: nil
                 ),
             ]
@@ -260,6 +289,61 @@ struct StructuralParserTests {
     @Test("Amex detects charge transactions")
     func amexChargeTransactions() async throws {
         let data = try Data(contentsOf: amexPDF)
+        let transactions = try await parser.parse(data: data)
+        #expect(!transactions.isEmpty)
+
+        let charges = transactions.filter { $0.amount < 0 }
+        #expect(!charges.isEmpty, "Should detect at least one charge")
+    }
+
+    // MARK: - Banorte POR Ti (Flow Layout with DD/MM dates)
+
+    private var banortePDF: URL {
+        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/EdoCta 202208.pdf")
+    }
+
+    @Test("Parses Banorte POR Ti PDF and extracts transactions")
+    func parsesBanortePDF() async throws {
+        let data = try Data(contentsOf: banortePDF)
+        let transactions = try await parser.parse(data: data)
+
+        #expect(!transactions.isEmpty, "Should extract transactions from Banorte POR Ti PDF")
+
+        for tx in transactions {
+            #expect(tx.amount != 0, "Transaction amount should not be zero")
+            #expect(tx.currency == "MXN")
+            #expect(!tx.descriptionRaw.isEmpty, "Transaction should have a description")
+        }
+    }
+
+    @Test("Banorte transactions have valid dates in 2022 range")
+    func banorteDatesValid() async throws {
+        let data = try Data(contentsOf: banortePDF)
+        let transactions = try await parser.parse(data: data)
+        #expect(!transactions.isEmpty)
+
+        let start2022 = Calendar.current.date(from: DateComponents(year: 2022, month: 1, day: 1))!
+        let end2022 = Calendar.current.date(from: DateComponents(year: 2022, month: 12, day: 31))!
+
+        for tx in transactions {
+            #expect(tx.postedAt >= start2022, "Date \(tx.postedAt) should be in 2022")
+            #expect(tx.postedAt <= end2022, "Date \(tx.postedAt) should be in 2022")
+        }
+    }
+
+    @Test("Banorte detects payment (positive amount with trailing minus)")
+    func banortePaymentDetected() async throws {
+        let data = try Data(contentsOf: banortePDF)
+        let transactions = try await parser.parse(data: data)
+        #expect(!transactions.isEmpty)
+
+        let payments = transactions.filter { $0.amount > 0 }
+        #expect(!payments.isEmpty, "Should detect at least one payment (SU PAGO, GRACIAS)")
+    }
+
+    @Test("Banorte detects charges (negative amounts)")
+    func banorteChargesDetected() async throws {
+        let data = try Data(contentsOf: banortePDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
 

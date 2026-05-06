@@ -52,7 +52,7 @@ struct StructuralParser: StatementParser {
             guard !rows.isEmpty else { continue }
 
             let pageTransactions = parseRows(rows, context: statementContext)
-            log.debug("Page \(pageIndex): \(pageTransactions.count) transactions extracted")
+            log.debug("Page \(pageIndex): \(pageTransactions.count) transactions extracted (line-based or structural)")
             allTransactions.append(contentsOf: pageTransactions)
         }
 
@@ -61,23 +61,175 @@ struct StructuralParser: StatementParser {
     }
 
     private func parseRows(_ rows: [TableRow], context: StatementContext?) -> [RawTransaction] {
-        guard let table = columnDetector.detectTable(in: rows) else {
-            Logger.parser.debug("No table detected in \(rows.count) rows")
-            return []
+        if let table = columnDetector.detectTable(in: rows) {
+            Logger.parser.debug("Detected table: layout=\(String(describing: table.layout)), columns=\(table.columns.count), convention=\(table.amountConvention ?? "none"), dataRows=\(table.dataRowRange.count)")
+
+            let result: [RawTransaction]
+            if table.columns.count >= 2, table.columns.allSatisfy({ abs($0.xCenter - table.columns[0].xCenter) < 50 }) {
+                result = parseWideHeaderTable(rows: rows, table: table, context: context)
+            } else {
+                switch table.layout {
+                case .flow:
+                    result = parseFlowTable(rows: rows, table: table, context: context)
+                case .grid:
+                    result = parseGridTable(rows: rows, table: table, context: context)
+                }
+            }
+
+            if result.isEmpty {
+                return parseLineByLine(rows: rows, context: context)
+            }
+            return result
         }
 
-        Logger.parser.debug("Detected table: layout=\(String(describing: table.layout)), columns=\(table.columns.count), convention=\(table.amountConvention ?? "none"), dataRows=\(table.dataRowRange.count)")
+        Logger.parser.debug("No table detected in \(rows.count) rows, trying line-based parsing")
+        return parseLineByLine(rows: rows, context: context)
+    }
 
-        if table.columns.count >= 2, table.columns.allSatisfy({ abs($0.xCenter - table.columns[0].xCenter) < 50 }) {
-            return parseWideHeaderTable(rows: rows, table: table, context: context)
+    private func parseLineByLine(rows: [TableRow], context: StatementContext?) -> [RawTransaction] {
+        var transactions: [RawTransaction] = []
+        var inTransactionSection = false
+        var currentConvention: String? = nil
+
+        for (rowIndex, row) in rows.enumerated() {
+            let lineText = row.cells.map { $0.text }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            guard !lineText.isEmpty else { continue }
+
+            if columnDetector.vocabulary.isSectionStart(lineText) {
+                Logger.parser.debug("Line parser: section start at row \(rowIndex): \(lineText.prefix(60))")
+                inTransactionSection = true
+                currentConvention = nil
+                continue
+            }
+
+            if columnDetector.vocabulary.isSectionEnd(lineText) {
+                Logger.parser.debug("Line parser: section end at row \(rowIndex): \(lineText.prefix(60))")
+                inTransactionSection = false
+                continue
+            }
+
+            guard inTransactionSection else { continue }
+
+            if lineText.contains("Fecha") && (lineText.contains("Concepto") || lineText.contains("Importe") || lineText.contains("Monto")) {
+                currentConvention = detectConvention(from: lineText)
+                Logger.parser.debug("Line parser: header row, convention=\(currentConvention ?? "nil"): \(lineText.prefix(80))")
+                continue
+            }
+
+            let parsed = parseSingleLine(lineText, context: context, convention: currentConvention)
+            transactions.append(contentsOf: parsed)
         }
 
-        switch table.layout {
-        case .flow:
-            return parseFlowTable(rows: rows, table: table, context: context)
-        case .grid:
-            return parseGridTable(rows: rows, table: table, context: context)
+        Logger.parser.debug("Line parser: found \(transactions.count) transactions from \(rows.count) rows")
+        return transactions
+    }
+
+    private func detectConvention(from headerLine: String) -> String? {
+        if headerLine.contains("Importe") && !headerLine.contains("Cargo") && !headerLine.contains("Abono") {
+            return "trailing_minus"
         }
+        return nil
+    }
+
+    private func parseSingleLine(_ line: String, context: StatementContext?, convention: String?) -> [RawTransaction] {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return [] }
+
+        let segments = splitByDates(trimmed)
+        guard !segments.isEmpty else { return [] }
+
+        var transactions: [RawTransaction] = []
+        for segment in segments {
+            if let tx = parseSingleTransactionSegment(segment, context: context, convention: convention) {
+                transactions.append(tx)
+            }
+        }
+
+        return transactions
+    }
+
+    private func splitByDates(_ line: String) -> [String] {
+        let datePattern = #"\d{1,2}/\d{1,2}(?:/\d{2,4})?"#
+        guard let regex = try? NSRegularExpression(pattern: datePattern) else { return [line] }
+        let range = NSRange(line.startIndex..., in: line)
+        let matches = regex.matches(in: line, range: range)
+
+        guard !matches.isEmpty else { return [line] }
+
+        var segments: [String] = []
+        for (i, match) in matches.enumerated() {
+            let start = Range(match.range, in: line)!.lowerBound
+            let end: String.Index
+            if i + 1 < matches.count {
+                end = Range(matches[i + 1].range, in: line)!.lowerBound
+            } else {
+                end = line.endIndex
+            }
+            let segment = String(line[start..<end]).trimmingCharacters(in: .whitespaces)
+            if !segment.isEmpty {
+                segments.append(segment)
+            }
+        }
+
+        return segments
+    }
+
+    private func parseSingleTransactionSegment(_ segment: String, context: StatementContext?, convention: String?) -> RawTransaction? {
+        let trimmed = segment.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+
+        let dateAmountPattern = #"^(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s+(.+)\s+\$\s*([\d,]+\.?\d*)\s*(-?)$"#
+        guard let regex = try? NSRegularExpression(pattern: dateAmountPattern, options: .caseInsensitive) else { return nil }
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        guard let match = regex.firstMatch(in: trimmed, range: range) else { return nil }
+
+        guard let dateRange = Range(match.range(at: 1), in: trimmed),
+              let descRange = Range(match.range(at: 2), in: trimmed),
+              let amountRange = Range(match.range(at: 3), in: trimmed) else { return nil }
+
+        let dateStr = String(trimmed[dateRange])
+        let descStr = String(trimmed[descRange])
+        let amountStr = String(trimmed[amountRange])
+        let trailingMinus = match.range(at: 4).length > 0
+            ? (Range(match.range(at: 4), in: trimmed).map { String(trimmed[$0]) } ?? "") == "-"
+            : false
+
+        guard let parsedDate = normalizer.parseDate(dateStr, context: context),
+              parsedDate.confidence >= .low else { return nil }
+
+        let valueStr = amountStr.replacingOccurrences(of: ",", with: "")
+        guard let decimalValue = Decimal(string: valueStr) else { return nil }
+
+        let isCredit: Bool
+        if let conv = convention, conv == "trailing_minus" {
+            isCredit = trailingMinus
+        } else {
+            isCredit = trailingMinus
+        }
+
+        let amount: Decimal
+        if isCredit {
+            amount = abs(decimalValue)
+        } else {
+            amount = decimalValue < 0 ? decimalValue : -abs(decimalValue)
+        }
+
+        let cleanedDesc = descStr.replacingOccurrences(
+            of: #"\s+[A-Z]\s*[A-Z]?\s*$"#,
+            with: "",
+            options: .regularExpression
+        )
+        let description = normalizer.normalizeDescription(cleanedDesc)
+
+        return RawTransaction(
+            postedAt: parsedDate.fullDate ?? Date(),
+            amount: amount,
+            currency: "MXN",
+            descriptionRaw: description,
+            merchantNormalized: "",
+            fxRateToBase: 1,
+            isTransfer: false
+        )
     }
 
     private func parseFlowTable(rows: [TableRow], table: DetectedTable, context: StatementContext?) -> [RawTransaction] {
