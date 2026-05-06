@@ -5,7 +5,7 @@ import Charts
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = DashboardViewModel()
-    @State private var selectedRange: TimeRange = .year
+    @State private var selectedRange: TimeRange = .all
 
     enum TimeRange: String, CaseIterable {
         case month = "Month"
@@ -25,8 +25,7 @@ struct DashboardView: View {
             case .year:
                 return .year(now)
             case .all:
-                let start = calendar.date(from: DateComponents(year: 2020, month: 1, day: 1))!
-                return DateRange(start: start, end: now)
+                return DateRange(start: .distantPast, end: now)
             }
         }
     }
@@ -35,9 +34,9 @@ struct DashboardView: View {
         NavigationSplitView {
             List {
                 NavigationLink("Dashboard", destination: dashboardDetail)
-                NavigationLink("Transactions", destination: Text("Transactions"))
+                NavigationLink("Transactions", destination: TransactionsView())
                 NavigationLink("Import Statements", destination: ImportView(modelContext: modelContext))
-                NavigationLink("Settings", destination: Text("Settings"))
+                NavigationLink("Settings", destination: SettingsView())
             }
             .navigationTitle("FinanceTracker")
             .listStyle(.sidebar)
@@ -47,6 +46,9 @@ struct DashboardView: View {
         .task {
             SeedDataLoader.bootstrapIfNeeded(context: modelContext)
             viewModel.configure(context: modelContext)
+        }
+        .onAppear {
+            viewModel.refresh()
         }
         .onChange(of: selectedRange) {
             viewModel.dateRange = selectedRange.dateRange
