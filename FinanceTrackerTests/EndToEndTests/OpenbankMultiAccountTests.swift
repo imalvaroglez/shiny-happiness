@@ -102,7 +102,7 @@ struct OpenbankMultiAccountTests {
         var totalIncome: Decimal = 0
         var totalExpenses: Decimal = 0
         for tx in transactions {
-            if tx.category?.name == "Internal Transfer" { continue }
+            if tx.category?.kind == .transfer { continue }
             if tx.amount > 0 {
                 totalIncome += tx.amount
             } else {
@@ -113,16 +113,17 @@ struct OpenbankMultiAccountTests {
         let internalTransfers = transactions.filter { $0.category?.name == "Internal Transfer" }
         #expect(!internalTransfers.isEmpty, "Should have internal transfer transactions")
 
-        let speiTransfers = transactions.filter { $0.category?.name == "SPEI Transfer" }
-        #expect(!speiTransfers.isEmpty, "Should have SPEI transfer transactions")
+        let speiTransfers = transactions.filter { tx in
+            guard let cat = tx.category else { return false }
+            return cat.kind == .transfer && cat.name != "Internal Transfer"
+        }
+        #expect(!speiTransfers.isEmpty, "Should have SPEI transfer transactions (To Own Accounts or Credit Card Payments)")
 
         let speiOutgoing = speiTransfers.filter { $0.amount < 0 }
-        let speiIncoming = speiTransfers.filter { $0.amount > 0 }
-        #expect(!speiOutgoing.isEmpty, "Should have outgoing SPEI transfers (expenses)")
-        #expect(!speiIncoming.isEmpty, "Should have incoming SPEI transfers (income)")
+        #expect(!speiOutgoing.isEmpty, "Should have outgoing SPEI transfers")
 
-        #expect(totalIncome > 0, "Should have income (including SPEI incoming)")
-        #expect(totalExpenses < 0, "Should have expenses (including SPEI outgoing)")
+        #expect(totalIncome > 0, "Should have income (excluding all transfers)")
+        #expect(totalExpenses < 0, "Should have expenses (excluding all transfers)")
     }
 
     @Test("Reimporting same institution reuses Account — no duplicates")

@@ -83,7 +83,7 @@ final class DashboardViewModel {
 
         for tx in transactions {
             guard !tx.isDuplicate else { continue }
-            if tx.category?.name == "Internal Transfer" { continue }
+            if tx.category?.kind == .transfer { continue }
 
             let month = calendar.date(from: calendar.dateComponents([.year, .month], from: tx.postedAt))!
             let existing = grouped[month] ?? (0, 0)
@@ -110,7 +110,7 @@ final class DashboardViewModel {
 
         for tx in transactions {
             guard !tx.isDuplicate else { continue }
-            if tx.category?.name == "Internal Transfer" { continue }
+            if tx.category?.kind == .transfer { continue }
             guard tx.amount < 0 else { continue }
             let key: ObjectIdentifier
             if let cat = tx.category {
@@ -195,7 +195,7 @@ final class DashboardViewModel {
         totalExpenses = 0
         for tx in transactions {
             guard !tx.isDuplicate else { continue }
-            if tx.category?.name == "Internal Transfer" { continue }
+            if tx.category?.kind == .transfer { continue }
             if tx.amount > 0 {
                 totalIncome += tx.amount
             } else {

@@ -43,7 +43,7 @@
     {
       "name": "Transfers",
       "kind": "transfer",
-      "subcategories": ["Internal Transfer", "SPEI Transfer", "International Transfer"]
+      "subcategories": ["Internal Transfer", "To Own Accounts", "Credit Card Payments"]
     },
     {
       "name": "Income",

@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+**SPEI destination-specific categorization**
+- `categories.json`: Replaced "SPEI Transfer" / "International Transfer" subcategories with "To Own Accounts" and "Credit Card Payments" under Transfers
+- `category_rules.json`: Removed all catch-all SPEI rules; added 8 destination-specific rules at priority 87 (Priority, 2now/HSBC, Nu, TDC Explora, INVEX Volaris, BBVA 7777, Explora/BANAMEX, Moneypool)
+- Unknown SPEI destinations now fall to Uncategorized — visible signal that a new destination appeared
+
+**Dashboard excludes ALL transfer subcategories**
+- `DashboardViewModel.swift`: Changed 3 occurrences of `category?.name == "Internal Transfer"` to `category?.kind == .transfer` — now correctly excludes To Own Accounts, Credit Card Payments, and Internal Transfer from income/expense totals
+
+**SeedDataLoader incremental subcategory sync**
+- `SeedDataLoader.swift`: New `syncCategories` method compares JSON subcategory names against existing DB for each parent, inserts missing ones without requiring a full store wipe
+
+### Added
+
+- 6 new tests in `SPEIDestinationRulesTests`: SPEI to 2now, Priority, Nu, Volaris, cash flow exclusion, unknown destination fallback
+
+### Changed
+
 **Sort all columns in transactions table**
 - Description column now sortable (alphabetical) via `value: \.descriptionRaw`
 - Category column now sortable via `value: \.categoryName` on new computed property
