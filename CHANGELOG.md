@@ -14,6 +14,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+### Added (Part 3)
+
+**Transaction category editing with learning rules**
+- `MerchantExtractor.swift`: Extracts merchant keyword from raw descriptions — strips RFC patterns, /REF patterns, trailing digits, punctuation; returns first all-alpha token >= 4 chars
+- `CategoryPickerView.swift`: Category picker sheet grouped by kind (expense/income/transfer/investment) with subcategory nesting
+- `ApplyToSimilarView.swift`: "Apply to similar?" confirmation — shows extracted keyword, preview count of matching transactions, "Just This One" or "All Matching" options
+- `TransactionsView.swift`: Tap any transaction row to open category picker → apply-to-similar flow. Uncategorized transactions show gray "Uncategorized" badge
+- User corrections create `CategoryRule` with `source: "user_correction"`, `priority: 100`, `createdFrom: originalDescription`
+- All matching transactions retroactively re-categorized when user chooses "All Matching"
+
+**MerchantExtractor tests (9 tests)**
+- Strips CINEPOLIS numbers, RFC patterns, /REF patterns, compound names, URL-like descriptions
+- Returns nil for short/numeric inputs
+
+**Category correction tests (2 tests)**
+- User correction creates rule and applies retroactively to 5 CINEPOLIS transactions
+- "Just this one" applies category without creating rule
+
 **Seed rule: MONTO A DIFERIR**
 - `category_rules.json`: Added `(?i)MONTO\s*A\s*DIFERIR` → Transfers.Internal Transfer at priority 90 for Amex installment notation
 
