@@ -81,11 +81,15 @@ final class DashboardViewModel {
 
         for tx in transactions {
             guard !tx.isDuplicate else { continue }
+            let kind = tx.category?.kind
+            if kind == .transfer { continue }
+
             let month = calendar.date(from: calendar.dateComponents([.year, .month], from: tx.postedAt))!
             let existing = grouped[month] ?? (0, 0)
-            if tx.amount >= 0 {
+
+            if kind == .income || (kind == nil && tx.amount > 0) {
                 grouped[month] = (existing.income + tx.amount, existing.expenses)
-            } else {
+            } else if kind == .expense || kind == .investment || (kind == nil && tx.amount < 0) {
                 grouped[month] = (existing.income, existing.expenses + tx.amount)
             }
         }
@@ -100,7 +104,9 @@ final class DashboardViewModel {
         var categoryMap: [ObjectIdentifier: Category] = [:]
 
         for tx in transactions {
-            guard !tx.isDuplicate, tx.amount < 0 else { continue }
+            guard !tx.isDuplicate else { continue }
+            if tx.category?.kind == .transfer { continue }
+            guard tx.amount < 0 else { continue }
             let key: ObjectIdentifier
             if let cat = tx.category {
                 key = ObjectIdentifier(cat)
@@ -137,7 +143,17 @@ final class DashboardViewModel {
     }
 
     private func computeTotals(_ transactions: [Transaction]) {
-        totalIncome = transactions.filter { !$0.isDuplicate && $0.amount > 0 }.reduce(0) { $0 + $1.amount }
-        totalExpenses = transactions.filter { !$0.isDuplicate && $0.amount < 0 }.reduce(0) { $0 + $1.amount }
+        totalIncome = 0
+        totalExpenses = 0
+        for tx in transactions {
+            guard !tx.isDuplicate else { continue }
+            let kind = tx.category?.kind
+            if kind == .transfer { continue }
+            if kind == .income || (kind == nil && tx.amount > 0) {
+                totalIncome += tx.amount
+            } else if kind == .expense || kind == .investment || (kind == nil && tx.amount < 0) {
+                totalExpenses += tx.amount
+            }
+        }
     }
 }

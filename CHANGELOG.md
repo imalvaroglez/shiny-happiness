@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+**Dashboard excludes transfers from income/expenses**
+- `DashboardViewModel.swift`: `computeTotals`, `computeMonthlyCashFlow`, and `computeSpendingByCategory` now use `category.kind` when available (fall back to amount-sign heuristic for uncategorized), always exclude `.transfer` transactions
+- Prevents credit card payments (PAGO RECIBIDO) from inflating income totals
+
+### Added
+
+**Seed rule: MONTO A DIFERIR**
+- `category_rules.json`: Added `(?i)MONTO\s*A\s*DIFERIR` → Transfers.Internal Transfer at priority 90 for Amex installment notation
+
+**Transfer categorization tests (5 tests)**
+- `CategorizerTransferTests.swift`: PAGO RECIBIDO, MONTO A DIFERIR, SPEI transfers all classified as transfer; dashboard logic verified to exclude transfers; uncategorized positive amounts fall back to income heuristic
+
 **Dashboard shows $0 even with imported transactions**
 - `DashboardView.swift`: Changed "All" date range from 2020-01-01 start to `Date.distantPast` — Amex PDF has 2018-2019 transactions that fell outside the hardcoded range
 - `DashboardView.swift`: Default selected period changed from `.year` (2026 only) to `.all` so newly imported data appears immediately
