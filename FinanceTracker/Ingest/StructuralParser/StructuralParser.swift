@@ -44,6 +44,8 @@ struct StructuralParser: StatementParser {
         var currentSectionType: AccountType?
         var currentSectionNickname: String?
         var currentContext: StatementContext?
+        var currentOpeningBalance: Decimal?
+        var currentClosingBalance: Decimal?
 
         for pageIndex in 0..<document.pageCount {
             guard let page = document.page(at: pageIndex) else { continue }
@@ -54,12 +56,14 @@ struct StructuralParser: StatementParser {
             let isLegalPage = fullText.contains("Resumen de tus aclaraciones") || fullText.contains("Glosario de Términos")
 
             if accountHint != nil && accountHint != currentSectionHint && !isLegalPage {
-                if !currentSectionTransactions.isEmpty {
+                if !currentSectionTransactions.isEmpty || currentClosingBalance != nil {
                     sections.append(ParsedSection(
                         accountHint: currentSectionHint,
                         accountType: currentSectionType,
                         accountNumber: currentSectionNumber,
                         nickname: currentSectionNickname,
+                        openingBalance: currentOpeningBalance,
+                        closingBalance: currentClosingBalance,
                         transactions: currentSectionTransactions
                     ))
                 }
@@ -69,6 +73,8 @@ struct StructuralParser: StatementParser {
                 currentSectionType = accountType
                 currentSectionNickname = nickname
                 currentContext = normalizer.extractStatementContext(fullText)
+                currentOpeningBalance = nil
+                currentClosingBalance = nil
             } else if currentSectionHint == nil {
                 let detected = detectAccountSection(in: fullText)
                 if detected.hint != nil {
@@ -86,6 +92,14 @@ struct StructuralParser: StatementParser {
                 currentContext = normalizer.extractStatementContext(fullText)
             }
 
+            if currentClosingBalance == nil, currentSectionHint != nil {
+                let summary = extractStatementSummary(from: fullText)
+                if summary.closing != nil {
+                    currentOpeningBalance = summary.opening
+                    currentClosingBalance = summary.closing
+                }
+            }
+
             let rows = PDFTextExtractor.extractRows(from: page)
             guard !rows.isEmpty else { continue }
 
@@ -93,12 +107,14 @@ struct StructuralParser: StatementParser {
             currentSectionTransactions.append(contentsOf: pageTransactions)
         }
 
-        if !currentSectionTransactions.isEmpty {
+        if !currentSectionTransactions.isEmpty || currentClosingBalance != nil {
             sections.append(ParsedSection(
                 accountHint: currentSectionHint,
                 accountType: currentSectionType,
                 accountNumber: currentSectionNumber,
                 nickname: currentSectionNickname,
+                openingBalance: currentOpeningBalance,
+                closingBalance: currentClosingBalance,
                 transactions: currentSectionTransactions
             ))
         }
@@ -630,6 +646,39 @@ struct StructuralParser: StatementParser {
         }
 
         return transactions
+    }
+
+    private func extractStatementSummary(from text: String) -> (opening: Decimal?, closing: Decimal?) {
+        guard text.contains("Resumen del periodo") || text.contains("Resumen informativo") else {
+            return (nil, nil)
+        }
+
+        var openingBalance: Decimal?
+        var closingBalance: Decimal?
+
+        let openingPattern = #"Saldo\s+inicial\s+(?:de\s+)?\$\s*([\d,]+\.?\d*)"#
+        if let regex = try? NSRegularExpression(pattern: openingPattern, options: .caseInsensitive) {
+            let range = NSRange(text.startIndex..., in: text)
+            if let match = regex.firstMatch(in: text, range: range),
+               let valueRange = Range(match.range(at: 1), in: text) {
+                let valueStr = String(text[valueRange]).replacingOccurrences(of: ",", with: "")
+                openingBalance = Decimal(string: valueStr)
+            }
+        }
+
+        let closingPattern = #"Saldo\s+final\s+\$\s*([\d,]+\.?\d*)"#
+        if let regex = try? NSRegularExpression(pattern: closingPattern, options: .caseInsensitive) {
+            let range = NSRange(text.startIndex..., in: text)
+            let matches = regex.matches(in: text, range: range)
+            for match in matches {
+                if let valueRange = Range(match.range(at: 1), in: text) {
+                    let valueStr = String(text[valueRange]).replacingOccurrences(of: ",", with: "")
+                    closingBalance = Decimal(string: valueStr)
+                }
+            }
+        }
+
+        return (openingBalance, closingBalance)
     }
 
     private func extractMerchant(from description: String) -> String {

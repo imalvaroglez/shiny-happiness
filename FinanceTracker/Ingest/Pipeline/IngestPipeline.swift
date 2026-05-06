@@ -111,7 +111,9 @@ final class IngestPipeline {
             let statement = createStatement(
                 account: account,
                 rawTransactions: section.transactions,
-                hash: hash
+                hash: hash,
+                openingBalance: section.openingBalance,
+                closingBalance: section.closingBalance
             )
 
             let transactions = Normalizer.normalizeAll(section.transactions, account: account, statement: statement)
@@ -280,7 +282,9 @@ final class IngestPipeline {
     private func createStatement(
         account: Account,
         rawTransactions: [RawTransaction],
-        hash: String
+        hash: String,
+        openingBalance: Decimal? = nil,
+        closingBalance: Decimal? = nil
     ) -> Statement {
         let dates = rawTransactions.map(\.postedAt)
         let periodStart = dates.min() ?? .now
@@ -290,7 +294,9 @@ final class IngestPipeline {
             account: account,
             periodStart: periodStart,
             periodEnd: periodEnd,
-            sourceFileHash: hash
+            sourceFileHash: hash,
+            openingBalance: openingBalance,
+            closingBalance: closingBalance
         )
         return statement
     }

@@ -10,6 +10,8 @@ final class Statement {
     var sourceFileHash: String
     var importedAt: Date
     var ocrUsed: Bool
+    var openingBalance: Decimal?
+    var closingBalance: Decimal?
     @Relationship(deleteRule: .cascade) var transactions: [Transaction] = []
 
     init(
@@ -19,7 +21,9 @@ final class Statement {
         periodEnd: Date,
         sourceFileHash: String,
         importedAt: Date = .now,
-        ocrUsed: Bool = false
+        ocrUsed: Bool = false,
+        openingBalance: Decimal? = nil,
+        closingBalance: Decimal? = nil
     ) {
         self.id = id
         self.account = account
@@ -28,5 +32,7 @@ final class Statement {
         self.sourceFileHash = sourceFileHash
         self.importedAt = importedAt
         self.ocrUsed = ocrUsed
+        self.openingBalance = openingBalance
+        self.closingBalance = closingBalance
     }
 }

@@ -98,9 +98,9 @@ struct DashboardView: View {
 
     private var summaryCards: some View {
         HStack(spacing: 16) {
+            SummaryCard(title: "Net Worth", amount: viewModel.currentNetWorth, color: .blue)
             SummaryCard(title: "Income", amount: viewModel.totalIncome, color: .green)
             SummaryCard(title: "Expenses", amount: abs(viewModel.totalExpenses), color: .red)
-            SummaryCard(title: "Net", amount: viewModel.totalIncome + viewModel.totalExpenses, color: .blue)
         }
     }
 
