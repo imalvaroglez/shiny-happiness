@@ -4,6 +4,7 @@ struct Categorizer {
     struct Result {
         let categorized: Int
         let uncategorized: Int
+        let matchedRules: [UUID: Int]
     }
 
     static func categorize(
@@ -14,12 +15,14 @@ struct Categorizer {
 
         var categorized = 0
         var uncategorized = 0
+        var matchedRules: [UUID: Int] = [:]
 
         for tx in transactions {
             var matched = false
             for rule in sortedRules {
                 if matchesRule(tx, rule) {
                     tx.category = rule.category
+                    matchedRules[rule.id, default: 0] += 1
                     matched = true
                     break
                 }
@@ -31,7 +34,7 @@ struct Categorizer {
             }
         }
 
-        return Result(categorized: categorized, uncategorized: uncategorized)
+        return Result(categorized: categorized, uncategorized: uncategorized, matchedRules: matchedRules)
     }
 
     static func matchesRule(_ tx: Transaction, _ rule: CategoryRule) -> Bool {

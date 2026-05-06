@@ -31,6 +31,7 @@
 		47D8CB56B15C500A8E6634DB /* date_patterns.json in Resources */ = {isa = PBXBuildFile; fileRef = B79322B178BC59F4C069263D /* date_patterns.json */; };
 		48B32C7CAFE409EDB736154F /* ParserProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCCFD14E7357E43039083B47 /* ParserProtocol.swift */; };
 		4B60FF8D682E21BA2A16F185 /* header_vocabulary.json in Resources */ = {isa = PBXBuildFile; fileRef = 45CC98CFD6E5ADACC4120ED2 /* header_vocabulary.json */; };
+		4D4E4CE44F17087F401CCE2E /* CategoryRuleSourceTrackingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBCEED18EE482D8BB987BA43 /* CategoryRuleSourceTrackingTests.swift */; };
 		4F81EBFD1F759C29AB0C13EE /* category_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 258ACDAAC6B78C5485F65FCB /* category_rules.json */; };
 		4FC9FBFC9081EA63E3FE08DC /* Detector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BCBC99E7AEEF97CC146320 /* Detector.swift */; };
 		5A66C861137A24400C347A29 /* Categorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE428DF09B8C498ED13287B0 /* Categorizer.swift */; };
@@ -137,6 +138,7 @@
 		E32404A690D984E7DF6570FE /* IngestReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestReport.swift; sourceTree = "<group>"; };
 		E32D2CADB3F7DBA60D048605 /* SeedDataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedDataLoader.swift; sourceTree = "<group>"; };
 		E5A2A1E39B077344ABA252C5 /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
+		EBCEED18EE482D8BB987BA43 /* CategoryRuleSourceTrackingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRuleSourceTrackingTests.swift; sourceTree = "<group>"; };
 		EC1B2E8CD13E70631FA2725B /* Transaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transaction.swift; sourceTree = "<group>"; };
 		ED26F454D1983B2A8414793D /* DateRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateRange.swift; sourceTree = "<group>"; };
 		EE428DF09B8C498ED13287B0 /* Categorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Categorizer.swift; sourceTree = "<group>"; };
@@ -384,6 +386,7 @@
 			children = (
 				D2F8E6BEB13E160FD7823D67 /* CategorizerTests.swift */,
 				B7576D9D476E5D9DCC7CBF42 /* CategorizerTransferTests.swift */,
+				EBCEED18EE482D8BB987BA43 /* CategoryRuleSourceTrackingTests.swift */,
 				762031234D540053D316B47E /* DeduplicatorTests.swift */,
 				7C0C844E5D35AE5153E8A82B /* IngestPipelineTests.swift */,
 				38B807CA5F0B3CAB0EBF0024 /* NormalizerTests.swift */,
@@ -603,6 +606,7 @@
 				40AA5D56C191AF5969E07208 /* AmexMexicoParserTests.swift in Sources */,
 				DF35C549A740C53F50C47C0A /* CategorizerTests.swift in Sources */,
 				418BEB37D74099E4E9A2B03C /* CategorizerTransferTests.swift in Sources */,
+				4D4E4CE44F17087F401CCE2E /* CategoryRuleSourceTrackingTests.swift in Sources */,
 				66B3D86239B373D1126F9E10 /* ColumnDetectorTests.swift in Sources */,
 				84C26FBE7AA03147CD3EE328 /* DeduplicatorTests.swift in Sources */,
 				C80B8FA576C355F255DC67C0 /* EndToEndPDFTests.swift in Sources */,

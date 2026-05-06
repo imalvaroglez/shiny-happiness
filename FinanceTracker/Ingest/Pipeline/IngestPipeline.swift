@@ -109,6 +109,12 @@ final class IngestPipeline {
         let catResult = Categorizer.categorize(transactions: dedupResult.unique, rules: rules)
         let _ = Categorizer.categorize(transactions: dedupResult.duplicates, rules: rules)
 
+        for rule in rules {
+            if let count = catResult.matchedRules[rule.id] {
+                rule.matchCount += count
+            }
+        }
+
         persist(account: account, statement: statement, transactions: dedupResult.unique + dedupResult.duplicates)
 
         do {

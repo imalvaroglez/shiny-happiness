@@ -20,6 +20,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Transfer categorization tests (5 tests)**
 - `CategorizerTransferTests.swift`: PAGO RECIBIDO, MONTO A DIFERIR, SPEI transfers all classified as transfer; dashboard logic verified to exclude transfers; uncategorized positive amounts fall back to income heuristic
 
+### Added (Part 2)
+
+**CategoryRule source tracking**
+- `CategoryRule.swift`: Added `source: String` ("seed"/"user_correction"), `matchCount: Int`, `createdFrom: String?` — lightweight SwiftData migration with defaults
+- `CategoryRule.loadSeedRulesFromBundle()`: Static method for test access to bundled seed rules
+- `Categorizer.swift`: `Result` now includes `matchedRules: [UUID: Int]` tracking which rules matched and how many times — Categorizer stays pure, caller (IngestPipeline) increments matchCount
+- `IngestPipeline.swift`: Increments `rule.matchCount` for each matched rule after categorization, persisted on save
+- `SeedDataLoader.swift`: Explicitly sets `source: "seed"` on loaded rules
+
+**Source tracking tests (5 tests)**
+- `CategoryRuleSourceTrackingTests.swift`: seed rules have source="seed" and matchCount=0, matchCount increments on categorize, user correction rules have source="user_correction", user correction rules take priority over seed rules
+
 **Dashboard shows $0 even with imported transactions**
 - `DashboardView.swift`: Changed "All" date range from 2020-01-01 start to `Date.distantPast` — Amex PDF has 2018-2019 transactions that fell outside the hardcoded range
 - `DashboardView.swift`: Default selected period changed from `.year` (2026 only) to `.all` so newly imported data appears immediately
