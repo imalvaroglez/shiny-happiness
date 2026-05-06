@@ -43,11 +43,31 @@
       "sourced_from": "Amex Mexico 201901.pdf — multi-line format: '12 de\\nDiciembre'"
     },
     {
-      "id": "dd_de_mmmm_de_yyyy",
+      "id": "dd_mmm_yyyy_de_yyyy",
       "regex": "^(\\d{1,2})\\s+de\\s+(\\w+)\\s+de\\s+(\\d{4})$",
       "fields": ["day", "month_name_full", "year"],
       "month_map": "spanish_full",
       "sourced_from": "Amex Mexico 201901.pdf — period header: '12 de Diciembre de 2018'"
+    },
+    {
+      "id": "dd_mm_no_year",
+      "regex": "^(\\d{1,2})/(\\d{1,2})$",
+      "fields": ["day", "month"],
+      "year_source": "statement_context",
+      "sourced_from": "Banorte POR Ti EdoCta 202208.pdf — dates like '14/07', '01/08' with no year"
+    },
+    {
+      "id": "dd_mm_yyyy_slash_full",
+      "regex": "^(\\d{1,2})/(\\d{1,2})/(\\d{4})$",
+      "fields": ["day", "month", "year"],
+      "sourced_from": "DiDi Cuenta julio.pdf — dates like '01/07/2024', '15/07/2024'"
+    },
+    {
+      "id": "dd_mon_yyyy_with_time",
+      "regex": "^(\\d{1,2})/(\\w{3})/(\\d{4})\\s+\\d{2}:\\d{2}$",
+      "fields": ["day", "month_name_short", "year"],
+      "month_map": "spanish_short",
+      "sourced_from": "DiDi/Stori 202509.pdf — dates like '15/sep/2025 14:30'"
     }
   ],
 
@@ -80,6 +100,20 @@
       "fields": ["cutoff_day", "cutoff_month_short", "cutoff_year", "next_day", "next_month_short", "next_year"],
       "month_map": "spanish_short",
       "sourced_from": "Amex Mexico 201901.pdf page headers — '11-Ene-2019 11-Feb-2019'"
+    },
+    {
+      "id": "banorte_period",
+      "regex": "(\\d{1,2})\\s+(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre)\\s+al\\s+(\\d{1,2})\\s+(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre),?\\s+(\\d{4})",
+      "fields": ["start_day", "start_month_name", "end_day", "end_month_name", "end_year"],
+      "month_map": "spanish_full",
+      "sourced_from": "Banorte POR Ti EdoCta 202208.pdf — '13 Julio al 12 Agosto, 2022'"
+    },
+    {
+      "id": "banorte_cutoff_date",
+      "regex": "(\\d{1,2})\\s+(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre),?\\s+(\\d{4})",
+      "fields": ["cutoff_day", "cutoff_month_name", "cutoff_year"],
+      "month_map": "spanish_full",
+      "sourced_from": "Banorte POR Ti EdoCta 202208.pdf — '12 Agosto, 2022' as Fecha de corte"
     }
   ],
 

@@ -54,9 +54,13 @@
 
     "Fecha y Detalle de las operaciones": ["date_column", "description_column"],
     "Fecha Concepto Depósito Retiro Saldo": ["date_column", "description_column", "credit_column", "debit_column", "balance_column"],
+    "Fecha Concepto Depósito Retiro Saldo MXN": ["date_column", "description_column", "credit_column", "debit_column", "balance_column"],
     "Detalle de tus transacciones": ["description_column"],
     "Importe en MN": ["amount_column"],
-    "Importe en M.N.": ["amount_column"]
+    "Importe en M.N.": ["amount_column"],
+    "Fecha Concepto RFC/CURP Tipo de transacción Importe": ["date_column", "description_column", "amount_column"],
+    "Fecha Concepto Tipo de movimiento Descripción Moneda Monto Saldo": ["date_column", "description_column", "amount_column", "balance_column"],
+    "DETALLE DE MOVIMIENTOS": ["description_column"]
   },
 
   "section_start_markers": [
@@ -66,7 +70,13 @@
     "DETALLE DE TRANSACCIONES",
     "Detalle de tus transacciones",
     "TARJETA TITULAR",
-    "TARJETA ADICIONAL"
+    "TARJETA ADICIONAL",
+    "Detalle de movimientos del Titular en M.N.",
+    "Detalle de movimientos de TDC Digital",
+    "Detalle de movimientos en M.N.",
+    "DETALLE DE MOVIMIENTOS",
+    "DETALLE MOVIMIENTOS",
+    "Movimientos del período"
   ],
 
   "section_end_markers": [
@@ -82,6 +92,12 @@
     "CAT ",
     "Tasa de Interés",
     "Consolidado de compras",
-    "Resumen de Mensualidades"
+    "Resumen de Mensualidades",
+    "Detalle de programas a plazos",
+    "Mensajes importantes",
+    "PRÓXIMOS CARGOS",
+    "Proximos Cargos",
+    "TOTAL DE MOVIMIENTOS",
+    "Si solo realizas el pago mínimo"
   ]
 }

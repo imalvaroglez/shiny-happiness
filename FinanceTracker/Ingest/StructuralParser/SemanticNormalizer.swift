@@ -129,6 +129,10 @@ struct SemanticNormalizer: Sendable {
                 return extractAmexPeriodContext(from: match, in: text, monthMap: monthMap)
             } else if periodPattern.id == "amex_cutoff_dates" {
                 return extractAmexCutoffContext(from: match, in: text, monthMap: monthMap)
+            } else if periodPattern.id == "banorte_period" {
+                return extractBanortePeriodContext(from: match, in: text, monthMap: monthMap)
+            } else if periodPattern.id == "banorte_cutoff_date" {
+                return extractBanorteCutoffContext(from: match, in: text, monthMap: monthMap)
             }
         }
         return nil
@@ -173,6 +177,20 @@ struct SemanticNormalizer: Sendable {
             )
         }
 
+        if let convention, convention.id == "trailing_minus" {
+            let isCredit = trimmed.hasSuffix("-")
+            let signMultiplier = Decimal(
+                isCredit
+                    ? (convention.credit_sign ?? 1)
+                    : (convention.charge_sign ?? -1)
+            )
+            return ParsedAmount(
+                value: decimalValue * signMultiplier,
+                isCredit: isCredit,
+                confidence: .high
+            )
+        }
+
         if hasExplicitSign {
             let signedValue = signStr == "-" ? -decimalValue : decimalValue
             let isCredit = signedValue >= 0
@@ -197,7 +215,7 @@ struct SemanticNormalizer: Sendable {
 
     func looksLikeAmount(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
-        let pattern = "^-?(?:\\$\\s*)?[\\d,]+\\.\\d{2}\\s*(?:CR)?$"
+        let pattern = "^-?(?:\\$\\s*)?[\\d,]+\\.\\d{2}\\s*(?:CR|-)?$"
         return trimmed.range(of: pattern, options: .regularExpression) != nil
     }
 
@@ -294,6 +312,48 @@ struct SemanticNormalizer: Sendable {
         monthMap: [String: Int]
     ) -> StatementContext? {
         guard match.numberOfRanges >= 7 else { return nil }
+
+        guard let cutoffMonthRange = Range(match.range(at: 2), in: text),
+              let cutoffYearRange = Range(match.range(at: 3), in: text) else { return nil }
+
+        let cutoffMonthStr = String(text[cutoffMonthRange])
+        let cutoffYearStr = String(text[cutoffYearRange])
+
+        guard let cutoffMonth = monthMap[cutoffMonthStr],
+              let cutoffYear = Int(cutoffYearStr) else { return nil }
+
+        return StatementContext(cutoffMonth: cutoffMonth, cutoffYear: cutoffYear, startMonth: nil)
+    }
+
+    private func extractBanortePeriodContext(
+        from match: NSTextCheckingResult,
+        in text: String,
+        monthMap: [String: Int]
+    ) -> StatementContext? {
+        guard match.numberOfRanges >= 6 else { return nil }
+
+        guard let startMonthRange = Range(match.range(at: 2), in: text),
+              let _ = Range(match.range(at: 3), in: text),
+              let endMonthRange = Range(match.range(at: 4), in: text),
+              let endYearRange = Range(match.range(at: 5), in: text) else { return nil }
+
+        let startMonthStr = String(text[startMonthRange])
+        let endMonthStr = String(text[endMonthRange])
+        let endYearStr = String(text[endYearRange])
+
+        guard let startMonth = monthMap[startMonthStr],
+              let endMonth = monthMap[endMonthStr],
+              let endYear = Int(endYearStr) else { return nil }
+
+        return StatementContext(cutoffMonth: endMonth, cutoffYear: endYear, startMonth: startMonth)
+    }
+
+    private func extractBanorteCutoffContext(
+        from match: NSTextCheckingResult,
+        in text: String,
+        monthMap: [String: Int]
+    ) -> StatementContext? {
+        guard match.numberOfRanges >= 4 else { return nil }
 
         guard let cutoffMonthRange = Range(match.range(at: 2), in: text),
               let cutoffYearRange = Range(match.range(at: 3), in: text) else { return nil }

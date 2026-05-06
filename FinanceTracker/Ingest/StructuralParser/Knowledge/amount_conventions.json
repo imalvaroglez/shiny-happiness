@@ -42,6 +42,16 @@
       "credit_sign": 1,
       "detect_hint": "Some amounts appear as (1,234.56)",
       "sourced_from": "Generic convention — not yet observed in current samples"
+    },
+    {
+      "id": "trailing_minus",
+      "description": "Bare $ amount = charge (negative). Amount with trailing minus sign ($X.XX-) = payment/credit (positive).",
+      "charge_sign": -1,
+      "credit_sign": 1,
+      "credit_marker": "-",
+      "credit_marker_position": "after_amount",
+      "detect_hint": "Look for amounts ending with '-' like '$19,223.30-'",
+      "sourced_from": "Banorte POR Ti EdoCta 202208.pdf — charges are '$181.54', payments are '$19,223.30-'"
     }
   ],
 
@@ -59,6 +69,14 @@
       "capture_groups": ["value"],
       "value_transform": "remove_commas",
       "sourced_from": "Openbank Mexico 202508.pdf — '$ 25,000.00 $ 0.00'"
+    },
+    {
+      "id": "mxn_trailing_minus",
+      "regex": "\\$\\s*([\\d,]+\\.?\\d*)\\s*-",
+      "capture_groups": ["value"],
+      "value_transform": "remove_commas",
+      "is_credit": true,
+      "sourced_from": "Banorte POR Ti EdoCta 202208.pdf — '$19,223.30-' means payment (credit)"
     }
   ]
 }
