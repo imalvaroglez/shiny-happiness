@@ -73,18 +73,6 @@
       "priority": 5
     },
     {
-      "pattern": "(?i)TRANSFERENCIA\\s*SPEI|SPEI",
-      "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 5
-    },
-    {
-      "pattern": "(?i)SPEI\\s*ENVIADA|TRANSFERENCIA\\s*ENVIADA",
-      "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 6
-    },
-    {
       "pattern": "(?i)COMISION|COMISI[NÓ]N",
       "merchant": "",
       "category": "Fees & Charges.Bank Fees",
@@ -177,25 +165,11 @@
       "_comment": "Rent payment via labeled SPEI"
     },
     {
-      "pattern": "(?i)^Pago (AMEX|TDC|tdc)",
-      "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 94,
-      "_comment": "Credit card payment via labeled SPEI"
-    },
-    {
       "pattern": "(?i)^Volaris",
       "merchant": "",
       "category": "Travel.Flights",
       "priority": 85,
       "_comment": "Airline payment via labeled SPEI"
-    },
-    {
-      "pattern": "(?i)^deposito$",
-      "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 85,
-      "_comment": "Generic deposit to another account"
     },
     {
       "pattern": "(?i)Abono de intereses",
@@ -212,53 +186,60 @@
       "_comment": "Openbank Apartados income tax withholding"
     },
     {
-      "pattern": "(?i)SPEI enviada a 2now",
+      "pattern": "(?i)SPEI enviada a Priority.*BANAMEX",
       "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 85,
-      "_comment": "Payment to 2now credit card (HSBC)"
+      "category": "Transfers.To Own Accounts",
+      "priority": 87,
+      "_comment": "Transfer to own Banamex Priority debit account"
     },
     {
-      "pattern": "(?i)SPEI enviada a Priority",
+      "pattern": "(?i)SPEI enviada a 2now.*HSBC",
       "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 85,
-      "_comment": "Transfer to own Banamex Priority"
+      "category": "Transfers.Credit Card Payments",
+      "priority": 87,
+      "_comment": "Payment to 2now credit card at HSBC"
     },
     {
-      "pattern": "(?i)SPEI enviada a Nu",
+      "pattern": "(?i)SPEI enviada a Nu.*NU MEXICO",
       "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 85,
+      "category": "Transfers.To Own Accounts",
+      "priority": 87,
       "_comment": "Transfer to own Nu account"
-    },
-    {
-      "pattern": "(?i)SPEI enviada a.*INVEX Volaris",
-      "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 86,
-      "_comment": "Payment to Volaris INVEX credit card, NOT a flight"
-    },
-    {
-      "pattern": "(?i)SPEI enviada a Moneypool",
-      "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 85,
-      "_comment": "Moneypool transfer"
     },
     {
       "pattern": "(?i)SPEI enviada a TDC Explora",
       "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 85,
-      "_comment": "TDC Explora credit card payment"
+      "category": "Transfers.Credit Card Payments",
+      "priority": 87,
+      "_comment": "Payment to TDC Explora credit card"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a.*INVEX Volaris",
+      "merchant": "",
+      "category": "Transfers.Credit Card Payments",
+      "priority": 87,
+      "_comment": "Payment to Volaris INVEX credit card"
     },
     {
       "pattern": "(?i)SPEI enviada a BBVA 2855",
       "merchant": "",
-      "category": "Transfers.SPEI Transfer",
-      "priority": 85,
-      "_comment": "Transfer to own BBVA account"
+      "category": "Transfers.To Own Accounts",
+      "priority": 87,
+      "_comment": "Transfer to BBVA — reclassify when statements added"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a Explora.*BANAMEX",
+      "merchant": "",
+      "category": "Transfers.Credit Card Payments",
+      "priority": 87,
+      "_comment": "Payment to Explora card via BANAMEX"
+    },
+    {
+      "pattern": "(?i)SPEI enviada a Moneypool",
+      "merchant": "",
+      "category": "Transfers.To Own Accounts",
+      "priority": 87,
+      "_comment": "Transfer to own Moneypool pooling account"
     }
   ]
 }
