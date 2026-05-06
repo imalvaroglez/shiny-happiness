@@ -54,7 +54,7 @@ struct HeaderVocabulary: Sendable {
         sectionEndMarkers.contains { text.localizedCaseInsensitiveContains($0) }
     }
 
-    private init(from json: [String: Any]) {
+    init(from json: [String: Any]) {
         func strings(_ key: String) -> [String] { json[key] as? [String] ?? [] }
         func stringDict(_ key: String) -> [String: [String]] {
             (json[key] as? [String: Any] ?? [:]).mapValues { $0 as? [String] ?? [] }
