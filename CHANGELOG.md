@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+**Apply to Similar — review matching transactions before applying**
+- `ApplyToSimilarView.swift`: Replaced simple count+confirm sheet with scrollable list of all matching transactions showing date, description (80 chars), and amount per row
+- Each row has a checkbox (default: checked); user can uncheck transactions they don't want recategorized
+- Footer: "Just This One" (left) + "Apply to Selected (N)" (right, shows checked count, disabled when N=0)
+- CategoryRule is only created if at least one transaction beyond the original is selected
+- Pattern shown at top for user review
+
 ### Fixed
 
 **Apartado (savings) deposit parsing — interest, ISR, deposits now extracted**
