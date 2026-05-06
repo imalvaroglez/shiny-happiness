@@ -8,17 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-**Critical Bugfix — KnowledgeLoader month map type mismatch**
-- `KnowledgeLoader.swift`: Fixed `DatePatterns.load()` — JSON month maps use integer values (`"Ene": 1`) but code cast as `[String: String]` which always returned nil, making all month maps empty. Changed to `[String: Any]` with explicit Int/String handling. This was the root cause of 0 transactions from every PDF.
-- `project.yml`: Added seed data and knowledge JSON resources to test target so tests exercise real JSON loading, not hardcoded structs
-- `StructuralParserTests.swift`: Replaced 170+ lines of hardcoded `HeaderVocabulary`, `DatePatterns`, `AmountConventions` with `StructuralParser()` which loads from bundled JSON
+**Dashboard shows $0 even with imported transactions**
+- `DashboardView.swift`: Changed "All" date range from 2020-01-01 start to `Date.distantPast` — Amex PDF has 2018-2019 transactions that fell outside the hardcoded range
+- `DashboardView.swift`: Default selected period changed from `.year` (2026 only) to `.all` so newly imported data appears immediately
+- `DashboardView.swift`: Added `.onAppear` to refresh data when navigating back to dashboard
+- `DashboardViewModel.swift`: Added diagnostic NSLog in `refresh()` logging transaction count and date range
 
 ### Added
 
-**TDD Hardening**
-- `KnowledgeLoaderTests.swift` — 8 tests verifying `DatePatterns.load()`, `HeaderVocabulary.load()`, `AmountConventions.load()` from bundle: month maps non-empty with correct values, all keyword categories populated, `StructuralParser()` init succeeds
-- `EndToEndPDFTests.swift` — Full pipeline integration tests: Amex PDF produces transactions with credits/charges, Openbank PDF produces transactions with deposits/withdrawals, verifies known transaction "PAGO RECIBIDO"
-- `ImportView.swift`: Error details now displayed below each report row when errors exist
+**Transactions View**
+- `TransactionsView.swift`: Real transaction list replacing placeholder — `@Query` sorted by date desc, searchable by description/merchant, amount colored green (positive) / default (negative), category badge pills per row
+
+**Settings View**
+- `SettingsView.swift`: Real settings replacing placeholder — Accounts section listing all `Account` records with type/currency/transaction count, Data section with stats and delete-all button with confirmation, About section with app version
 
 ### Removed
 
