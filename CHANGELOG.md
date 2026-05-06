@@ -11,8 +11,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Dashboard accuracy fix — expenses $831→~$100K, net worth -$2M→~$462K→$49K**
 - `SeedDataLoader.swift`: Replaced early-return when categories exist with incremental rule sync — now compares JSON rules against DB by `patternRegex` and inserts only new rules, so added rules load on next app launch
 - `StructuralParser.swift`: Wired `MerchantExtractor` into all 5 `RawTransaction` creation sites (was hardcoded `""`). SPEI descriptions containing "; Transferencia SPEI" extract text before semicolon as merchant
-- `DashboardViewModel.swift`: `computeNetWorth` now excludes `.transfer` transactions from cumulative sum, preventing double-counting of internal transfers
 - `category_rules.json`: Added 7 SPEI destination-specific rules (2now, Priority, Nu, INVEX Volaris, Moneypool, TDC Explora, BBVA 7777) at priority 85
+
+**SPEI transfers counted as real income/expenses**
+- `DashboardViewModel.swift`: `computeTotals`, `computeMonthlyCashFlow`, and `computeSpendingByCategory` now only exclude "Internal Transfer" (Débito↔Apartado sweeps), not all transfers. SPEI transfers are counted based on amount sign — outgoing SPEI as expenses, incoming SPEI as income. This reflects the Openbank-only perspective where money leaving via SPEI is a real outflow.
+- Updated `OpenbankMultiAccountTests` to verify SPEI transfers appear in income/expenses while internal transfers remain excluded
 
 **Net worth anchored to statement closing balances**
 - `StructuralParser.swift`: New `extractStatementSummary` method parses "Saldo final" and "Saldo inicial" from "Resumen del periodo" sections in Openbank PDFs
