@@ -26,6 +26,7 @@
 		4B60FF8D682E21BA2A16F185 /* header_vocabulary.json in Resources */ = {isa = PBXBuildFile; fileRef = 45CC98CFD6E5ADACC4120ED2 /* header_vocabulary.json */; };
 		4FC9FBFC9081EA63E3FE08DC /* Detector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BCBC99E7AEEF97CC146320 /* Detector.swift */; };
 		5A66C861137A24400C347A29 /* Categorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE428DF09B8C498ED13287B0 /* Categorizer.swift */; };
+		66B3D86239B373D1126F9E10 /* ColumnDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180C8C80B7814CCAC01438A1 /* ColumnDetectorTests.swift */; };
 		67C2E17E0F840DEB49B58867 /* Category.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5968E2E2BFBEF7C9DA25BE07 /* Category.swift */; };
 		6B10DFBF6B32F7DB37BB4991 /* RawTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 084ECD2379C85611D120A356 /* RawTransaction.swift */; };
 		6C536F153D2CE8B50657000A /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8573C4DA0BD52C0E219ABFF9 /* Logger.swift */; };
@@ -38,6 +39,7 @@
 		9972F4A7520C93AF3B3605AC /* AccountType.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0EB885128E2A69A17B135B /* AccountType.swift */; };
 		9C70B77813655A009995FF23 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5A2A1E39B077344ABA252C5 /* AppContainer.swift */; };
 		A1AD6EE4E5C7D5AA5584BD27 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989ACDB4A037230E6C8E9080 /* Account.swift */; };
+		A766ECFBB9300ACB31EE2783 /* ColumnDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24F0AF2908D79A4B7A1865F5 /* ColumnDetector.swift */; };
 		A80162D0C239BF1AE0375EC1 /* CategoryKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BAE6FB9D105F2781DB4D41F /* CategoryKind.swift */; };
 		ACFEAAED6B529403CCDD9B4F /* Deduplicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2C79047686612150D874D7 /* Deduplicator.swift */; };
 		B209C9963D854A879C675973 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AEE9B7A28C2B8F8F246426D /* DashboardView.swift */; };
@@ -67,11 +69,13 @@
 /* Begin PBXFileReference section */
 		04914B517C9B033CAEAC9321 /* DashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViewModel.swift; sourceTree = "<group>"; };
 		084ECD2379C85611D120A356 /* RawTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawTransaction.swift; sourceTree = "<group>"; };
+		180C8C80B7814CCAC01438A1 /* ColumnDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnDetectorTests.swift; sourceTree = "<group>"; };
 		1BAE6FB9D105F2781DB4D41F /* CategoryKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryKind.swift; sourceTree = "<group>"; };
 		1E9C62014293BDC9D69DF68D /* SemanticNormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticNormalizerTests.swift; sourceTree = "<group>"; };
 		1FB65023CF7A1B1F76EF7C4F /* FileFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileFormat.swift; sourceTree = "<group>"; };
 		214B9E639E6F606CAD054CB4 /* SemanticNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticNormalizer.swift; sourceTree = "<group>"; };
 		23B2A8EE8B8D6A8999231F0C /* AmexMexicoParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmexMexicoParserTests.swift; sourceTree = "<group>"; };
+		24F0AF2908D79A4B7A1865F5 /* ColumnDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnDetector.swift; sourceTree = "<group>"; };
 		258ACDAAC6B78C5485F65FCB /* category_rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = category_rules.json; sourceTree = "<group>"; };
 		27BCBC99E7AEEF97CC146320 /* Detector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Detector.swift; sourceTree = "<group>"; };
 		2C2C79047686612150D874D7 /* Deduplicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deduplicator.swift; sourceTree = "<group>"; };
@@ -302,6 +306,7 @@
 			isa = PBXGroup;
 			children = (
 				D42A3EBCD2C024E11320BCBC /* Knowledge */,
+				24F0AF2908D79A4B7A1865F5 /* ColumnDetector.swift */,
 				214B9E639E6F606CAD054CB4 /* SemanticNormalizer.swift */,
 			);
 			path = StructuralParser;
@@ -364,6 +369,7 @@
 		F26717A89CE76AC9C94CBDDC /* StructuralParserTests */ = {
 			isa = PBXGroup;
 			children = (
+				180C8C80B7814CCAC01438A1 /* ColumnDetectorTests.swift */,
 				1E9C62014293BDC9D69DF68D /* SemanticNormalizerTests.swift */,
 			);
 			path = StructuralParserTests;
@@ -484,6 +490,7 @@
 				67C2E17E0F840DEB49B58867 /* Category.swift in Sources */,
 				A80162D0C239BF1AE0375EC1 /* CategoryKind.swift in Sources */,
 				EADBE2FB305A7B4241D78F74 /* CategoryRule.swift in Sources */,
+				A766ECFBB9300ACB31EE2783 /* ColumnDetector.swift in Sources */,
 				B209C9963D854A879C675973 /* DashboardView.swift in Sources */,
 				01ADF3D5CAF204A04508A358 /* DashboardViewModel.swift in Sources */,
 				3E08E1FC36634352EE090146 /* Date+Period.swift in Sources */,
@@ -518,6 +525,7 @@
 			files = (
 				40AA5D56C191AF5969E07208 /* AmexMexicoParserTests.swift in Sources */,
 				DF35C549A740C53F50C47C0A /* CategorizerTests.swift in Sources */,
+				66B3D86239B373D1126F9E10 /* ColumnDetectorTests.swift in Sources */,
 				84C26FBE7AA03147CD3EE328 /* DeduplicatorTests.swift in Sources */,
 				D4A27D48A989F8E35061F16C /* IngestPipelineTests.swift in Sources */,
 				2B541DA9B52145C4D8CE7533 /* NormalizerTests.swift in Sources */,
