@@ -32,6 +32,7 @@ final class DashboardViewModel {
     var totalIncome: Decimal = 0
     var totalExpenses: Decimal = 0
     var totalTransactions: Int = 0
+    var currentNetWorth: Decimal = 0
 
     var dateRange: DateRange = .year(.now)
 
@@ -55,7 +56,7 @@ final class DashboardViewModel {
 
         computeMonthlyCashFlow(transactions)
         computeSpendingByCategory(transactions)
-        computeNetWorth(transactions)
+        computeNetWorthFromStatements()
         computeTotals(transactions)
 
         var recentDescriptor = FetchDescriptor<Transaction>(
@@ -123,21 +124,65 @@ final class DashboardViewModel {
         }.sorted { $0.amount > $1.amount }
     }
 
-    private func computeNetWorth(_ transactions: [Transaction]) {
-        let calendar = Calendar(identifier: .gregorian)
-        var cumulative: Decimal = 0
-        var monthBalances: [Date: Decimal] = [:]
+    private func computeNetWorthFromStatements() {
+        guard let context else { return }
 
-        let sorted = transactions.filter { !$0.isDuplicate }.sorted { $0.postedAt < $1.postedAt }
+        let descriptor = FetchDescriptor<Statement>(
+            sortBy: [SortDescriptor(\.periodEnd, order: .forward)]
+        )
+        guard let statements = try? context.fetch(descriptor) else { return }
 
-        for tx in sorted {
-            if tx.category?.kind == .transfer { continue }
-            cumulative += tx.amount
-            let month = calendar.date(from: calendar.dateComponents([.year, .month], from: tx.postedAt))!
-            monthBalances[month] = cumulative
+        guard !statements.isEmpty else {
+            netWorthOverTime = []
+            currentNetWorth = 0
+            return
         }
 
-        netWorthOverTime = monthBalances.map { month, balance in
+        let calendar = Calendar(identifier: .gregorian)
+
+        var latestByAccount: [UUID: Statement] = [:]
+        for stmt in statements {
+            guard let accountId = stmt.account?.id else { continue }
+            if let existing = latestByAccount[accountId] {
+                if stmt.periodEnd > existing.periodEnd {
+                    latestByAccount[accountId] = stmt
+                }
+            } else {
+                latestByAccount[accountId] = stmt
+            }
+        }
+
+        currentNetWorth = latestByAccount.values.compactMap(\.closingBalance).reduce(0, +)
+
+        var monthTotals: [Date: Decimal] = [:]
+
+        let allDates = statements.compactMap(\.periodEnd)
+        guard let earliestDate = allDates.min(), let latestDate = allDates.max() else { return }
+
+        var currentMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: earliestDate))!
+        let endMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: latestDate))!
+
+        var lastKnownBalance: [UUID: Decimal] = [:]
+
+        while currentMonth <= endMonth {
+            let nextMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth)!
+
+            for stmt in statements {
+                guard let accountId = stmt.account?.id,
+                      let balance = stmt.closingBalance else { continue }
+                if stmt.periodEnd >= currentMonth && stmt.periodEnd < nextMonth {
+                    lastKnownBalance[accountId] = balance
+                }
+            }
+
+            if !lastKnownBalance.isEmpty {
+                monthTotals[currentMonth] = lastKnownBalance.values.reduce(0, +)
+            }
+
+            currentMonth = nextMonth
+        }
+
+        netWorthOverTime = monthTotals.map { month, balance in
             NetWorthPoint(month: month, balance: balance)
         }.sorted { $0.month < $1.month }
     }

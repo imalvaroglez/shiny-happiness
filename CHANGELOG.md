@@ -14,6 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `DashboardViewModel.swift`: `computeNetWorth` now excludes `.transfer` transactions from cumulative sum, preventing double-counting of internal transfers
 - `category_rules.json`: Added 7 SPEI destination-specific rules (2now, Priority, Nu, INVEX Volaris, Moneypool, TDC Explora, BBVA 7777) at priority 85
 
+**Net worth anchored to statement closing balances**
+- `StructuralParser.swift`: New `extractStatementSummary` method parses "Saldo final" and "Saldo inicial" from "Resumen del periodo" sections in Openbank PDFs
+- `ParsedSection.swift`: Added `openingBalance: Decimal?` and `closingBalance: Decimal?` fields
+- `Statement.swift`: Added `openingBalance: Decimal?` and `closingBalance: Decimal?` — stored on each Statement during ingest
+- `IngestPipeline.swift`: Passes balance data from `ParsedSection` to `Statement` on creation
+- `DashboardViewModel.swift`: `computeNetWorth` completely rewritten — now fetches all `Statement` records, finds latest per account, sums their `closingBalance` values. Time series plots each month's total using each account's most recent closing balance. No transaction summation
+- `DashboardView.swift`: Summary cards now show "Net Worth" (from statements) instead of "Net" (income + expenses)
+- 6 new tests: balance extraction from Jan/Feb/Mar PDFs, persistence verification, net worth accuracy ($49,371.09 for March 2026)
+
 ### Added
 
 **Multi-account PDF parsing — Openbank Débito + Apartados**

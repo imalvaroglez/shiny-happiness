@@ -5,6 +5,8 @@ struct ParsedSection {
     let accountType: AccountType?
     let accountNumber: String?
     let nickname: String?
+    let openingBalance: Decimal?
+    let closingBalance: Decimal?
     let transactions: [RawTransaction]
 
     static func single(_ transactions: [RawTransaction]) -> ParsedSection {
@@ -13,6 +15,8 @@ struct ParsedSection {
             accountType: nil,
             accountNumber: nil,
             nickname: nil,
+            openingBalance: nil,
+            closingBalance: nil,
             transactions: transactions
         )
     }
