@@ -6,12 +6,16 @@ struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = DashboardViewModel()
     @State private var selectedRange: TimeRange = .all
+    @State private var customStart = Date().addingTimeInterval(-90 * 86400)
+    @State private var customEnd = Date()
+    @State private var showingCustomRange = false
 
     enum TimeRange: String, CaseIterable {
         case month = "Month"
         case quarter = "Quarter"
         case year = "Year"
         case all = "All"
+        case custom = "Custom"
 
         var dateRange: DateRange {
             let now = Date()
@@ -25,6 +29,8 @@ struct DashboardView: View {
             case .year:
                 return .year(now)
             case .all:
+                return DateRange(start: .distantPast, end: now)
+            case .custom:
                 return DateRange(start: .distantPast, end: now)
             }
         }
@@ -51,8 +57,15 @@ struct DashboardView: View {
             viewModel.refresh()
         }
         .onChange(of: selectedRange) {
-            viewModel.dateRange = selectedRange.dateRange
-            viewModel.refresh()
+            if selectedRange == .custom {
+                showingCustomRange = true
+            } else {
+                viewModel.dateRange = selectedRange.dateRange
+                viewModel.refresh()
+            }
+        }
+        .popover(isPresented: $showingCustomRange) {
+            customDatePopover
         }
     }
 
@@ -168,18 +181,22 @@ struct DashboardView: View {
     }
 
     private var spendingDonut: some View {
-        VStack(alignment: .leading) {
+        let topCategories = Array(viewModel.spendingByCategory.prefix(8))
+        let totalAmount = topCategories.reduce(Decimal.zero) { $0 + $1.amount }
+
+        return VStack(alignment: .leading) {
             Text("Spending by Category")
                 .font(.headline)
-            Chart(viewModel.spendingByCategory.prefix(8)) { entry in
+            Chart(topCategories) { entry in
+                let idx = topCategories.firstIndex(where: { $0.id == entry.id }) ?? 0
                 SectorMark(
                     angle: .value("Amount", entry.amount),
                     innerRadius: .ratio(0.5),
                     angularInset: 1.5
                 )
-                .foregroundStyle(colorForCategory(entry.category.name))
+                .foregroundStyle(colorForIndex(idx))
                 .annotation(position: .overlay) {
-                    if entry.amount > viewModel.spendingByCategory.prefix(8).reduce(Decimal.zero) { $0 + $1.amount } / 5 {
+                    if entry.amount > totalAmount / 5 {
                         VStack(spacing: 2) {
                             Text(entry.category.name)
                                 .font(.caption2)
@@ -193,10 +210,10 @@ struct DashboardView: View {
             }
             .frame(height: 250)
 
-            ForEach(viewModel.spendingByCategory.prefix(8)) { entry in
+            ForEach(Array(zip(topCategories.indices, topCategories)), id: \.1.id) { index, entry in
                 HStack {
                     Circle()
-                        .fill(colorForCategory(entry.category.name))
+                        .fill(colorForIndex(index))
                         .frame(width: 8, height: 8)
                     Text(entry.category.name)
                         .font(.caption)
@@ -243,6 +260,31 @@ struct DashboardView: View {
         .padding(40)
     }
 
+    private var customDatePopover: some View {
+        VStack(spacing: 16) {
+            Text("Custom Date Range")
+                .font(.headline)
+            DatePicker("From", selection: $customStart, displayedComponents: .date)
+            DatePicker("To", selection: $customEnd, in: ...Date(), displayedComponents: .date)
+            HStack {
+                Button("Cancel") {
+                    selectedRange = .all
+                    showingCustomRange = false
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Apply") {
+                    viewModel.dateRange = DateRange(start: customStart, end: customEnd)
+                    viewModel.refresh()
+                    showingCustomRange = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(width: 280)
+    }
+
     private func formatMoney(_ amount: Decimal) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
@@ -251,9 +293,14 @@ struct DashboardView: View {
     }
 
     private func colorForCategory(_ name: String) -> Color {
-        let colors: [Color] = [.blue, .green, .orange, .purple, .pink, .yellow, .teal, .indigo]
+        let colors: [Color] = [.blue, .green, .orange, .purple, .pink, .yellow, .teal, .indigo, .mint, .cyan]
         let index = abs(name.hashValue) % colors.count
         return colors[index]
+    }
+
+    private func colorForIndex(_ index: Int) -> Color {
+        let colors: [Color] = [.blue, .green, .orange, .purple, .pink, .yellow, .teal, .indigo, .mint, .cyan]
+        return colors[index % colors.count]
     }
 }
 

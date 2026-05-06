@@ -104,6 +104,10 @@ final class DashboardViewModel {
         var spending: [ObjectIdentifier: Decimal] = [:]
         var categoryMap: [ObjectIdentifier: Category] = [:]
 
+        let uncategorizedSentinel = Category(name: "Uncategorized", kind: .expense)
+        let uncategorizedKey = ObjectIdentifier(uncategorizedSentinel)
+        categoryMap[uncategorizedKey] = uncategorizedSentinel
+
         for tx in transactions {
             guard !tx.isDuplicate else { continue }
             if tx.category?.name == "Internal Transfer" { continue }
@@ -113,9 +117,7 @@ final class DashboardViewModel {
                 key = ObjectIdentifier(cat)
                 categoryMap[key] = cat
             } else {
-                let uncategorized = Category(name: "Uncategorized", kind: .expense)
-                key = ObjectIdentifier(uncategorized)
-                categoryMap[key] = uncategorized
+                key = uncategorizedKey
             }
             spending[key, default: 0] += abs(tx.amount)
         }

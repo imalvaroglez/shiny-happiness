@@ -198,7 +198,7 @@
       "_comment": "Generic deposit to another account"
     },
     {
-      "pattern": "(?i)^Abono de intereses$",
+      "pattern": "(?i)Abono de intereses",
       "merchant": "",
       "category": "Income.Interest",
       "priority": 90,

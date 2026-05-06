@@ -246,13 +246,13 @@ final class IngestPipeline {
             if let existing = try? context.fetch(descriptor).first {
                 return existing
             }
-        } else {
-            let descriptor = FetchDescriptor<Account>(
-                predicate: #Predicate<Account> { $0.institution == institutionName }
-            )
-            if let existing = try? context.fetch(descriptor).first {
-                return existing
-            }
+        }
+
+        let institutionDescriptor = FetchDescriptor<Account>(
+            predicate: #Predicate<Account> { $0.institution == institutionName }
+        )
+        if let existing = (try? context.fetch(institutionDescriptor))?.first(where: { $0.type == sectionType }) {
+            return existing
         }
 
         let displayName = sectionNickname ?? institutionName

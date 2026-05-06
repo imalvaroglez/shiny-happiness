@@ -45,15 +45,16 @@ struct TransactionsView: View {
         .sheet(isPresented: $showingCategoryPicker) {
             if let tx = selectedTransaction {
                 CategoryPickerView(transaction: tx) { category, keyword in
+                    tx.category = category
+                    try? modelContext.save()
                     pendingCategory = category
                     pendingKeyword = keyword
-                    if keyword != nil {
-                        showingApplyToSimilar = true
-                    } else {
-                        tx.category = category
-                        try? modelContext.save()
-                    }
                 }
+            }
+        }
+        .onChange(of: showingCategoryPicker) {
+            if !showingCategoryPicker, pendingCategory != nil, pendingKeyword != nil {
+                showingApplyToSimilar = true
             }
         }
         .sheet(isPresented: $showingApplyToSimilar) {
@@ -63,6 +64,12 @@ struct TransactionsView: View {
                     category: cat,
                     keyword: pendingKeyword
                 )
+            }
+        }
+        .onChange(of: showingApplyToSimilar) {
+            if !showingApplyToSimilar {
+                pendingCategory = nil
+                pendingKeyword = nil
             }
         }
     }
