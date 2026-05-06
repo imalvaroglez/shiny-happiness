@@ -1,0 +1,87 @@
+{
+  "_comment": "Maps header text found in bank statement PDFs to semantic column roles. Sourced from analysis of real Mexican bank statements.",
+
+  "date_column": [
+    "Fecha",
+    "Date",
+    "Fch",
+    "Dia"
+  ],
+
+  "description_column": [
+    "Detalle",
+    "Concepto",
+    "Descripción",
+    "Description",
+    "Operaciones",
+    "Movimiento",
+    "Referencia"
+  ],
+
+  "amount_column": [
+    "Importe",
+    "Monto",
+    "Cargo",
+    "Abono",
+    "Amount",
+    "Débito",
+    "Crédito"
+  ],
+
+  "debit_column": [
+    "Retiro",
+    "Cargo",
+    "Débito",
+    "Withdrawal",
+    "Debit"
+  ],
+
+  "credit_column": [
+    "Depósito",
+    "Abono",
+    "Crédito",
+    "Deposit",
+    "Credit"
+  ],
+
+  "balance_column": [
+    "Saldo",
+    "Balance"
+  ],
+
+  "combined_headers": {
+    "_comment": "Headers that span multiple semantic roles. Key is the exact or partial header text. Value is the list of column roles it represents.",
+
+    "Fecha y Detalle de las operaciones": ["date_column", "description_column"],
+    "Fecha Concepto Depósito Retiro Saldo": ["date_column", "description_column", "credit_column", "debit_column", "balance_column"],
+    "Detalle de tus transacciones": ["description_column"],
+    "Importe en MN": ["amount_column"],
+    "Importe en M.N.": ["amount_column"]
+  },
+
+  "section_start_markers": [
+    "Fecha y Detalle de las operaciones",
+    "Detalle de Transacciones",
+    "Detalle de Cargo",
+    "DETALLE DE TRANSACCIONES",
+    "Detalle de tus transacciones",
+    "TARJETA TITULAR",
+    "TARJETA ADICIONAL"
+  ],
+
+  "section_end_markers": [
+    "Total de las transacciones",
+    "Total de Mensualidades",
+    "Transacciones de Mensualidades",
+    "Número de Cuenta",
+    "Pago Mínimo",
+    "Fecha límite",
+    "Pago para no generar",
+    "Resumen de Crédito",
+    "Llamamos",
+    "CAT ",
+    "Tasa de Interés",
+    "Consolidado de compras",
+    "Resumen de Mensualidades"
+  ]
+}
