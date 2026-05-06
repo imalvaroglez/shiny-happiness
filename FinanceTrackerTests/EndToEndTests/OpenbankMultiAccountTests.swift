@@ -145,4 +145,35 @@ struct OpenbankMultiAccountTests {
         #expect(checkingAccounts.count == 1, "Should have exactly 1 checking account")
         #expect(savingsAccounts.count == 1, "Should have exactly 1 savings account")
     }
+
+    @Test("Apartado section parses deposits, interest, and ISR — not just withdrawals")
+    func testApartadoDepositTransactions() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let pipeline = IngestPipeline(context: context)
+        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        _ = await pipeline.ingest(files: [url])
+
+        let transactions = try context.fetch(FetchDescriptor<Transaction>())
+        let savingsAccount = try context.fetch(FetchDescriptor<Account>()).first { $0.type == .savings }
+        #expect(savingsAccount != nil, "Should have a savings account")
+
+        let apartadoTx = transactions.filter { $0.account?.id == savingsAccount?.id }
+        #expect(apartadoTx.count >= 40, "Apartado should have at least 40 transactions (interest + deposits + withdrawals + ISR), got \(apartadoTx.count)")
+
+        let interestTx = apartadoTx.filter { $0.descriptionRaw.localizedCaseInsensitiveContains("intereses") }
+        #expect(interestTx.count >= 20, "Should have at least 20 'Abono de intereses' transactions, got \(interestTx.count)")
+
+        let isrTx = apartadoTx.filter { $0.descriptionRaw.localizedCaseInsensitiveContains("ISR") }
+        #expect(isrTx.count >= 10, "Should have at least 10 'ISR retenido' transactions, got \(isrTx.count)")
+
+        let depositTx = apartadoTx.filter { $0.descriptionRaw.localizedCaseInsensitiveContains("Abono desde") }
+        #expect(depositTx.count >= 10, "Should have at least 10 'Abono desde' deposit transactions, got \(depositTx.count)")
+
+        let interestIncome = interestTx.filter { $0.amount > 0 }.reduce(Decimal.zero) { $0 + $1.amount }
+        #expect(interestIncome > 3000, "Interest income should be >$3000 for January, got \(interestIncome)")
+    }
 }

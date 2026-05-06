@@ -8,6 +8,10 @@ struct CategoryPickerView: View {
     let transaction: Transaction
     let onCategorySelected: (Category, String?) -> Void
 
+    @State private var showingNewCategory = false
+    @State private var newCategoryName = ""
+    @State private var newCategoryKind: CategoryKind = .expense
+
     private var groupedCategories: [(kind: CategoryKind, categories: [Category])] {
         let parents = categories.filter { $0.parent == nil }
         let kinds: [CategoryKind] = [.expense, .income, .transfer, .investment]
@@ -43,9 +47,68 @@ struct CategoryPickerView: View {
                         }
                     }
                 }
+
+                Button {
+                    showingNewCategory = true
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("New Category")
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+
+            .sheet(isPresented: $showingNewCategory) {
+                newCategoryForm
             }
         }
         .frame(minWidth: 300, minHeight: 400)
+    }
+
+    private var newCategoryForm: some View {
+        VStack(spacing: 16) {
+            Text("New Category")
+                .font(.headline)
+
+            TextField("Category name", text: $newCategoryName)
+                .textFieldStyle(.roundedBorder)
+
+            Picker("Kind", selection: $newCategoryKind) {
+                Text("Expense").tag(CategoryKind.expense)
+                Text("Income").tag(CategoryKind.income)
+                Text("Transfer").tag(CategoryKind.transfer)
+            }
+            .pickerStyle(.segmented)
+
+            HStack {
+                Button("Cancel") {
+                    showingNewCategory = false
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Create & Apply") {
+                    guard !newCategoryName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                    let category = Category(name: newCategoryName.trimmingCharacters(in: .whitespaces), kind: newCategoryKind)
+                    modelContext.insert(category)
+                    try? modelContext.save()
+
+                    let keyword = MerchantExtractor.extractMerchant(from: transaction.descriptionRaw)
+                    onCategorySelected(category, keyword)
+                    showingNewCategory = false
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(newCategoryName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 320)
     }
 
     private func categoryRow(_ category: Category, depth: Int = 0) -> some View {

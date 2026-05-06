@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+**Apartado (savings) deposit parsing — interest, ISR, deposits now extracted**
+- `StructuralParser.swift`: `parseWideHeaderTable` now detects cells that start with a date prefix but contain inline amounts (e.g. `02/01/26 Abono de intereses $ 214.80 $ 378,956.66`) and splits them via `parseSingleTransactionSegment` instead of discarding them
+- `StructuralParser.swift`: New `startsWithDatePrefix` check using unanchored regex for cells like `02/01/26 Retiro a Cuenta Débito` where the date is followed by description text
+- `StructuralParser.swift`: Added ISR to withdrawal keywords in wide-header parser so tax withholdings are correctly signed as negative
+- `StructuralParser.swift`: Split-column regex in `parseSingleTransactionSegment` now handles optional `+`/`-` signs before `$` amounts
+- `parseRows` falls through to `parseLineByLine` when `parseWideHeaderTable` and flow/grid return empty
+- Test: January Apartado now parses 40+ transactions including interest, ISR, deposits, and withdrawals
+
+**Category picker uses Button in Table column**
+- `TransactionsView.swift`: Category badge in Table column now uses `Button` instead of `.onTapGesture` — SwiftUI Table swallows tap gestures on cell content
+
+**New Category creation from picker**
+- `CategoryPickerView.swift`: Added "+" button that opens a sheet with name TextField + kind segmented Picker (Expense/Income/Transfer). "Create & Apply" creates the Category in ModelContext, applies it, and dismisses
+
 **Volaris INVEX rule corrected — credit card payment, not flight**
 - `category_rules.json`: Changed "SPEI enviada a.*INVEX Volaris" from `Travel.Flights` to `Transfers.SPEI Transfer` — this is a credit card payment, not a flight purchase
 

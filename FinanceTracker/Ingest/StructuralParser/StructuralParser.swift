@@ -165,22 +165,25 @@ struct StructuralParser: StatementParser {
 
     private func parseRows(_ rows: [TableRow], context: StatementContext?) -> [RawTransaction] {
         if let table = columnDetector.detectTable(in: rows) {
-            let result: [RawTransaction]
-            if table.columns.count >= 2, table.columns.allSatisfy({ abs($0.xCenter - table.columns[0].xCenter) < 50 }) {
-                result = parseWideHeaderTable(rows: rows, table: table, context: context)
-            } else {
-                switch table.layout {
-                case .flow:
-                    result = parseFlowTable(rows: rows, table: table, context: context)
-                case .grid:
-                    result = parseGridTable(rows: rows, table: table, context: context)
+            let allSameX = table.columns.count >= 2 && table.columns.allSatisfy({ abs($0.xCenter - table.columns[0].xCenter) < 50 })
+            if allSameX {
+                let gridResult = parseWideHeaderTable(rows: rows, table: table, context: context)
+                if !gridResult.isEmpty {
+                    return gridResult
                 }
             }
 
-            if result.isEmpty {
-                return parseLineByLine(rows: rows, context: context)
+            let result: [RawTransaction]
+            switch table.layout {
+            case .flow:
+                result = parseFlowTable(rows: rows, table: table, context: context)
+            case .grid:
+                result = parseGridTable(rows: rows, table: table, context: context)
             }
-            return result
+
+            if !result.isEmpty {
+                return result
+            }
         }
 
         return parseLineByLine(rows: rows, context: context)
@@ -198,7 +201,6 @@ struct StructuralParser: StatementParser {
             guard !lineText.isEmpty else { continue }
 
             if columnDetector.vocabulary.isSectionStart(lineText) {
-                Logger.parser.debug("Line parser: section start at row \(rowIndex): \(lineText.prefix(60))")
                 inTransactionSection = true
                 currentConvention = nil
                 pendingDateStr = nil
@@ -207,7 +209,6 @@ struct StructuralParser: StatementParser {
             }
 
             if columnDetector.vocabulary.isSectionEnd(lineText) {
-                Logger.parser.debug("Line parser: section end at row \(rowIndex): \(lineText.prefix(60))")
                 inTransactionSection = false
                 pendingDateStr = nil
                 pendingDescription = nil
@@ -218,40 +219,7 @@ struct StructuralParser: StatementParser {
 
             if lineText.contains("Fecha") && (lineText.contains("Concepto") || lineText.contains("Importe") || lineText.contains("Monto") || lineText.contains("Descripción")) {
                 currentConvention = detectConvention(from: lineText)
-                Logger.parser.debug("Line parser: header row, convention=\(currentConvention ?? "nil"): \(lineText.prefix(80))")
                 continue
-            }
-
-            if let pendingDate = pendingDateStr, let pendingDesc = pendingDescription {
-                let amountOnlyPattern = #"^\$?\s*(-?)([\d,]+\.?\d*)\s*(-?)$"#
-                if let regex = try? NSRegularExpression(pattern: amountOnlyPattern),
-                   let match = regex.firstMatch(in: lineText, range: NSRange(lineText.startIndex..., in: lineText)),
-                   let valueRange = Range(match.range(at: 2), in: lineText) {
-                    let leadingMinus = match.range(at: 1).length > 0
-                    let trailingMinus = match.range(at: 3).length > 0
-                    let valueStr = String(lineText[valueRange]).replacingOccurrences(of: ",", with: "")
-                    if let decimalValue = Decimal(string: valueStr) {
-                        let isCredit = leadingMinus || trailingMinus
-                        let amount: Decimal = isCredit ? abs(decimalValue) : -abs(decimalValue)
-
-                        if let parsedDate = normalizer.parseDate(pendingDate, context: context),
-                           parsedDate.confidence >= .low {
-                            let tx = RawTransaction(
-                                postedAt: parsedDate.fullDate ?? Date(),
-                                amount: amount,
-                                currency: "MXN",
-                                descriptionRaw: normalizer.normalizeDescription(pendingDesc),
-                                merchantNormalized: extractMerchant(from: pendingDesc),
-                                fxRateToBase: 1,
-                                isTransfer: false
-                            )
-                            transactions.append(tx)
-                        }
-                    }
-                    pendingDateStr = nil
-                    pendingDescription = nil
-                    continue
-                }
             }
 
             let parsed = parseSingleLine(lineText, context: context, convention: currentConvention)
@@ -342,6 +310,40 @@ struct StructuralParser: StatementParser {
     private func parseSingleTransactionSegment(_ segment: String, context: StatementContext?, convention: String?) -> RawTransaction? {
         let trimmed = segment.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
+
+        let splitColumnPattern = #"^(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s+(.+?)\s+[+-]?\s*\$\s*([\d,]+\.?\d*)\s+[+-]?\s*\$\s*([\d,]+\.?\d*)\s*$"#
+        if let regex = try? NSRegularExpression(pattern: splitColumnPattern, options: .caseInsensitive) {
+            let range = NSRange(trimmed.startIndex..., in: trimmed)
+            if let match = regex.firstMatch(in: trimmed, range: range),
+               let dateRange = Range(match.range(at: 1), in: trimmed),
+               let descRange = Range(match.range(at: 2), in: trimmed),
+               let amountRange = Range(match.range(at: 3), in: trimmed) {
+
+                let dateStr = String(trimmed[dateRange])
+                let descStr = String(trimmed[descRange])
+                let amountStr = String(trimmed[amountRange])
+
+                if let parsedDate = normalizer.parseDate(dateStr, context: context),
+                   parsedDate.confidence >= .low {
+                    let valueStr = amountStr.replacingOccurrences(of: ",", with: "")
+                    if let decimalValue = Decimal(string: valueStr) {
+                        let desc = cleanDescription(descStr)
+                        let isCredit = desc.lowercased().contains("abono") || desc.lowercased().contains("deposito") || desc.lowercased().contains("depósito")
+                        let amount: Decimal = isCredit ? abs(decimalValue) : -abs(decimalValue)
+
+                        return RawTransaction(
+                            postedAt: parsedDate.fullDate ?? Date(),
+                            amount: amount,
+                            currency: "MXN",
+                            descriptionRaw: normalizer.normalizeDescription(desc),
+                            merchantNormalized: extractMerchant(from: desc),
+                            fxRateToBase: 1,
+                            isTransfer: false
+                        )
+                    }
+                }
+            }
+        }
 
         let dateAmountPattern = #"^(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s+(.+)\s+\$\s*(-?)([\d,]+\.?\d*)\s*(-?)$"#
         guard let regex = try? NSRegularExpression(pattern: dateAmountPattern, options: .caseInsensitive) else { return nil }
@@ -595,7 +597,7 @@ struct StructuralParser: StatementParser {
         var transactions: [RawTransaction] = []
         let dataRows = Array(rows[table.dataRowRange])
 
-        for row in dataRows {
+        for (rowIdx, row) in dataRows.enumerated() {
             var dateStr: String?
             var descriptionParts: [String] = []
             var amountTexts: [String] = []
@@ -604,9 +606,30 @@ struct StructuralParser: StatementParser {
                 let text = cell.text.trimmingCharacters(in: .whitespaces)
                 guard !text.isEmpty else { continue }
 
-                if normalizer.parseDate(text, context: context) != nil {
+                let containsAmount = text.contains("$") || normalizer.looksLikeAmount(text)
+                let startsWithDate = normalizer.parseDate(text, context: context) != nil
+                let startsWithDatePrefix = text.range(of: #"^\d{1,2}/\d{1,2}/\d{2,4}\s"#, options: .regularExpression) != nil
+
+                if startsWithDate && !containsAmount {
                     dateStr = text
-                } else if text.contains("$") || normalizer.looksLikeAmount(text) {
+                } else if startsWithDatePrefix && containsAmount {
+                    let splitSegments = splitByDates(text)
+                    for segment in splitSegments {
+                        if let tx = parseSingleTransactionSegment(segment, context: context, convention: nil) {
+                            transactions.append(tx)
+                        }
+                    }
+                    dateStr = nil
+                    continue
+                } else if startsWithDatePrefix && !containsAmount {
+                    let datePrefixRegex = try? NSRegularExpression(pattern: #"^(\d{1,2}/\d{1,2}/\d{2,4})\s+(.+)$"#)
+                    if let match = datePrefixRegex?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+                       let dateRange = Range(match.range(at: 1), in: text),
+                       let descRange = Range(match.range(at: 2), in: text) {
+                        dateStr = String(text[dateRange])
+                        descriptionParts.append(String(text[descRange]))
+                    }
+                } else if containsAmount {
                     amountTexts.append(text)
                 } else {
                     descriptionParts.append(text)
@@ -630,7 +653,7 @@ struct StructuralParser: StatementParser {
             }
 
             let desc = descriptionParts.joined(separator: " ").lowercased()
-            let isWithdrawal = desc.contains("retiro") || desc.contains("enviada") || desc.contains("cargo")
+            let isWithdrawal = desc.contains("retiro") || desc.contains("enviada") || desc.contains("cargo") || desc.contains("isr")
             let finalAmount = isWithdrawal ? -abs(transactionAmount) : abs(transactionAmount)
 
             let tx = RawTransaction(
@@ -679,6 +702,14 @@ struct StructuralParser: StatementParser {
         }
 
         return (openingBalance, closingBalance)
+    }
+
+    private func cleanDescription(_ descStr: String) -> String {
+        descStr.replacingOccurrences(
+            of: #"\s+[A-Z]\s*[A-Z]?\s*$"#,
+            with: "",
+            options: .regularExpression
+        )
     }
 
     private func extractMerchant(from description: String) -> String {

@@ -126,11 +126,13 @@ struct TransactionsView: View {
             .width(min: 110, ideal: 130)
 
             TableColumn("Category") { tx in
-                categoryBadge(for: tx)
-                    .onTapGesture {
-                        selectedTransaction = tx
-                        showingCategoryPicker = true
-                    }
+                Button {
+                    selectedTransaction = tx
+                    showingCategoryPicker = true
+                } label: {
+                    categoryBadge(for: tx)
+                }
+                .buttonStyle(.plain)
             }
             .width(min: 130, ideal: 160)
         }
