@@ -138,6 +138,13 @@ struct StructuralParserTests {
                     month_map: "spanish_full",
                     sourced_from: nil
                 ),
+                DatePatterns.PeriodPattern(
+                    id: "suburbia_period",
+                    regex: "(\\d{1,2})/(\\w{3})/(\\d{2})\\s*-\\s*(\\d{1,2})/(\\w{3})/(\\d{2})",
+                    fields: ["start_day", "start_month_short", "start_year_short", "end_day", "end_month_short", "end_year_short"],
+                    month_map: "spanish_short",
+                    sourced_from: nil
+                ),
             ],
             monthMaps: [
                 "spanish_short": ["Ene": 1, "Feb": 2, "Mar": 3, "Abr": 4, "May": 5, "Jun": 6,
@@ -349,6 +356,50 @@ struct StructuralParserTests {
 
         let charges = transactions.filter { $0.amount < 0 }
         #expect(!charges.isEmpty, "Should detect at least one charge")
+    }
+
+    // MARK: - Suburbia (Line-based with DD/MM dates)
+
+    private var suburbiaPDF: URL {
+        URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/201607 Suburbia.pdf")
+    }
+
+    @Test("Parses Suburbia PDF and extracts transactions")
+    func parsesSuburbiaPDF() async throws {
+        let data = try Data(contentsOf: suburbiaPDF)
+        let transactions = try await parser.parse(data: data)
+
+        #expect(!transactions.isEmpty, "Should extract transactions from Suburbia PDF")
+
+        for tx in transactions {
+            #expect(tx.amount != 0, "Transaction amount should not be zero")
+            #expect(tx.currency == "MXN")
+        }
+    }
+
+    @Test("Suburbia transactions have valid dates in 2016 range")
+    func suburbiaDatesValid() async throws {
+        let data = try Data(contentsOf: suburbiaPDF)
+        let transactions = try await parser.parse(data: data)
+        #expect(!transactions.isEmpty)
+
+        let start2016 = Calendar.current.date(from: DateComponents(year: 2015, month: 1, day: 1))!
+        let end2016 = Calendar.current.date(from: DateComponents(year: 2016, month: 12, day: 31))!
+
+        for tx in transactions {
+            #expect(tx.postedAt >= start2016, "Date \(tx.postedAt) should be in 2015-2016 range")
+            #expect(tx.postedAt <= end2016, "Date \(tx.postedAt) should be in 2015-2016 range")
+        }
+    }
+
+    @Test("Suburbia detects payments (negative amounts)")
+    func suburbiaPaymentsDetected() async throws {
+        let data = try Data(contentsOf: suburbiaPDF)
+        let transactions = try await parser.parse(data: data)
+        #expect(!transactions.isEmpty)
+
+        let payments = transactions.filter { $0.amount > 0 }
+        #expect(!payments.isEmpty, "Should detect at least one payment (PAGO RECIBIDO GRACIAS)")
     }
 
     // MARK: - Invalid Data

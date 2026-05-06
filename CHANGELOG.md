@@ -45,6 +45,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - When table detection succeeds but produces 0 transactions, falls back to line-based parsing
 - 4 new tests (70 total, all passing): Banorte transaction extraction, date validation, payment detection, charge detection
 
+**Suburbia Support (Commit K)**
+- Added knowledge patterns for Suburbia department store credit card (201607.pdf)
+- `date_patterns.json`: `suburbia_period` pattern for `DD/MMM/YY - DD/MMM/YY` period format, case-insensitive month lookup in period context extraction
+- `SemanticNormalizer`: `lookupMonth` helper for case-insensitive month name matching, `extractSuburbiaPeriodContext` handler
+- `StructuralParser`: pending-amount mechanism in line-based parser — when a date+description row has no amount, stores as pending and associates with the next amount-only row; handles `$ -amount` format (leading minus between `$` and digits)
+- 3 new tests (73 total, all passing): Suburbia transaction extraction, date validation, payment detection
+
 ### Changed
 
 **Pipeline Improvements (Commit F)**

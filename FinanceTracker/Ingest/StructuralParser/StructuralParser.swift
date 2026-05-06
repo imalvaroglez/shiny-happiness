@@ -90,6 +90,8 @@ struct StructuralParser: StatementParser {
         var transactions: [RawTransaction] = []
         var inTransactionSection = false
         var currentConvention: String? = nil
+        var pendingDateStr: String? = nil
+        var pendingDescription: String? = nil
 
         for (rowIndex, row) in rows.enumerated() {
             let lineText = row.cells.map { $0.text }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
@@ -99,29 +101,93 @@ struct StructuralParser: StatementParser {
                 Logger.parser.debug("Line parser: section start at row \(rowIndex): \(lineText.prefix(60))")
                 inTransactionSection = true
                 currentConvention = nil
+                pendingDateStr = nil
+                pendingDescription = nil
                 continue
             }
 
             if columnDetector.vocabulary.isSectionEnd(lineText) {
                 Logger.parser.debug("Line parser: section end at row \(rowIndex): \(lineText.prefix(60))")
                 inTransactionSection = false
+                pendingDateStr = nil
+                pendingDescription = nil
                 continue
             }
 
             guard inTransactionSection else { continue }
 
-            if lineText.contains("Fecha") && (lineText.contains("Concepto") || lineText.contains("Importe") || lineText.contains("Monto")) {
+            if lineText.contains("Fecha") && (lineText.contains("Concepto") || lineText.contains("Importe") || lineText.contains("Monto") || lineText.contains("Descripción")) {
                 currentConvention = detectConvention(from: lineText)
                 Logger.parser.debug("Line parser: header row, convention=\(currentConvention ?? "nil"): \(lineText.prefix(80))")
                 continue
             }
 
+            if let pendingDate = pendingDateStr, let pendingDesc = pendingDescription {
+                let amountOnlyPattern = #"^\$?\s*(-?)([\d,]+\.?\d*)\s*(-?)$"#
+                if let regex = try? NSRegularExpression(pattern: amountOnlyPattern),
+                   let match = regex.firstMatch(in: lineText, range: NSRange(lineText.startIndex..., in: lineText)),
+                   let valueRange = Range(match.range(at: 2), in: lineText) {
+                    let leadingMinus = match.range(at: 1).length > 0
+                    let trailingMinus = match.range(at: 3).length > 0
+                    let valueStr = String(lineText[valueRange]).replacingOccurrences(of: ",", with: "")
+                    if let decimalValue = Decimal(string: valueStr) {
+                        let isCredit = leadingMinus || trailingMinus
+                        let amount: Decimal = isCredit ? abs(decimalValue) : -abs(decimalValue)
+
+                        if let parsedDate = normalizer.parseDate(pendingDate, context: context),
+                           parsedDate.confidence >= .low {
+                            let tx = RawTransaction(
+                                postedAt: parsedDate.fullDate ?? Date(),
+                                amount: amount,
+                                currency: "MXN",
+                                descriptionRaw: normalizer.normalizeDescription(pendingDesc),
+                                merchantNormalized: "",
+                                fxRateToBase: 1,
+                                isTransfer: false
+                            )
+                            transactions.append(tx)
+                        }
+                    }
+                    pendingDateStr = nil
+                    pendingDescription = nil
+                    continue
+                }
+            }
+
             let parsed = parseSingleLine(lineText, context: context, convention: currentConvention)
-            transactions.append(contentsOf: parsed)
+            if !parsed.isEmpty {
+                transactions.append(contentsOf: parsed)
+                pendingDateStr = nil
+                pendingDescription = nil
+            } else if let (date, desc) = extractDateWithoutAmount(from: lineText, context: context) {
+                pendingDateStr = date
+                pendingDescription = desc
+            }
         }
 
         Logger.parser.debug("Line parser: found \(transactions.count) transactions from \(rows.count) rows")
         return transactions
+    }
+
+    private func extractDateWithoutAmount(from line: String, context: StatementContext?) -> (String, String)? {
+        let segments = splitByDates(line)
+        guard let first = segments.first else { return nil }
+
+        let datePattern = #"^(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s+(.+)$"#
+        guard let regex = try? NSRegularExpression(pattern: datePattern) else { return nil }
+        let range = NSRange(first.startIndex..., in: first)
+        guard let match = regex.firstMatch(in: first, range: range) else { return nil }
+
+        guard let dateRange = Range(match.range(at: 1), in: first),
+              let descRange = Range(match.range(at: 2), in: first) else { return nil }
+
+        let dateStr = String(first[dateRange])
+        let desc = String(first[descRange])
+
+        guard normalizer.parseDate(dateStr, context: context) != nil else { return nil }
+        guard !desc.isEmpty else { return nil }
+
+        return (dateStr, desc)
     }
 
     private func detectConvention(from headerLine: String) -> String? {
@@ -178,20 +244,23 @@ struct StructuralParser: StatementParser {
         let trimmed = segment.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
 
-        let dateAmountPattern = #"^(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s+(.+)\s+\$\s*([\d,]+\.?\d*)\s*(-?)$"#
+        let dateAmountPattern = #"^(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s+(.+)\s+\$\s*(-?)([\d,]+\.?\d*)\s*(-?)$"#
         guard let regex = try? NSRegularExpression(pattern: dateAmountPattern, options: .caseInsensitive) else { return nil }
         let range = NSRange(trimmed.startIndex..., in: trimmed)
         guard let match = regex.firstMatch(in: trimmed, range: range) else { return nil }
 
         guard let dateRange = Range(match.range(at: 1), in: trimmed),
               let descRange = Range(match.range(at: 2), in: trimmed),
-              let amountRange = Range(match.range(at: 3), in: trimmed) else { return nil }
+              let amountRange = Range(match.range(at: 4), in: trimmed) else { return nil }
 
         let dateStr = String(trimmed[dateRange])
         let descStr = String(trimmed[descRange])
         let amountStr = String(trimmed[amountRange])
-        let trailingMinus = match.range(at: 4).length > 0
-            ? (Range(match.range(at: 4), in: trimmed).map { String(trimmed[$0]) } ?? "") == "-"
+        let leadingMinus = match.range(at: 3).length > 0
+            ? (Range(match.range(at: 3), in: trimmed).map { String(trimmed[$0]) } ?? "") == "-"
+            : false
+        let trailingMinus = match.range(at: 5).length > 0
+            ? (Range(match.range(at: 5), in: trimmed).map { String(trimmed[$0]) } ?? "") == "-"
             : false
 
         guard let parsedDate = normalizer.parseDate(dateStr, context: context),
@@ -204,7 +273,7 @@ struct StructuralParser: StatementParser {
         if let conv = convention, conv == "trailing_minus" {
             isCredit = trailingMinus
         } else {
-            isCredit = trailingMinus
+            isCredit = trailingMinus || leadingMinus
         }
 
         let amount: Decimal
