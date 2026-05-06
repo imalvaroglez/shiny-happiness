@@ -11,6 +11,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Volaris INVEX rule corrected — credit card payment, not flight**
 - `category_rules.json`: Changed "SPEI enviada a.*INVEX Volaris" from `Travel.Flights` to `Transfers.SPEI Transfer` — this is a credit card payment, not a flight purchase
 
+**Account deduplication fix — no more duplicate accounts per PDF**
+- `IngestPipeline.swift`: `findOrCreateAccount` now falls back to matching by institution + type when account number doesn't match, preventing duplicate Account records across PDF imports
+- Test: importing 01.pdf + 02.pdf produces exactly 2 accounts (not 4)
+
+**Category picker save fix**
+- `TransactionsView.swift`: Fixed dual-sheet flow — category is now always saved immediately on selection. "Apply to Similar" sheet presents after first sheet dismisses via `onChange`, avoiding SwiftUI's simultaneous sheet limitation
+
+**Interest earned fix — $0.00 → correct totals**
+- `category_rules.json`: Removed `^...$` anchors from "Abono de intereses" rule so partial matches work on normalized descriptions
+
+**Spending chart fix — distinct colors, single Uncategorized**
+- `DashboardView.swift`: Donut chart now uses index-based color assignment (10-color palette) instead of hash-based
+- `DashboardViewModel.swift`: Uncategorized transactions now aggregate into a single "Uncategorized" entry using a fixed sentinel key
+
+**Interest rule fix**
+- `category_rules.json`: Removed `^...$` anchors from "Abono de intereses" rule
+
 ### Changed
 
 **TransactionsView rewritten with native Table layout**
@@ -26,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Interest earned tracking on dashboard**
 - `DashboardViewModel`: New `totalInterestEarned` property, sums all `Income.Interest` transactions for selected period
 - `DashboardView`: New "Interest Earned" summary card (teal) alongside Net Worth, Income, Expenses
+
+**Custom date range picker**
+- `DashboardView`: Added "Custom" option to period selector. Shows popover with From/To DatePickers and Apply button for arbitrary date ranges
 
 **Dashboard accuracy fix — expenses $831→~$100K, net worth -$2M→~$462K→$49K**
 - `SeedDataLoader.swift`: Replaced early-return when categories exist with incremental rule sync — now compares JSON rules against DB by `patternRegex` and inserts only new rules, so added rules load on next app launch

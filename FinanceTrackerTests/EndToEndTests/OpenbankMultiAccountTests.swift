@@ -124,4 +124,25 @@ struct OpenbankMultiAccountTests {
         #expect(totalIncome > 0, "Should have income (including SPEI incoming)")
         #expect(totalExpenses < 0, "Should have expenses (including SPEI outgoing)")
     }
+
+    @Test("Reimporting same institution reuses Account — no duplicates")
+    func testNoAccountDuplicates() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let pipeline = IngestPipeline(context: context)
+        let url1 = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        let url2 = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/02.pdf")
+        _ = await pipeline.ingest(files: [url1, url2])
+
+        let accounts = try context.fetch(FetchDescriptor<Account>())
+        #expect(accounts.count == 2, "Should have exactly 2 accounts (Débito + Apartados), got \(accounts.count)")
+
+        let checkingAccounts = accounts.filter { $0.type == .checking }
+        let savingsAccounts = accounts.filter { $0.type == .savings }
+        #expect(checkingAccounts.count == 1, "Should have exactly 1 checking account")
+        #expect(savingsAccounts.count == 1, "Should have exactly 1 savings account")
+    }
 }
