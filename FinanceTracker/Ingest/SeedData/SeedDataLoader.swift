@@ -25,86 +25,67 @@ struct SeedDataLoader {
     }
 
     static func bootstrapIfNeeded(context: ModelContext) {
-        let existingCategories = try? context.fetch(FetchDescriptor<Category>())
-
-        var categoriesByName: [String: Category]
-        if let existingCategories, !existingCategories.isEmpty {
-            categoriesByName = [:]
-            for cat in existingCategories {
-                categoriesByName[cat.name] = cat
-            }
-            let existingSubcategories = existingCategories.flatMap { cat in
-                cat.subcategories.map { sub in ("\(cat.name).\(sub.name)", sub) }
-            }
-            for (key, sub) in existingSubcategories {
-                categoriesByName[key] = sub
-            }
-
-            syncCategories(context: context, categoriesByName: &categoriesByName, existingCategories: existingCategories)
-        } else {
-            Logger.app.info("Bootstrapping seed categories and rules")
-            categoriesByName = loadCategories(context: context)
-        }
-
+        var categoriesByName = buildExistingMap(context: context)
+        loadCategoriesIfNeeded(context: context, categoriesByName: &categoriesByName)
         syncRules(context: context, categoriesByName: categoriesByName)
-
         try? context.save()
     }
 
-    @discardableResult
-    private static func loadCategories(context: ModelContext) -> [String: Category] {
+    private static func buildExistingMap(context: ModelContext) -> [String: Category] {
+        let existing = (try? context.fetch(FetchDescriptor<Category>())) ?? []
+        var map: [String: Category] = [:]
+        for cat in existing {
+            map[cat.name] = cat
+        }
+        for cat in existing {
+            if let parent = cat.parent {
+                map["\(parent.name).\(cat.name)"] = cat
+            }
+        }
+        return map
+    }
+
+    private static func loadCategoriesIfNeeded(context: ModelContext, categoriesByName: inout [String: Category]) {
         guard let url = Bundle.main.url(forResource: "categories", withExtension: "json") else {
             Logger.app.error("Could not find categories.json in bundle")
-            return [:]
+            return
         }
 
         do {
             let data = try Data(contentsOf: url)
             let seed = try JSONDecoder().decode(CategorySeedFile.self, from: data)
-            var map: [String: Category] = [:]
+            var parentsAdded = 0
+            var subsAdded = 0
 
             for catJSON in seed.categories {
                 let kind = CategoryKind(rawValue: catJSON.kind) ?? .expense
-                let parent = Category(name: catJSON.name, kind: kind)
-                context.insert(parent)
-                map[catJSON.name] = parent
+
+                let parent: Category
+                if let existing = categoriesByName[catJSON.name] {
+                    parent = existing
+                } else {
+                    parent = Category(name: catJSON.name, kind: kind)
+                    context.insert(parent)
+                    categoriesByName[catJSON.name] = parent
+                    parentsAdded += 1
+                }
 
                 for subName in catJSON.subcategories {
-                    let sub = Category(name: subName, parent: parent, kind: kind)
-                    context.insert(sub)
-                    map["\(catJSON.name).\(subName)"] = sub
+                    let key = "\(catJSON.name).\(subName)"
+                    if categoriesByName[key] == nil {
+                        let sub = Category(name: subName, parent: parent, kind: kind)
+                        context.insert(sub)
+                        categoriesByName[key] = sub
+                        subsAdded += 1
+                    }
                 }
             }
-            return map
+
+            if parentsAdded > 0 || subsAdded > 0 {
+                Logger.app.info("Seed categories: added \(parentsAdded) parents, \(subsAdded) subcategories")
+            }
         } catch {
             Logger.app.error("Failed to load categories: \(error)")
-            return [:]
-        }
-    }
-
-    private static func syncCategories(context: ModelContext, categoriesByName: inout [String: Category], existingCategories: [Category]) {
-        guard let url = Bundle.main.url(forResource: "categories", withExtension: "json") else { return }
-        guard let data = try? Data(contentsOf: url) else { return }
-        guard let seed = try? JSONDecoder().decode(CategorySeedFile.self, from: data) else { return }
-
-        let existingParents = existingCategories.filter { $0.parent == nil }
-        var added = 0
-
-        for catJSON in seed.categories {
-            guard let parent = existingParents.first(where: { $0.name == catJSON.name }) else { continue }
-            let kind = CategoryKind(rawValue: catJSON.kind) ?? .expense
-            let existingSubNames = Set(parent.subcategories.map(\.name))
-
-            for subName in catJSON.subcategories where !existingSubNames.contains(subName) {
-                let sub = Category(name: subName, parent: parent, kind: kind)
-                context.insert(sub)
-                categoriesByName["\(catJSON.name).\(subName)"] = sub
-                added += 1
-            }
-        }
-
-        if added > 0 {
-            Logger.app.info("Synced \(added) new subcategories from seed JSON")
         }
     }
 
