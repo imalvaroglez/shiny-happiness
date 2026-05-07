@@ -31,6 +31,12 @@ struct TransactionsView: View {
             .filter { seen.insert($0.name).inserted }
     }
 
+    private func children(of parent: Category) -> [Category] {
+        categories
+            .filter { $0.parent?.id == parent.id }
+            .sorted { $0.name < $1.name }
+    }
+
     private var filteredTransactions: [Transaction] {
         var result = allTransactions
 
@@ -124,7 +130,7 @@ struct TransactionsView: View {
                     Section(parent.name) {
                         Text("All \(parent.name)")
                             .tag(CategoryFilter.parent(parent))
-                        ForEach(parent.subcategories.sorted { $0.name < $1.name }) { sub in
+                        ForEach(children(of: parent)) { sub in
                             Text(sub.name).tag(CategoryFilter.specific(sub))
                         }
                     }
