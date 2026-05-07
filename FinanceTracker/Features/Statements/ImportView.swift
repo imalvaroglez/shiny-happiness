@@ -43,7 +43,8 @@ struct ImportView: View {
             Button("Browse Files") {
                 viewModel.showFilePicker = true
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glassProminent)
+            .tint(.blue)
             .disabled(viewModel.isImporting)
 
             if !viewModel.reports.isEmpty {
@@ -62,9 +63,9 @@ struct ImportView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(32)
-        .background(
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .fill(viewModel.dragTargeted ? Color.accentColor.opacity(0.1) : Color(nsColor: .controlBackgroundColor))
                 .stroke(viewModel.dragTargeted ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: viewModel.dragTargeted ? 2 : 1)
         )
         .onDrop(of: [.fileURL], isTargeted: $viewModel.dragTargeted) { providers in
@@ -144,8 +145,7 @@ private struct ReportRow: View {
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background(.green.opacity(0.15))
-                        .clipShape(Capsule())
+                        .glassEffect(.regular.tint(.green), in: .capsule)
                 }
 
                 if report.duplicateTransactions > 0 {
@@ -153,8 +153,7 @@ private struct ReportRow: View {
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background(.orange.opacity(0.15))
-                        .clipShape(Capsule())
+                        .glassEffect(.regular.tint(.orange), in: .capsule)
                 }
             }
 
