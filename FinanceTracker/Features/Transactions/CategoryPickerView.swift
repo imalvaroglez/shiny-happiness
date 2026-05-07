@@ -104,7 +104,6 @@ struct CategoryPickerView: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.glassProminent)
-                .tint(.blue)
                 .disabled(newCategoryName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

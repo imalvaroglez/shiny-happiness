@@ -129,7 +129,6 @@ struct ApplyToSimilarView: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.glassProminent)
-                .tint(.blue)
                 .disabled(selectedCount == 0)
             }
         }

@@ -44,7 +44,6 @@ struct ImportView: View {
                 viewModel.showFilePicker = true
             }
             .buttonStyle(.glassProminent)
-            .tint(.blue)
             .disabled(viewModel.isImporting)
 
             if !viewModel.reports.isEmpty {
@@ -143,17 +142,19 @@ private struct ReportRow: View {
                 if report.newTransactions > 0 {
                     Text("\(report.newTransactions) new")
                         .font(.caption)
+                        .foregroundStyle(.green)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .glassEffect(.regular.tint(.green), in: .capsule)
+                        .glassEffect(.regular, in: .capsule)
                 }
 
                 if report.duplicateTransactions > 0 {
                     Text("\(report.duplicateTransactions) dup")
                         .font(.caption)
+                        .foregroundStyle(.orange)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .glassEffect(.regular.tint(.orange), in: .capsule)
+                        .glassEffect(.regular, in: .capsule)
                 }
             }
 
