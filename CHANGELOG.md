@@ -9,12 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 **Liquid Glass adoption — removed all opaque backgrounds**
-- `DashboardView.swift`: Replaced 4 opaque `.background(Color(nsColor: .controlBackgroundColor))` + `.clipShape()` on chart/recent cards with `.glassEffect(.regular, in: .rect(cornerRadius: 10))`. SummaryCard uses `.glassEffect(.regular.tint(color), in: .rect(cornerRadius: 10))`. Floating import button uses `.buttonStyle(.glassProminent)`.
-- `TransactionsView.swift`: Category badges use `.glassEffect(.regular.tint(.accentColor), in: .capsule)` / `.glassEffect(.regular, in: .capsule)`
-- `ApplyToSimilarView.swift`: Pattern label uses `.glassEffect(.regular, in: .rect(cornerRadius: 6))`. "Apply to Selected" uses `.buttonStyle(.glassProminent)`.
-- `ImportView.swift`: Drop zone uses `.glassEffect(.regular, in: .rect(cornerRadius: 12))` with stroke overlay. Report badges use `.glassEffect(.regular.tint(.green/.orange), in: .capsule)`. "Browse Files" uses `.buttonStyle(.glassProminent)`.
-- `CategoryPickerView.swift`: "Create & Apply" uses `.buttonStyle(.glassProminent)`.
-- All shape syntax uses static properties (`.capsule`, `.rect(cornerRadius:)`) not struct instances (`Capsule()`, `RoundedRectangle()`)
+- `DashboardView.swift`: Replaced opaque `.background()` + `.clipShape()` on chart/recent cards with `.glassEffect(.regular, in: .rect(cornerRadius: 10))`. SummaryCard uses `.glassEffect(.regular, in: .rect(cornerRadius: 12))` with no tint. Cards wrapped in `GlassEffectContainer`. Floating import button uses `.buttonStyle(.glassProminent)` with no tint.
+- `FinanceTrackerApp.swift`: Added `MeshGradient` background (3×3 subtle dark blues/greens/purples) behind all content — gives glass material color to refract
+- `DashboardView.swift`: Chart backgrounds set to `.chartBackground { _ in Color.clear }`. Spending donut uses vivid per-category color map instead of hash-based index colors
+- `TransactionsView.swift`: Category badges use `.glassEffect(.regular, in: .capsule)` — no tint
+- `ApplyToSimilarView.swift`: Pattern label uses `.glassEffect(.regular, in: .rect(cornerRadius: 6))`. "Apply to Selected" uses `.buttonStyle(.glassProminent)` — no tint
+- `ImportView.swift`: Drop zone uses `.glassEffect(.regular, in: .rect(cornerRadius: 12))`. Report badges use `.glassEffect(.regular, in: .capsule)` with `.foregroundStyle()` for text color. "Browse Files" uses `.buttonStyle(.glassProminent)` — no tint
+- `CategoryPickerView.swift`: "Create & Apply" uses `.buttonStyle(.glassProminent)` — no tint
+- All `.borderedProminent` buttons → `.glassProminent`. All `.tint()` removed from glass effects and buttons. Zero `.background()` / `.tint()` calls in any view file.
 
 **Fixed SeedDataLoader crash on duplicate category names**
 - `SeedDataLoader.swift`: Replaced `Dictionary(uniqueKeysWithValues:)` with safe loop to avoid crash when categories share names (e.g. subcategory "Insurance" under different parents)
@@ -36,9 +38,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - 6 new tests in `SPEIDestinationRulesTests`: SPEI to 2now, Priority, Nu, Volaris, cash flow exclusion, unknown destination fallback
 
+### Fixed
+
+**Deduplicator requires exact same day**
+- `Deduplicator.swift`: Changed `abs(daysDiff) <= 1` to `daysDiff == 0` — if a transaction didn't happen the same day, it's not a duplicate
+
 ### Changed
 
-**Sort all columns in transactions table**
+**Spending donut uses vivid per-category colors**
+- `DashboardView.swift`: Replaced hash-based `colorForCategory` with explicit map (Food=orange, Transport=blue, Shopping=purple, etc). Uncategorized shows as dark gray.
 - Description column now sortable (alphabetical) via `value: \.descriptionRaw`
 - Category column now sortable via `value: \.categoryName` on new computed property
 - Date and Amount columns were already sortable
