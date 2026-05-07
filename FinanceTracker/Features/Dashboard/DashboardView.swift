@@ -206,13 +206,12 @@ struct DashboardView: View {
             Text("Spending by Category")
                 .font(.headline)
             Chart(topCategories) { entry in
-                let idx = topCategories.firstIndex(where: { $0.id == entry.id }) ?? 0
                 SectorMark(
                     angle: .value("Amount", entry.amount),
                     innerRadius: .ratio(0.5),
                     angularInset: 1.5
                 )
-                .foregroundStyle(colorForIndex(idx))
+                .foregroundStyle(colorForCategory(entry.category.name))
                 .annotation(position: .overlay) {
                     if entry.amount > totalAmount / 5 {
                         VStack(spacing: 2) {
@@ -231,7 +230,7 @@ struct DashboardView: View {
             ForEach(Array(zip(topCategories.indices, topCategories)), id: \.1.id) { index, entry in
                 HStack {
                     Circle()
-                        .fill(colorForIndex(index))
+                        .fill(colorForCategory(entry.category.name))
                         .frame(width: 8, height: 8)
                     Text(entry.category.name)
                         .font(.caption)
@@ -309,13 +308,44 @@ struct DashboardView: View {
     }
 
     private func colorForCategory(_ name: String) -> Color {
-        let colors: [Color] = [.blue, .green, .orange, .purple, .pink, .yellow, .teal, .indigo, .mint, .cyan]
-        let index = abs(name.hashValue) % colors.count
-        return colors[index]
+        let map: [String: Color] = [
+            "Food & Drink": .orange,
+            "Groceries": .orange,
+            "Coffee": .orange,
+            "Restaurants": .orange,
+            "Transport": .blue,
+            "Rideshare": .blue,
+            "Shopping": .purple,
+            "General Merchandise": .purple,
+            "Entertainment": .pink,
+            "Streaming": .pink,
+            "Bills & Utilities": .yellow,
+            "Bank Fees": .yellow,
+            "Insurance": .yellow,
+            "Health": .red,
+            "Home": .green,
+            "Rent": .green,
+            "Travel": .cyan,
+            "Flights": .cyan,
+            "Transfers": .gray,
+            "Internal Transfer": .gray,
+            "To Own Accounts": .gray,
+            "Credit Card Payments": .gray,
+            "Taxes": .brown,
+            "ISR Retenido": .brown,
+            "Income": .mint,
+            "Interest": .mint,
+            "Salary": .mint,
+            "Subscriptions": .indigo,
+            "Software": .indigo,
+            "Fees & Charges": .yellow,
+            "Interest Charges": .yellow,
+        ]
+        return map[name] ?? Color(white: 0.3)
     }
 
     private func colorForIndex(_ index: Int) -> Color {
-        let colors: [Color] = [.blue, .green, .orange, .purple, .pink, .yellow, .teal, .indigo, .mint, .cyan]
+        let colors: [Color] = [.orange, .blue, .purple, .pink, .yellow, .red, .green, .cyan, .gray, .brown, .mint, .indigo]
         return colors[index % colors.count]
     }
 }
