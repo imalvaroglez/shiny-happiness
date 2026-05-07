@@ -1,6 +1,12 @@
 import SwiftUI
 import SwiftData
 
+enum CategoryFilter: Hashable {
+    case all
+    case uncategorized
+    case specific(Category)
+}
+
 struct TransactionsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Transaction.postedAt, order: .reverse) private var allTransactions: [Transaction]
@@ -13,11 +19,11 @@ struct TransactionsView: View {
     @State private var pendingCategory: Category?
     @State private var pendingKeyword: String?
     @State private var accountFilter: Account?
-    @State private var categoryFilter: Category?
+    @State private var categoryFilter: CategoryFilter = .all
     @State private var sortOrder = [KeyPathComparator(\Transaction.postedAt, order: .reverse)]
 
-    private var topLevelCategories: [Category] {
-        categories.filter { $0.parent == nil }.sorted { $0.name < $1.name }
+    private var sortedCategories: [Category] {
+        categories.sorted { $0.name < $1.name }
     }
 
     private var filteredTransactions: [Transaction] {
@@ -27,9 +33,14 @@ struct TransactionsView: View {
             result = result.filter { $0.account?.id == filter.id }
         }
 
-        if let filter = categoryFilter {
+        switch categoryFilter {
+        case .all:
+            break
+        case .uncategorized:
+            result = result.filter { $0.category == nil }
+        case .specific(let cat):
             result = result.filter { tx in
-                tx.category?.id == filter.id || tx.category?.parent?.id == filter.id
+                tx.category?.id == cat.id || tx.category?.parent?.id == cat.id
             }
         }
 
@@ -88,25 +99,23 @@ struct TransactionsView: View {
 
     private var filterBar: some View {
         HStack {
-            Picker("Account", selection: $accountFilter) {
+            Picker(selection: $accountFilter) {
                 Text("All Accounts").tag(nil as Account?)
                 ForEach(accounts) { account in
                     Text(account.nickname).tag(account as Account?)
                 }
-            }
+            } label: { EmptyView() }
             .frame(width: 200)
 
-            Picker("Category", selection: $categoryFilter) {
-                Text("All Categories").tag(nil as Category?)
-                ForEach(topLevelCategories) { parent in
-                    Section(header: Text(parent.name)) {
-                        Text(parent.name).tag(parent as Category?)
-                        ForEach(parent.subcategories.sorted { $0.name < $1.name }) { sub in
-                            Text("  \(sub.name)").tag(sub as Category?)
-                        }
-                    }
+            Picker(selection: $categoryFilter) {
+                Text("All Categories").tag(CategoryFilter.all)
+                Divider()
+                Text("Uncategorized").tag(CategoryFilter.uncategorized)
+                Divider()
+                ForEach(sortedCategories) { cat in
+                    Text(cat.name).tag(CategoryFilter.specific(cat))
                 }
-            }
+            } label: { EmptyView() }
             .frame(width: 220)
 
             Spacer()
