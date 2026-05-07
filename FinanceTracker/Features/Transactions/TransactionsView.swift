@@ -4,6 +4,7 @@ import SwiftData
 enum CategoryFilter: Hashable {
     case all
     case uncategorized
+    case parent(Category)
     case specific(Category)
 }
 
@@ -22,8 +23,12 @@ struct TransactionsView: View {
     @State private var categoryFilter: CategoryFilter = .all
     @State private var sortOrder = [KeyPathComparator(\Transaction.postedAt, order: .reverse)]
 
-    private var sortedCategories: [Category] {
-        categories.sorted { $0.name < $1.name }
+    private var parentCategories: [Category] {
+        var seen = Set<String>()
+        return categories
+            .filter { $0.parent == nil }
+            .sorted { $0.name < $1.name }
+            .filter { seen.insert($0.name).inserted }
     }
 
     private var filteredTransactions: [Transaction] {
@@ -38,6 +43,10 @@ struct TransactionsView: View {
             break
         case .uncategorized:
             result = result.filter { $0.category == nil }
+        case .parent(let cat):
+            result = result.filter { tx in
+                tx.category?.id == cat.id || tx.category?.parent?.id == cat.id
+            }
         case .specific(let cat):
             result = result.filter { tx in
                 tx.category?.id == cat.id || tx.category?.parent?.id == cat.id
@@ -109,14 +118,19 @@ struct TransactionsView: View {
 
             Picker(selection: $categoryFilter) {
                 Text("All Categories").tag(CategoryFilter.all)
-                Divider()
                 Text("Uncategorized").tag(CategoryFilter.uncategorized)
                 Divider()
-                ForEach(sortedCategories) { cat in
-                    Text(cat.name).tag(CategoryFilter.specific(cat))
+                ForEach(parentCategories) { parent in
+                    Section(parent.name) {
+                        Text("All \(parent.name)")
+                            .tag(CategoryFilter.parent(parent))
+                        ForEach(parent.subcategories.sorted { $0.name < $1.name }) { sub in
+                            Text(sub.name).tag(CategoryFilter.specific(sub))
+                        }
+                    }
                 }
             } label: { EmptyView() }
-            .frame(width: 220)
+            .frame(width: 240)
 
             Spacer()
 
