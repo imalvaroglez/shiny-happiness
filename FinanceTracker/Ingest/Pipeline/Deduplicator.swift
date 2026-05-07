@@ -32,7 +32,7 @@ struct Deduplicator {
             guard tx.amount == candidate.amount else { return false }
 
             let daysDiff = calendar.dateComponents([.day], from: candidate.postedAt, to: tx.postedAt).day ?? 999
-            guard abs(daysDiff) <= 1 else { return false }
+            guard daysDiff == 0 else { return false }
 
             return similarDescription(tx.descriptionRaw, candidate.descriptionRaw)
         }
