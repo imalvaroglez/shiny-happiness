@@ -108,7 +108,6 @@ struct DashboardView: View {
                     .padding(.vertical, 10)
             }
             .buttonStyle(.glassProminent)
-            .tint(.blue)
             .padding(20)
         }
         .sheet(isPresented: $showingImport) {
@@ -127,11 +126,13 @@ struct DashboardView: View {
     }
 
     private var summaryCards: some View {
-        HStack(spacing: 16) {
-            SummaryCard(title: "Net Worth", amount: viewModel.currentNetWorth, color: .blue)
-            SummaryCard(title: "Income", amount: viewModel.totalIncome, color: .green)
-            SummaryCard(title: "Expenses", amount: abs(viewModel.totalExpenses), color: .red)
-            SummaryCard(title: "Interest Earned", amount: viewModel.totalInterestEarned, color: .teal)
+        GlassEffectContainer {
+            HStack(spacing: 16) {
+                SummaryCard(title: "Net Worth", amount: viewModel.currentNetWorth)
+                SummaryCard(title: "Income", amount: viewModel.totalIncome)
+                SummaryCard(title: "Expenses", amount: abs(viewModel.totalExpenses))
+                SummaryCard(title: "Interest Earned", amount: viewModel.totalInterestEarned)
+            }
         }
     }
 
@@ -291,7 +292,7 @@ struct DashboardView: View {
                     showingCustomRange = false
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
             }
         }
         .padding(20)
@@ -320,7 +321,6 @@ struct DashboardView: View {
 private struct SummaryCard: View {
     let title: String
     let amount: Decimal
-    let color: Color
 
     var body: some View {
         VStack(spacing: 4) {
@@ -329,11 +329,11 @@ private struct SummaryCard: View {
                 .foregroundStyle(.secondary)
             Text(formatMoney(amount))
                 .font(.title2.bold())
-                .foregroundStyle(amount >= 0 ? color : .red)
+                .foregroundStyle(amount >= 0 ? .green : .red)
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .glassEffect(.regular.tint(color), in: .rect(cornerRadius: 10))
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 
     private func formatMoney(_ amount: Decimal) -> String {
