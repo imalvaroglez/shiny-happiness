@@ -29,7 +29,10 @@ struct SeedDataLoader {
 
         var categoriesByName: [String: Category]
         if let existingCategories, !existingCategories.isEmpty {
-            categoriesByName = Dictionary(uniqueKeysWithValues: existingCategories.map { ($0.name, $0) })
+            categoriesByName = [:]
+            for cat in existingCategories {
+                categoriesByName[cat.name] = cat
+            }
             let existingSubcategories = existingCategories.flatMap { cat in
                 cat.subcategories.map { sub in ("\(cat.name).\(sub.name)", sub) }
             }

@@ -170,15 +170,13 @@ struct TransactionsView: View {
                 .font(.caption)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(Color.accentColor.opacity(0.15))
-                .clipShape(Capsule())
+                .glassEffect(.regular.tint(.accentColor), in: Capsule())
         } else {
             Text("Uncategorized")
                 .font(.caption)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(Color.secondary.opacity(0.1))
-                .clipShape(Capsule())
+                .glassEffect(.regular, in: Capsule())
         }
     }
 

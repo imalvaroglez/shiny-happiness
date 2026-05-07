@@ -9,6 +9,7 @@ struct DashboardView: View {
     @State private var customStart = Date().addingTimeInterval(-90 * 86400)
     @State private var customEnd = Date()
     @State private var showingCustomRange = false
+    @State private var showingImport = false
 
     enum TimeRange: String, CaseIterable {
         case month = "Month"
@@ -98,6 +99,22 @@ struct DashboardView: View {
             .padding()
         }
         .navigationTitle("Dashboard")
+        .overlay(alignment: .bottomTrailing) {
+            Button {
+                showingImport = true
+            } label: {
+                Label("Import Statement", systemImage: "doc.badge.plus")
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: Capsule())
+            .padding(20)
+        }
+        .sheet(isPresented: $showingImport) {
+            ImportView(modelContext: modelContext)
+                .frame(minWidth: 600, minHeight: 500)
+        }
     }
 
     private var timeRangePicker: some View {
@@ -320,8 +337,7 @@ private struct SummaryCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(color.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .glassEffect(.regular.tint(color), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func formatMoney(_ amount: Decimal) -> String {
