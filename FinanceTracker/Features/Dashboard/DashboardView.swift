@@ -107,8 +107,8 @@ struct DashboardView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
             }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: Capsule())
+            .buttonStyle(.glassProminent)
+            .tint(.blue)
             .padding(20)
         }
         .sheet(isPresented: $showingImport) {
@@ -161,8 +161,7 @@ struct DashboardView: View {
             }
         }
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
     }
 
     private var netWorthChart: some View {
@@ -193,8 +192,7 @@ struct DashboardView: View {
             }
         }
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
     }
 
     private var spendingDonut: some View {
@@ -242,8 +240,7 @@ struct DashboardView: View {
             }
         }
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
     }
 
     private var recentTransactionsList: some View {
@@ -258,8 +255,7 @@ struct DashboardView: View {
             }
         }
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .glassEffect(.regular, in: .rect(cornerRadius: 10))
     }
 
     private var emptyState: some View {
@@ -337,7 +333,7 @@ private struct SummaryCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .glassEffect(.regular.tint(color), in: RoundedRectangle(cornerRadius: 10))
+        .glassEffect(.regular.tint(color), in: .rect(cornerRadius: 10))
     }
 
     private func formatMoney(_ amount: Decimal) -> String {

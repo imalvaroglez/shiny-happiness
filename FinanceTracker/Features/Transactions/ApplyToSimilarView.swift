@@ -45,8 +45,7 @@ struct ApplyToSimilarView: View {
                         .font(.system(.caption, design: .monospaced))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color(nsColor: .controlBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .glassEffect(.regular, in: .rect(cornerRadius: 6))
                 }
             }
         }
@@ -129,7 +128,8 @@ struct ApplyToSimilarView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
+                .tint(.blue)
                 .disabled(selectedCount == 0)
             }
         }

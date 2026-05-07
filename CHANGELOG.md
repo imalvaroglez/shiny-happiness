@@ -8,10 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-**macOS 26 deployment target + glassEffect UI**
-- `project.yml`: Deployment target → macOS 26.0, Xcode 26.0
-- `DashboardView.swift`: SummaryCard uses `.glassEffect(.regular.tint(color), in:)`, floating "Import Statement" button with `.glassEffect(.regular.interactive(), in:)`
-- `TransactionsView.swift`: Category badges use `.glassEffect(.regular.tint(.accentColor), in:)` / `.glassEffect(.regular, in:)`
+**Liquid Glass adoption — removed all opaque backgrounds**
+- `DashboardView.swift`: Replaced 4 opaque `.background(Color(nsColor: .controlBackgroundColor))` + `.clipShape()` on chart/recent cards with `.glassEffect(.regular, in: .rect(cornerRadius: 10))`. SummaryCard uses `.glassEffect(.regular.tint(color), in: .rect(cornerRadius: 10))`. Floating import button uses `.buttonStyle(.glassProminent)`.
+- `TransactionsView.swift`: Category badges use `.glassEffect(.regular.tint(.accentColor), in: .capsule)` / `.glassEffect(.regular, in: .capsule)`
+- `ApplyToSimilarView.swift`: Pattern label uses `.glassEffect(.regular, in: .rect(cornerRadius: 6))`. "Apply to Selected" uses `.buttonStyle(.glassProminent)`.
+- `ImportView.swift`: Drop zone uses `.glassEffect(.regular, in: .rect(cornerRadius: 12))` with stroke overlay. Report badges use `.glassEffect(.regular.tint(.green/.orange), in: .capsule)`. "Browse Files" uses `.buttonStyle(.glassProminent)`.
+- `CategoryPickerView.swift`: "Create & Apply" uses `.buttonStyle(.glassProminent)`.
+- All shape syntax uses static properties (`.capsule`, `.rect(cornerRadius:)`) not struct instances (`Capsule()`, `RoundedRectangle()`)
 
 **Fixed SeedDataLoader crash on duplicate category names**
 - `SeedDataLoader.swift`: Replaced `Dictionary(uniqueKeysWithValues:)` with safe loop to avoid crash when categories share names (e.g. subcategory "Insurance" under different parents)
