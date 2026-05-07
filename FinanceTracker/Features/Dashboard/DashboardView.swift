@@ -154,6 +154,7 @@ struct DashboardView: View {
                 .foregroundStyle(.red)
             }
             .frame(height: 200)
+            .chartBackground { _ in Color.clear }
             .chartXAxis {
                 AxisMarks(values: .stride(by: .month)) { _ in
                     AxisGridLine()
@@ -181,10 +182,11 @@ struct DashboardView: View {
                     x: .value("Month", point.month, unit: .month),
                     y: .value("Balance", point.balance)
                 )
-                .foregroundStyle(.blue.opacity(0.1))
+                .foregroundStyle(.blue.opacity(0.15))
                 .interpolationMethod(.catmullRom)
             }
             .frame(height: 200)
+            .chartBackground { _ in Color.clear }
             .chartXAxis {
                 AxisMarks(values: .stride(by: .month)) { _ in
                     AxisGridLine()
