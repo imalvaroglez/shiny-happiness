@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+**macOS 26 deployment target + glassEffect UI**
+- `project.yml`: Deployment target → macOS 26.0, Xcode 26.0
+- `DashboardView.swift`: SummaryCard uses `.glassEffect(.regular.tint(color), in:)`, floating "Import Statement" button with `.glassEffect(.regular.interactive(), in:)`
+- `TransactionsView.swift`: Category badges use `.glassEffect(.regular.tint(.accentColor), in:)` / `.glassEffect(.regular, in:)`
+
+**Fixed SeedDataLoader crash on duplicate category names**
+- `SeedDataLoader.swift`: Replaced `Dictionary(uniqueKeysWithValues:)` with safe loop to avoid crash when categories share names (e.g. subcategory "Insurance" under different parents)
+
+### Changed
+
 **SPEI destination-specific categorization**
 - `categories.json`: Replaced "SPEI Transfer" / "International Transfer" subcategories with "To Own Accounts" and "Credit Card Payments" under Transfers
 - `category_rules.json`: Removed all catch-all SPEI rules; added 8 destination-specific rules at priority 87 (Priority, 2now/HSBC, Nu, TDC Explora, INVEX Volaris, BBVA 2855, Explora/BANAMEX, Moneypool)
