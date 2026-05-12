@@ -65,7 +65,11 @@ struct OpenbankMultiAccountTests {
         #expect(!transfers.isEmpty, "Should find internal transfer transactions")
 
         for tx in transfers {
-            #expect(tx.category?.kind == .transfer, "Transfer '\(tx.descriptionRaw)' should have transfer category, got \(tx.category?.name ?? "nil")")
+            let kind = tx.category?.kind
+            #expect(
+                kind == .transfer || kind == .creditCardPayment,
+                "Transfer '\(tx.descriptionRaw)' should be .transfer or .creditCardPayment, got \(tx.category?.name ?? "nil")"
+            )
         }
     }
 

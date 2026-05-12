@@ -195,7 +195,7 @@
     {
       "pattern": "(?i)SPEI enviada a 2now.*HSBC",
       "merchant": "",
-      "category": "Transfers.Credit Card Payments",
+      "category": "Credit Card Payments.Card Payment Sent",
       "priority": 87,
       "_comment": "Payment to 2now credit card at HSBC"
     },
@@ -209,14 +209,14 @@
     {
       "pattern": "(?i)SPEI enviada a TDC Explora",
       "merchant": "",
-      "category": "Transfers.Credit Card Payments",
+      "category": "Credit Card Payments.Card Payment Sent",
       "priority": 87,
       "_comment": "Payment to TDC Explora credit card"
     },
     {
       "pattern": "(?i)SPEI enviada a.*INVEX Volaris",
       "merchant": "",
-      "category": "Transfers.Credit Card Payments",
+      "category": "Credit Card Payments.Card Payment Sent",
       "priority": 87,
       "_comment": "Payment to Volaris INVEX credit card"
     },
@@ -230,7 +230,7 @@
     {
       "pattern": "(?i)SPEI enviada a Explora.*BANAMEX",
       "merchant": "",
-      "category": "Transfers.Credit Card Payments",
+      "category": "Credit Card Payments.Card Payment Sent",
       "priority": 87,
       "_comment": "Payment to Explora card via BANAMEX"
     },
@@ -240,6 +240,27 @@
       "category": "Transfers.To Own Accounts",
       "priority": 87,
       "_comment": "Transfer to own Moneypool pooling account"
+    },
+    {
+      "pattern": "(?i)SU\\s*PAGO\\s*GRACIAS\\s*SPEI",
+      "merchant": "",
+      "category": "Credit Card Payments.Card Payment Received",
+      "priority": 95,
+      "_comment": "HSBC credit card — incoming payment from the cardholder's debit account"
+    },
+    {
+      "pattern": "(?i)MONTO\\s*DE\\s*INTERESES",
+      "merchant": "",
+      "category": "Fees & Charges.Interest Charges",
+      "priority": 88,
+      "_comment": "HSBC interest charge line"
+    },
+    {
+      "pattern": "(?i)COMISION\\s*ANUAL|ANUALIDAD",
+      "merchant": "",
+      "category": "Fees & Charges.Commissions",
+      "priority": 88,
+      "_comment": "HSBC annual fee"
     }
   ]
 }

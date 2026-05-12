@@ -11,6 +11,9 @@ final class Account {
     var accountNumber: String?
     var openedAt: Date
     var closedAt: Date?
+    var creditLimit: Decimal?
+    var statementDayOfMonth: Int?
+    var paymentDayOfMonth: Int?
 
     init(
         id: UUID = UUID(),
@@ -20,7 +23,10 @@ final class Account {
         nickname: String? = nil,
         accountNumber: String? = nil,
         openedAt: Date = .now,
-        closedAt: Date? = nil
+        closedAt: Date? = nil,
+        creditLimit: Decimal? = nil,
+        statementDayOfMonth: Int? = nil,
+        paymentDayOfMonth: Int? = nil
     ) {
         self.id = id
         self.institution = institution
@@ -30,5 +36,8 @@ final class Account {
         self.accountNumber = accountNumber
         self.openedAt = openedAt
         self.closedAt = closedAt
+        self.creditLimit = creditLimit
+        self.statementDayOfMonth = statementDayOfMonth
+        self.paymentDayOfMonth = paymentDayOfMonth
     }
 }

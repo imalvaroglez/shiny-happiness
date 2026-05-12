@@ -15,6 +15,8 @@ final class Transaction {
     var fxRateToBase: Decimal
     var isTransfer: Bool
     var isDuplicate: Bool
+    var cardLast4: String?
+    @Relationship(deleteRule: .nullify, inverse: \InstallmentPlan.installments) var installmentPlan: InstallmentPlan?
 
     init(
         id: UUID = UUID(),
@@ -28,7 +30,9 @@ final class Transaction {
         category: Category? = nil,
         fxRateToBase: Decimal = 1,
         isTransfer: Bool = false,
-        isDuplicate: Bool = false
+        isDuplicate: Bool = false,
+        cardLast4: String? = nil,
+        installmentPlan: InstallmentPlan? = nil
     ) {
         self.id = id
         self.account = account
@@ -42,6 +46,8 @@ final class Transaction {
         self.fxRateToBase = fxRateToBase
         self.isTransfer = isTransfer
         self.isDuplicate = isDuplicate
+        self.cardLast4 = cardLast4
+        self.installmentPlan = installmentPlan
     }
 
     var categoryName: String {

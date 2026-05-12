@@ -12,7 +12,13 @@ final class Statement {
     var ocrUsed: Bool
     var openingBalance: Decimal?
     var closingBalance: Decimal?
-    @Relationship(deleteRule: .cascade) var transactions: [Transaction] = []
+    var minimumPayment: Decimal?
+    var paymentForNoInterest: Decimal?
+    var paymentDueDate: Date?
+    var interestCharged: Decimal?
+    var feesCharged: Decimal?
+    var ivaCharged: Decimal?
+    @Relationship(deleteRule: .cascade, inverse: \Transaction.statement) var transactions: [Transaction] = []
 
     init(
         id: UUID = UUID(),
@@ -23,7 +29,13 @@ final class Statement {
         importedAt: Date = .now,
         ocrUsed: Bool = false,
         openingBalance: Decimal? = nil,
-        closingBalance: Decimal? = nil
+        closingBalance: Decimal? = nil,
+        minimumPayment: Decimal? = nil,
+        paymentForNoInterest: Decimal? = nil,
+        paymentDueDate: Date? = nil,
+        interestCharged: Decimal? = nil,
+        feesCharged: Decimal? = nil,
+        ivaCharged: Decimal? = nil
     ) {
         self.id = id
         self.account = account
@@ -34,5 +46,11 @@ final class Statement {
         self.ocrUsed = ocrUsed
         self.openingBalance = openingBalance
         self.closingBalance = closingBalance
+        self.minimumPayment = minimumPayment
+        self.paymentForNoInterest = paymentForNoInterest
+        self.paymentDueDate = paymentDueDate
+        self.interestCharged = interestCharged
+        self.feesCharged = feesCharged
+        self.ivaCharged = ivaCharged
     }
 }
