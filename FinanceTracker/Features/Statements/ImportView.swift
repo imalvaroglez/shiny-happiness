@@ -24,10 +24,13 @@ struct ImportView: View {
         .navigationTitle("Import Statements")
         .fileImporter(
             isPresented: $viewModel.showFilePicker,
-            allowedContentTypes: [.pdf, .commaSeparatedText],
+            allowedContentTypes: [.pdf, .commaSeparatedText, .plainText],
             allowsMultipleSelection: true
         ) { result in
             handleFilePickerResult(result)
+        }
+        .sheet(isPresented: $viewModel.showingPasteSheet) {
+            PasteImportSheet(viewModel: viewModel)
         }
     }
 
@@ -37,14 +40,24 @@ struct ImportView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(viewModel.dragTargeted ? Color.accentColor : .secondary)
 
-            Text(viewModel.isImporting ? "Importing..." : "Drop PDF or CSV bank statements here")
+            Text(viewModel.isImporting ? "Importing..." : "Drop PDF, CSV, or TXT bank statements here")
                 .font(.headline)
 
-            Button("Browse Files") {
-                viewModel.showFilePicker = true
+            HStack(spacing: 10) {
+                Button("Browse Files") {
+                    viewModel.showFilePicker = true
+                }
+                .buttonStyle(.glassProminent)
+                .disabled(viewModel.isImporting)
+
+                Button {
+                    viewModel.showingPasteSheet = true
+                } label: {
+                    Label("Paste Text", systemImage: "doc.on.clipboard")
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewModel.isImporting)
             }
-            .buttonStyle(.glassProminent)
-            .disabled(viewModel.isImporting)
 
             if !viewModel.reports.isEmpty {
                 HStack(spacing: 24) {
