@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Editable Transactions view + inline pending-import review (Stage 2)**
+- `TransactionsView` rows are now editable in place: tap any of Date / Description / Amount to open a popover and commit a change; the existing Category column is unchanged
+- New `EditableCells.swift` with `EditableTextCell`, `EditableDateCell`, and `EditableAmountCell` — tap-to-edit popovers that mutate the bound `@Model` object and let the caller persist
+- New `PendingReviewSection`: a collapsible "N rows need review" card above the table that lists every unresolved `PendingImport`. Each pending row pre-seeds its inputs from the parser's best-effort partial parse; clicking **Resolve** creates a real `Transaction`, links `PendingImport.resolvedTransaction`, runs `Categorizer` against current rules, and saves
+- `TransactionsView` adds `@Query<PendingImport>` filtered by `resolvedTransaction == nil`, so resolved rows disappear from the card automatically
+
 **HSBC paste import — Stage 1 UI**
 - `ImportView`: new "Paste Text" button next to "Browse Files"; `.plainText` (`.txt`) added to the file importer's allowed types; sheet wired up
 - `ImportViewModel`: `showingPasteSheet`, `pasteBuffer`, `pasteDetection`, `importPastedText() async`. `importFiles` now branches PDF/CSV vs TXT and routes TXT through `IngestPipeline.ingestPastedText`
