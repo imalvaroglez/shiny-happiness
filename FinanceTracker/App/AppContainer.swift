@@ -13,6 +13,7 @@ final class AppContainer: ObservableObject {
             Statement.self,
             Category.self,
             CategoryRule.self,
+            InstallmentPlan.self,
         ])
         let config = ModelConfiguration(
             schema: schema,

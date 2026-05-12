@@ -5,4 +5,5 @@ enum CategoryKind: String, Codable, CaseIterable {
     case expense
     case transfer
     case investment
+    case creditCardPayment
 }
