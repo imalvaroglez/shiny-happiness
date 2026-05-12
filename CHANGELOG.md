@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**HSBC paste import — Stage 1 UI**
+- `ImportView`: new "Paste Text" button next to "Browse Files"; `.plainText` (`.txt`) added to the file importer's allowed types; sheet wired up
+- `ImportViewModel`: `showingPasteSheet`, `pasteBuffer`, `pasteDetection`, `importPastedText() async`. `importFiles` now branches PDF/CSV vs TXT and routes TXT through `IngestPipeline.ingestPastedText`
+- New `PasteImportSheet.swift`: monospaced `TextEditor` + a detection chip that consults `Detector.detectFromPastedText` as the buffer changes (green when HSBC 2Now is detected, orange otherwise); Import is disabled until detection succeeds
+
 **HSBC 2Now credit card support (Phases 1 + 2)**
 - `Account`: gained `creditLimit`, `statementDayOfMonth`, `paymentDayOfMonth` (all optional, lightweight migration)
 - `Statement`: gained `minimumPayment`, `paymentForNoInterest`, `paymentDueDate`, `interestCharged`, `feesCharged`, `ivaCharged`. Explicit `inverse: \Transaction.statement` to keep the relationship deterministic alongside the new `InstallmentPlan` inverse
