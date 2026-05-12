@@ -22,6 +22,7 @@
 		2F32BA1E6065EBE5D7BA0E1E /* amount_conventions.json in Resources */ = {isa = PBXBuildFile; fileRef = A43EB1070F820ABB2DD25DF6 /* amount_conventions.json */; };
 		3218EB269C821EE5C6F62552 /* OpenbankMexicoParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74B0D3E580CAACB839B149C /* OpenbankMexicoParserTests.swift */; };
 		349F1A81FC9658CEF37283C0 /* Decimal+Money.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D8F045F1CC4D789C71AA8C8 /* Decimal+Money.swift */; };
+		34FA52D1686B5290F925C55A /* PasteImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C377B11E49DF2A1F59DF0A87 /* PasteImportSheet.swift */; };
 		35E482FE7AFAB9CB170FDF6A /* StructuralParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949A945D8EE113CE8376A2DB /* StructuralParser.swift */; };
 		36F18F50AAB4C06BA8324702 /* MerchantExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F336C178E969629BD4C185D3 /* MerchantExtractor.swift */; };
 		374CBFF23B507C4FFB9E333B /* PastedHsbc2NowParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A752AE4F8853003301F69F59 /* PastedHsbc2NowParserTests.swift */; };
@@ -153,6 +154,7 @@
 		B833F7810F33D61E067029F4 /* Date+Period.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Date+Period.swift"; sourceTree = "<group>"; };
 		BB0EB885128E2A69A17B135B /* AccountType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountType.swift; sourceTree = "<group>"; };
 		BBCFB99BB78FEEA517AB0DED /* ImportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportViewModel.swift; sourceTree = "<group>"; };
+		C377B11E49DF2A1F59DF0A87 /* PasteImportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteImportSheet.swift; sourceTree = "<group>"; };
 		D1A3B4F465373F147C381A48 /* Money.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Money.swift; sourceTree = "<group>"; };
 		D2F8E6BEB13E160FD7823D67 /* CategorizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategorizerTests.swift; sourceTree = "<group>"; };
 		D43CA2A4DEC391CB05E19486 /* FinanceTrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FinanceTrackerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -322,6 +324,7 @@
 				7D73477135FA95F12B330DFE /* ImportView.swift */,
 				BBCFB99BB78FEEA517AB0DED /* ImportViewModel.swift */,
 				E32404A690D984E7DF6570FE /* IngestReport.swift */,
+				C377B11E49DF2A1F59DF0A87 /* PasteImportSheet.swift */,
 			);
 			path = Statements;
 			sourceTree = "<group>";
@@ -640,6 +643,7 @@
 				7A1E46965211B5E0D5E54976 /* PDFTextExtractor.swift in Sources */,
 				04CB6A0513787C9419A32EA8 /* ParsedSection.swift in Sources */,
 				48B32C7CAFE409EDB736154F /* ParserProtocol.swift in Sources */,
+				34FA52D1686B5290F925C55A /* PasteImportSheet.swift in Sources */,
 				7FCEF2632BD33E040D849671 /* PastedHsbc2NowParser.swift in Sources */,
 				52898B3508FAA5913092F631 /* PendingImport.swift in Sources */,
 				6B10DFBF6B32F7DB37BB4991 /* RawTransaction.swift in Sources */,
