@@ -11,7 +11,8 @@ struct Normalizer {
             descriptionRaw: raw.descriptionRaw,
             merchantNormalized: raw.merchantNormalized,
             fxRateToBase: raw.fxRateToBase,
-            isTransfer: raw.isTransfer
+            isTransfer: raw.isTransfer,
+            cardLast4: raw.cardLast4
         )
     }
 

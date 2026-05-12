@@ -14,6 +14,7 @@ struct IngestPipelineTests {
             Statement.self,
             Category.self,
             CategoryRule.self,
+            InstallmentPlan.self,
         ])
         let config = ModelConfiguration(
             schema: schema,

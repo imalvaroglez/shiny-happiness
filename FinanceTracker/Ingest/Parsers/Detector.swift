@@ -10,6 +10,7 @@ enum DetectedIssuer: String, Sendable {
     case skandia = "Skandia"
     case ciBanco = "CI Banco"
     case suburbia = "Suburbia"
+    case hsbcMexico2Now = "HSBC 2Now"
     case unknown = "Unknown"
 }
 
@@ -116,11 +117,37 @@ struct Detector: Sendable {
             )
         }
 
+        if let hsbc = matchHSBC2Now(in: sampleText) {
+            return hsbc
+        }
+
         return DetectionResult(
             issuer: .unknown,
             format: .pdf,
             confidence: 0,
             suggestedAccountType: .other
+        )
+    }
+
+    /// Pasted-text detection: classify the issuer from raw text the user pastes from
+    /// their bank portal. Used by the paste-import path; never invoked for PDF data.
+    static func detectFromPastedText(_ text: String) -> DetectionResult {
+        if let hsbc = matchHSBC2Now(in: text) {
+            return hsbc
+        }
+        return DetectionResult(issuer: .unknown, format: .pdf, confidence: 0, suggestedAccountType: .other)
+    }
+
+    private static func matchHSBC2Now(in sampleText: String) -> DetectionResult? {
+        let upper = sampleText.uppercased()
+        let mentionsHSBC = upper.contains("HSBC")
+        let mentions2Now = upper.contains("2NOW") || upper.contains("2 NOW")
+        guard mentionsHSBC && mentions2Now else { return nil }
+        return DetectionResult(
+            issuer: .hsbcMexico2Now,
+            format: .pdf,
+            confidence: 0.95,
+            suggestedAccountType: .creditCard
         )
     }
 

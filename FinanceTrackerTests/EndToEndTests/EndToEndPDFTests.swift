@@ -14,6 +14,7 @@ struct EndToEndPDFTests {
             Statement.self,
             Category.self,
             CategoryRule.self,
+            InstallmentPlan.self,
         ])
         let config = ModelConfiguration(
             schema: schema,

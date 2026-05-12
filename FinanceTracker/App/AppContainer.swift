@@ -14,6 +14,7 @@ final class AppContainer: ObservableObject {
             Category.self,
             CategoryRule.self,
             InstallmentPlan.self,
+            PendingImport.self,
         ])
         let config = ModelConfiguration(
             schema: schema,
