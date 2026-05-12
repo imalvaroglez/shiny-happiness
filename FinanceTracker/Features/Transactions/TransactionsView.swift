@@ -13,6 +13,9 @@ struct TransactionsView: View {
     @Query(sort: \Transaction.postedAt, order: .reverse) private var allTransactions: [Transaction]
     @Query private var accounts: [Account]
     @Query private var categories: [Category]
+    @Query(filter: #Predicate<PendingImport> { $0.resolvedTransaction == nil },
+           sort: \PendingImport.createdAt, order: .reverse)
+    private var pendingImports: [PendingImport]
     @State private var searchText = ""
     @State private var selectedTransaction: Transaction?
     @State private var showingCategoryPicker = false
@@ -76,6 +79,11 @@ struct TransactionsView: View {
     var body: some View {
         VStack(spacing: 0) {
             filterBar
+            if !pendingImports.isEmpty {
+                PendingReviewSection(pendings: pendingImports) { _ in
+                    try? modelContext.save()
+                }
+            }
             tableContent
         }
         .searchable(text: $searchText, prompt: "Search transactions")
@@ -151,17 +159,20 @@ struct TransactionsView: View {
     private var tableContent: some View {
         Table(sortedTransactions, sortOrder: $sortOrder) {
             TableColumn("Date", value: \.postedAt) { tx in
-                Text(tx.postedAt, format: .dateTime.day().month(.abbreviated).year())
-                    .font(.system(.body, design: .monospaced))
+                EditableDateCell(date: tx.postedAt) { newDate in
+                    tx.postedAt = newDate
+                    try? modelContext.save()
+                }
             }
             .width(min: 110, ideal: 120)
 
             TableColumn("Description", value: \.descriptionRaw) { tx in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(tx.descriptionRaw)
-                        .font(.body)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
+                    EditableTextCell(initialText: tx.descriptionRaw, placeholder: "Description") { newText in
+                        tx.descriptionRaw = newText
+                        tx.merchantNormalized = newText
+                        try? modelContext.save()
+                    }
                     if let nickname = tx.account?.nickname {
                         Text(nickname)
                             .font(.caption2)
@@ -172,10 +183,10 @@ struct TransactionsView: View {
             .width(min: 200, ideal: 350)
 
             TableColumn("Amount", value: \.amount) { tx in
-                Text(formatMoney(tx.amount))
-                    .font(.body.bold().monospacedDigit())
-                    .foregroundStyle(tx.amount >= 0 ? .green : .red)
-                    .frame(minWidth: 100, alignment: .trailing)
+                EditableAmountCell(amount: tx.amount, currencyCode: tx.currency) { newAmount in
+                    tx.amount = newAmount
+                    try? modelContext.save()
+                }
             }
             .width(min: 110, ideal: 130)
 

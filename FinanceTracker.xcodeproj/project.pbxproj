@@ -25,6 +25,7 @@
 		34FA52D1686B5290F925C55A /* PasteImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C377B11E49DF2A1F59DF0A87 /* PasteImportSheet.swift */; };
 		35E482FE7AFAB9CB170FDF6A /* StructuralParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949A945D8EE113CE8376A2DB /* StructuralParser.swift */; };
 		36F18F50AAB4C06BA8324702 /* MerchantExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F336C178E969629BD4C185D3 /* MerchantExtractor.swift */; };
+		371082F70A36D27C5B7DE423 /* PendingReviewSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9ABA6E36F934A19C008CE7D /* PendingReviewSection.swift */; };
 		374CBFF23B507C4FFB9E333B /* PastedHsbc2NowParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A752AE4F8853003301F69F59 /* PastedHsbc2NowParserTests.swift */; };
 		3D3B81B6595F4B1EF332472D /* IngestPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D60770616C79673217A9F8A /* IngestPipeline.swift */; };
 		3E08E1FC36634352EE090146 /* Date+Period.swift in Sources */ = {isa = PBXBuildFile; fileRef = B833F7810F33D61E067029F4 /* Date+Period.swift */; };
@@ -80,6 +81,7 @@
 		E0987749DFFF6491D91BB580 /* Money.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A3B4F465373F147C381A48 /* Money.swift */; };
 		E0B7636C75F0385A4FBB3534 /* OpenbankMultiAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4A44210612FDD708268A9C6 /* OpenbankMultiAccountTests.swift */; };
 		E7865A8364C6676EA6A4C536 /* LayoutStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86C13FAA9217FAD24D5FA905 /* LayoutStoreTests.swift */; };
+		E9C439C264FD43E29B36FB32 /* EditableCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25A32D6E04D3554EBD9BFDA4 /* EditableCells.swift */; };
 		EADBE2FB305A7B4241D78F74 /* CategoryRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F130B0509FE843CB686B4E /* CategoryRule.swift */; };
 		EE981FAE7AF35C481C9B0DC9 /* date_patterns.json in Resources */ = {isa = PBXBuildFile; fileRef = B79322B178BC59F4C069263D /* date_patterns.json */; };
 		F47D1A8E183539F736B5B6F7 /* OpenbankMexicoParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8B59AEE7F27B132483EA2B /* OpenbankMexicoParser.swift */; };
@@ -109,6 +111,7 @@
 		23B2A8EE8B8D6A8999231F0C /* AmexMexicoParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmexMexicoParserTests.swift; sourceTree = "<group>"; };
 		24F0AF2908D79A4B7A1865F5 /* ColumnDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnDetector.swift; sourceTree = "<group>"; };
 		258ACDAAC6B78C5485F65FCB /* category_rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = category_rules.json; sourceTree = "<group>"; };
+		25A32D6E04D3554EBD9BFDA4 /* EditableCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableCells.swift; sourceTree = "<group>"; };
 		27BCBC99E7AEEF97CC146320 /* Detector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Detector.swift; sourceTree = "<group>"; };
 		2965F6F13AFBFB6568025ABA /* KnowledgeLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeLoaderTests.swift; sourceTree = "<group>"; };
 		2C2C79047686612150D874D7 /* Deduplicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deduplicator.swift; sourceTree = "<group>"; };
@@ -152,6 +155,7 @@
 		B79322B178BC59F4C069263D /* date_patterns.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = date_patterns.json; sourceTree = "<group>"; };
 		B7B3D8030B93AB84BF855595 /* MerchantExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MerchantExtractorTests.swift; sourceTree = "<group>"; };
 		B833F7810F33D61E067029F4 /* Date+Period.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Date+Period.swift"; sourceTree = "<group>"; };
+		B9ABA6E36F934A19C008CE7D /* PendingReviewSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingReviewSection.swift; sourceTree = "<group>"; };
 		BB0EB885128E2A69A17B135B /* AccountType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountType.swift; sourceTree = "<group>"; };
 		BBCFB99BB78FEEA517AB0DED /* ImportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportViewModel.swift; sourceTree = "<group>"; };
 		C377B11E49DF2A1F59DF0A87 /* PasteImportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteImportSheet.swift; sourceTree = "<group>"; };
@@ -250,6 +254,8 @@
 			children = (
 				7888F0C7E514D4C800665442 /* ApplyToSimilarView.swift */,
 				B57D80A4E755ED722BD76906 /* CategoryPickerView.swift */,
+				25A32D6E04D3554EBD9BFDA4 /* EditableCells.swift */,
+				B9ABA6E36F934A19C008CE7D /* PendingReviewSection.swift */,
 				1CA827B92C402DBA4228BDF1 /* TransactionsView.swift */,
 			);
 			path = Transactions;
@@ -625,6 +631,7 @@
 				349F1A81FC9658CEF37283C0 /* Decimal+Money.swift in Sources */,
 				ACFEAAED6B529403CCDD9B4F /* Deduplicator.swift in Sources */,
 				4FC9FBFC9081EA63E3FE08DC /* Detector.swift in Sources */,
+				E9C439C264FD43E29B36FB32 /* EditableCells.swift in Sources */,
 				B8D86E6CEC52E25C0944E8C9 /* FileFormat.swift in Sources */,
 				FC94419B05C6E83DDDCD8B52 /* FinanceTrackerApp.swift in Sources */,
 				44A509118BCAF26377B4A607 /* ImportView.swift in Sources */,
@@ -646,6 +653,7 @@
 				34FA52D1686B5290F925C55A /* PasteImportSheet.swift in Sources */,
 				7FCEF2632BD33E040D849671 /* PastedHsbc2NowParser.swift in Sources */,
 				52898B3508FAA5913092F631 /* PendingImport.swift in Sources */,
+				371082F70A36D27C5B7DE423 /* PendingReviewSection.swift in Sources */,
 				6B10DFBF6B32F7DB37BB4991 /* RawTransaction.swift in Sources */,
 				700344262340C795EC412A1E /* SeedDataLoader.swift in Sources */,
 				1D440F03E6E632ABE852CA6B /* SemanticNormalizer.swift in Sources */,
