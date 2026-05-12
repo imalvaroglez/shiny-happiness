@@ -14,6 +14,7 @@ struct CategoryCorrectionTests {
             Statement.self,
             Category.self,
             CategoryRule.self,
+            InstallmentPlan.self,
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])

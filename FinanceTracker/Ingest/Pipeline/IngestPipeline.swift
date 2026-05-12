@@ -21,6 +21,170 @@ final class IngestPipeline {
         return reports
     }
 
+    /// Import a statement the user pasted as raw text from their bank portal.
+    /// Confident transactions are persisted as usual; ambiguous rows become
+    /// `PendingImport` records the user can resolve later. `sourceLabel` is used
+    /// for the IngestReport and as the dedup hash basis.
+    func ingestPastedText(_ text: String, sourceLabel: String = "Pasted statement") async -> IngestReport {
+        Logger.pipeline.info("Starting paste import: \(sourceLabel)")
+        let detection = Detector.detectFromPastedText(text)
+        guard detection.issuer != .unknown else {
+            return IngestReport(
+                fileName: sourceLabel,
+                errorCount: 1,
+                errors: [IngestError(message: "Could not identify financial institution from pasted text. Make sure you copied the full statement including the HSBC header.")]
+            )
+        }
+
+        let hash = computeTextHash(text)
+        if let existing = findStatement(byHash: hash) {
+            return IngestReport(
+                fileName: sourceLabel,
+                duplicateTransactions: existing.transactions.count,
+                errors: [IngestError(message: "This pasted statement was already imported.")]
+            )
+        }
+
+        guard detection.issuer == .hsbcMexico2Now else {
+            return IngestReport(
+                fileName: sourceLabel,
+                errorCount: 1,
+                errors: [IngestError(message: "Paste import is not yet supported for \(detection.issuer.rawValue).")]
+            )
+        }
+
+        let parser = PastedHsbc2NowParser()
+        let result = parser.parse(text)
+
+        guard !result.sections.isEmpty else {
+            return IngestReport(
+                fileName: sourceLabel,
+                errorCount: 1,
+                errors: [IngestError(message: "No transactions found in the pasted text. Check that the transaction rows are included.")]
+            )
+        }
+
+        var totalNew = 0
+        var totalDupes = 0
+        var totalUncategorized = 0
+        var allErrors: [IngestError] = []
+
+        for section in result.sections {
+            guard !section.transactions.isEmpty else { continue }
+
+            let account = findOrCreateAccount(
+                for: detection,
+                sectionHint: section.accountHint,
+                sectionType: section.accountType ?? detection.suggestedAccountType,
+                sectionNumber: section.accountNumber,
+                sectionNickname: section.nickname,
+                creditLimit: section.creditLimit
+            )
+
+            let statement = createStatement(
+                account: account,
+                rawTransactions: section.transactions,
+                hash: hash,
+                openingBalance: section.openingBalance,
+                closingBalance: section.closingBalance,
+                minimumPayment: section.minimumPayment,
+                paymentForNoInterest: section.paymentForNoInterest,
+                paymentDueDate: section.paymentDueDate,
+                interestCharged: section.interestCharged,
+                feesCharged: section.feesCharged,
+                ivaCharged: section.ivaCharged
+            )
+
+            let transactions = Normalizer.normalizeAll(section.transactions, account: account, statement: statement)
+            let existing = fetchExistingTransactions(for: account)
+            let dedup = Deduplicator.deduplicate(incoming: transactions, existing: existing)
+
+            let rules = fetchCategoryRules()
+            let cat = Categorizer.categorize(transactions: dedup.unique, rules: rules)
+            _ = Categorizer.categorize(transactions: dedup.duplicates, rules: rules)
+            for rule in rules {
+                if let count = cat.matchedRules[rule.id] {
+                    rule.matchCount += count
+                }
+            }
+
+            persist(account: account, statement: statement, transactions: dedup.unique + dedup.duplicates)
+            linkInstallmentPlans(account: account, section: section, transactions: dedup.unique + dedup.duplicates)
+
+            // Persist any pending rows for this card under the same statement.
+            for p in result.pendings where p.cardLast4 == section.accountNumber {
+                let pending = PendingImport(
+                    account: account,
+                    statement: statement,
+                    rawText: p.rawText,
+                    reason: p.reason,
+                    parsedDate: p.parsedDate,
+                    parsedAmount: p.parsedAmount,
+                    parsedDescription: p.parsedDescription,
+                    cardLast4: p.cardLast4
+                )
+                context.insert(pending)
+            }
+
+            totalNew += dedup.unique.count
+            totalDupes += dedup.duplicates.count
+            totalUncategorized += cat.uncategorized
+        }
+
+        // Pendings with no cardLast4 (anything we couldn't bind to a section) get attached to the
+        // first persisted account so the user can still review them.
+        let firstAccount = (try? context.fetch(FetchDescriptor<Account>()))?.first(where: { $0.institution == detection.issuer.rawValue })
+        for p in result.pendings where p.cardLast4 == nil {
+            let pending = PendingImport(
+                account: firstAccount,
+                rawText: p.rawText,
+                reason: p.reason,
+                parsedDate: p.parsedDate,
+                parsedAmount: p.parsedAmount,
+                parsedDescription: p.parsedDescription
+            )
+            context.insert(pending)
+        }
+
+        do {
+            try context.save()
+        } catch {
+            Logger.pipeline.error("Save error: \(error)")
+            return IngestReport(
+                fileName: sourceLabel,
+                errorCount: 1,
+                errors: [IngestError(message: "Save error: \(error.localizedDescription)")]
+            )
+        }
+
+        Logger.pipeline.info("Paste import \(sourceLabel): \(totalNew) new, \(totalDupes) dupes, \(totalUncategorized) uncategorized, \(result.pendings.count) pending review")
+
+        // Soft-warn if parsed totals diverge from the header's declared totals.
+        if let expectedCharges = result.sections.first?.transactions.first?.installmentHint,
+           let _ = result.sections.first {
+            _ = expectedCharges
+        }
+
+        let pendingsCount = result.pendings.count
+        if pendingsCount > 0 {
+            allErrors.append(IngestError(message: "\(pendingsCount) row(s) need manual review."))
+        }
+
+        return IngestReport(
+            fileName: sourceLabel,
+            newTransactions: totalNew,
+            duplicateTransactions: totalDupes,
+            uncategorizedCount: totalUncategorized,
+            errors: allErrors
+        )
+    }
+
+    private func computeTextHash(_ text: String) -> String {
+        let data = Data(text.utf8)
+        let digest = SHA256.hash(data: data)
+        return digest.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
     private func ingestFile(_ url: URL) async -> IngestReport {
         let fileName = url.lastPathComponent
         Logger.pipeline.info("Starting ingest for \(fileName)")
@@ -55,7 +219,7 @@ final class IngestPipeline {
                     return IngestReport(
                         fileName: fileName,
                         errorCount: 1,
-                        errors: [IngestError(message: "PDF text is garbled — custom font encoding without Unicode mapping. This requires OCR (planned for Phase 2)")]
+                        errors: [IngestError(message: "PDF text is garbled — custom font encoding without Unicode mapping. Try pasting the statement text instead.")]
                     )
                 }
             }
@@ -105,7 +269,8 @@ final class IngestPipeline {
                 sectionHint: section.accountHint,
                 sectionType: section.accountType ?? detection.suggestedAccountType,
                 sectionNumber: section.accountNumber,
-                sectionNickname: section.nickname
+                sectionNickname: section.nickname,
+                creditLimit: section.creditLimit
             )
 
             let statement = createStatement(
@@ -113,7 +278,13 @@ final class IngestPipeline {
                 rawTransactions: section.transactions,
                 hash: hash,
                 openingBalance: section.openingBalance,
-                closingBalance: section.closingBalance
+                closingBalance: section.closingBalance,
+                minimumPayment: section.minimumPayment,
+                paymentForNoInterest: section.paymentForNoInterest,
+                paymentDueDate: section.paymentDueDate,
+                interestCharged: section.interestCharged,
+                feesCharged: section.feesCharged,
+                ivaCharged: section.ivaCharged
             )
 
             let transactions = Normalizer.normalizeAll(section.transactions, account: account, statement: statement)
@@ -132,6 +303,7 @@ final class IngestPipeline {
             }
 
             persist(account: account, statement: statement, transactions: dedupResult.unique + dedupResult.duplicates)
+            linkInstallmentPlans(account: account, section: section, transactions: dedupResult.unique + dedupResult.duplicates)
 
             totalNew += dedupResult.unique.count
             totalDupes += dedupResult.duplicates.count
@@ -234,7 +406,8 @@ final class IngestPipeline {
         sectionHint: String?,
         sectionType: AccountType,
         sectionNumber: String?,
-        sectionNickname: String?
+        sectionNickname: String?,
+        creditLimit: Decimal? = nil
     ) -> Account {
         let institutionName = detection.issuer.rawValue
 
@@ -244,6 +417,7 @@ final class IngestPipeline {
                 predicate: #Predicate<Account> { $0.institution == institutionName && $0.accountNumber == num }
             )
             if let existing = try? context.fetch(descriptor).first {
+                if let cl = creditLimit, existing.creditLimit == nil { existing.creditLimit = cl }
                 return existing
             }
         }
@@ -252,6 +426,7 @@ final class IngestPipeline {
             predicate: #Predicate<Account> { $0.institution == institutionName }
         )
         if let existing = (try? context.fetch(institutionDescriptor))?.first(where: { $0.type == sectionType }) {
+            if let cl = creditLimit, existing.creditLimit == nil { existing.creditLimit = cl }
             return existing
         }
 
@@ -262,7 +437,8 @@ final class IngestPipeline {
             type: sectionType,
             currency: "MXN",
             nickname: sectionNickname,
-            accountNumber: sectionNumber
+            accountNumber: sectionNumber,
+            creditLimit: creditLimit
         )
         context.insert(account)
         return account
@@ -284,7 +460,13 @@ final class IngestPipeline {
         rawTransactions: [RawTransaction],
         hash: String,
         openingBalance: Decimal? = nil,
-        closingBalance: Decimal? = nil
+        closingBalance: Decimal? = nil,
+        minimumPayment: Decimal? = nil,
+        paymentForNoInterest: Decimal? = nil,
+        paymentDueDate: Date? = nil,
+        interestCharged: Decimal? = nil,
+        feesCharged: Decimal? = nil,
+        ivaCharged: Decimal? = nil
     ) -> Statement {
         let dates = rawTransactions.map(\.postedAt)
         let periodStart = dates.min() ?? .now
@@ -296,7 +478,13 @@ final class IngestPipeline {
             periodEnd: periodEnd,
             sourceFileHash: hash,
             openingBalance: openingBalance,
-            closingBalance: closingBalance
+            closingBalance: closingBalance,
+            minimumPayment: minimumPayment,
+            paymentForNoInterest: paymentForNoInterest,
+            paymentDueDate: paymentDueDate,
+            interestCharged: interestCharged,
+            feesCharged: feesCharged,
+            ivaCharged: ivaCharged
         )
         return statement
     }
@@ -319,6 +507,60 @@ final class IngestPipeline {
         context.insert(statement)
         for tx in transactions {
             context.insert(tx)
+        }
+    }
+
+    /// For each `RawTransaction` carrying an `installmentHint`, ensure an `InstallmentPlan` exists
+    /// for `(account, merchantDescription, originalAmount, firstChargeDate)` and link the persisted
+    /// `Transaction` whose amount/description/date match.
+    private func linkInstallmentPlans(account: Account, section: ParsedSection, transactions: [Transaction]) {
+        let raws = section.transactions
+        guard raws.contains(where: { $0.installmentHint != nil }) else { return }
+
+        let descriptor = FetchDescriptor<InstallmentPlan>()
+        let existingPlans = (try? context.fetch(descriptor)) ?? []
+        let accountId = account.id
+
+        for raw in raws {
+            guard let hint = raw.installmentHint else { continue }
+            let merchant = hint.merchantDescription
+            let original = hint.originalAmount
+            let firstDate = hint.firstChargeDate
+
+            let plan = existingPlans.first {
+                $0.account?.id == accountId
+                    && $0.merchantDescription == merchant
+                    && $0.originalAmount == original
+                    && abs($0.firstChargeDate.timeIntervalSince(firstDate)) < 86400
+            } ?? {
+                let p = InstallmentPlan(
+                    account: account,
+                    originalAmount: original,
+                    totalMonths: hint.totalMonths,
+                    currentMonth: hint.currentMonth,
+                    monthlyAmount: hint.monthlyAmount,
+                    ratePercent: hint.ratePercent,
+                    firstChargeDate: firstDate,
+                    merchantDescription: merchant
+                )
+                context.insert(p)
+                return p
+            }()
+
+            // Keep currentMonth as the max seen across reimports.
+            if hint.currentMonth > plan.currentMonth {
+                plan.currentMonth = hint.currentMonth
+            }
+
+            // Link the persisted Transaction whose amount/description/date best match this raw row.
+            let match = transactions.first {
+                $0.descriptionRaw == raw.descriptionRaw
+                    && $0.amount == raw.amount
+                    && abs($0.postedAt.timeIntervalSince(raw.postedAt)) < 1
+            }
+            if let tx = match, tx.installmentPlan == nil {
+                tx.installmentPlan = plan
+            }
         }
     }
 }

@@ -24,6 +24,7 @@
 		349F1A81FC9658CEF37283C0 /* Decimal+Money.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D8F045F1CC4D789C71AA8C8 /* Decimal+Money.swift */; };
 		35E482FE7AFAB9CB170FDF6A /* StructuralParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949A945D8EE113CE8376A2DB /* StructuralParser.swift */; };
 		36F18F50AAB4C06BA8324702 /* MerchantExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F336C178E969629BD4C185D3 /* MerchantExtractor.swift */; };
+		374CBFF23B507C4FFB9E333B /* PastedHsbc2NowParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A752AE4F8853003301F69F59 /* PastedHsbc2NowParserTests.swift */; };
 		3D3B81B6595F4B1EF332472D /* IngestPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D60770616C79673217A9F8A /* IngestPipeline.swift */; };
 		3E08E1FC36634352EE090146 /* Date+Period.swift in Sources */ = {isa = PBXBuildFile; fileRef = B833F7810F33D61E067029F4 /* Date+Period.swift */; };
 		3FE44D2B230509CC8545E9EE /* Statement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF4B815E55BBE994A9DF4A5B /* Statement.swift */; };
@@ -38,6 +39,7 @@
 		4E9DD966C8CA1635768F89C5 /* MerchantExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7B3D8030B93AB84BF855595 /* MerchantExtractorTests.swift */; };
 		4F81EBFD1F759C29AB0C13EE /* category_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 258ACDAAC6B78C5485F65FCB /* category_rules.json */; };
 		4FC9FBFC9081EA63E3FE08DC /* Detector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BCBC99E7AEEF97CC146320 /* Detector.swift */; };
+		52898B3508FAA5913092F631 /* PendingImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B75051804450452E6E8F69C /* PendingImport.swift */; };
 		5A66C861137A24400C347A29 /* Categorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE428DF09B8C498ED13287B0 /* Categorizer.swift */; };
 		66B3D86239B373D1126F9E10 /* ColumnDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180C8C80B7814CCAC01438A1 /* ColumnDetectorTests.swift */; };
 		67C2E17E0F840DEB49B58867 /* Category.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5968E2E2BFBEF7C9DA25BE07 /* Category.swift */; };
@@ -50,6 +52,7 @@
 		7435E0B92164665B68B71191 /* ImportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBCFB99BB78FEEA517AB0DED /* ImportViewModel.swift */; };
 		7A1E46965211B5E0D5E54976 /* PDFTextExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EB1B45283865642475E879C /* PDFTextExtractor.swift */; };
 		7CD3B4515A778A0374791688 /* IngestReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32404A690D984E7DF6570FE /* IngestReport.swift */; };
+		7FCEF2632BD33E040D849671 /* PastedHsbc2NowParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36341C3C6BDFE7D5721CAF6C /* PastedHsbc2NowParser.swift */; };
 		84C26FBE7AA03147CD3EE328 /* DeduplicatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 762031234D540053D316B47E /* DeduplicatorTests.swift */; };
 		8E17FA6D66457644DE57B368 /* InstallmentPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9F678D7C0F27BD7C9899137 /* InstallmentPlan.swift */; };
 		8EE9599CFC5E7D2DE6471E61 /* StatementBalanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911C0B681D74C9CCC271C0CA /* StatementBalanceTests.swift */; };
@@ -109,7 +112,9 @@
 		2965F6F13AFBFB6568025ABA /* KnowledgeLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeLoaderTests.swift; sourceTree = "<group>"; };
 		2C2C79047686612150D874D7 /* Deduplicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deduplicator.swift; sourceTree = "<group>"; };
 		3060136CEC6240492632D295 /* Normalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Normalizer.swift; sourceTree = "<group>"; };
+		36341C3C6BDFE7D5721CAF6C /* PastedHsbc2NowParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastedHsbc2NowParser.swift; sourceTree = "<group>"; };
 		38B807CA5F0B3CAB0EBF0024 /* NormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NormalizerTests.swift; sourceTree = "<group>"; };
+		3B75051804450452E6E8F69C /* PendingImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingImport.swift; sourceTree = "<group>"; };
 		3EB1B45283865642475E879C /* PDFTextExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFTextExtractor.swift; sourceTree = "<group>"; };
 		45CC98CFD6E5ADACC4120ED2 /* header_vocabulary.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = header_vocabulary.json; sourceTree = "<group>"; };
 		5968E2E2BFBEF7C9DA25BE07 /* Category.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Category.swift; sourceTree = "<group>"; };
@@ -137,6 +142,7 @@
 		A43EB1070F820ABB2DD25DF6 /* amount_conventions.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = amount_conventions.json; sourceTree = "<group>"; };
 		A4A44210612FDD708268A9C6 /* OpenbankMultiAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenbankMultiAccountTests.swift; sourceTree = "<group>"; };
 		A74B0D3E580CAACB839B149C /* OpenbankMexicoParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenbankMexicoParserTests.swift; sourceTree = "<group>"; };
+		A752AE4F8853003301F69F59 /* PastedHsbc2NowParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastedHsbc2NowParserTests.swift; sourceTree = "<group>"; };
 		A8FF1C26E42D2DED6095F2E2 /* CategoryCorrectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryCorrectionTests.swift; sourceTree = "<group>"; };
 		AF4B815E55BBE994A9DF4A5B /* Statement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Statement.swift; sourceTree = "<group>"; };
 		B2F130B0509FE843CB686B4E /* CategoryRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRule.swift; sourceTree = "<group>"; };
@@ -400,6 +406,7 @@
 			children = (
 				7EAA3A39F0D9F2459CBEAB7A /* CSV */,
 				93E0B4A720867F9716695610 /* PDF */,
+				FD792AB5EE5661203A0C3ED8 /* Text */,
 				27BCBC99E7AEEF97CC146320 /* Detector.swift */,
 				FCCFD14E7357E43039083B47 /* ParserProtocol.swift */,
 				084ECD2379C85611D120A356 /* RawTransaction.swift */,
@@ -418,6 +425,7 @@
 				7C0C844E5D35AE5153E8A82B /* IngestPipelineTests.swift */,
 				B7B3D8030B93AB84BF855595 /* MerchantExtractorTests.swift */,
 				38B807CA5F0B3CAB0EBF0024 /* NormalizerTests.swift */,
+				A752AE4F8853003301F69F59 /* PastedHsbc2NowParserTests.swift */,
 				EA788084B77DC6E285F0C75B /* SPEIDestinationRulesTests.swift */,
 			);
 			path = PipelineTests;
@@ -450,6 +458,7 @@
 				5968E2E2BFBEF7C9DA25BE07 /* Category.swift */,
 				B2F130B0509FE843CB686B4E /* CategoryRule.swift */,
 				E9F678D7C0F27BD7C9899137 /* InstallmentPlan.swift */,
+				3B75051804450452E6E8F69C /* PendingImport.swift */,
 				AF4B815E55BBE994A9DF4A5B /* Statement.swift */,
 				EC1B2E8CD13E70631FA2725B /* Transaction.swift */,
 			);
@@ -482,6 +491,14 @@
 				E32D2CADB3F7DBA60D048605 /* SeedDataLoader.swift */,
 			);
 			path = SeedData;
+			sourceTree = "<group>";
+		};
+		FD792AB5EE5661203A0C3ED8 /* Text */ = {
+			isa = PBXGroup;
+			children = (
+				36341C3C6BDFE7D5721CAF6C /* PastedHsbc2NowParser.swift */,
+			);
+			path = Text;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -623,6 +640,8 @@
 				7A1E46965211B5E0D5E54976 /* PDFTextExtractor.swift in Sources */,
 				04CB6A0513787C9419A32EA8 /* ParsedSection.swift in Sources */,
 				48B32C7CAFE409EDB736154F /* ParserProtocol.swift in Sources */,
+				7FCEF2632BD33E040D849671 /* PastedHsbc2NowParser.swift in Sources */,
+				52898B3508FAA5913092F631 /* PendingImport.swift in Sources */,
 				6B10DFBF6B32F7DB37BB4991 /* RawTransaction.swift in Sources */,
 				700344262340C795EC412A1E /* SeedDataLoader.swift in Sources */,
 				1D440F03E6E632ABE852CA6B /* SemanticNormalizer.swift in Sources */,
@@ -653,6 +672,7 @@
 				2B541DA9B52145C4D8CE7533 /* NormalizerTests.swift in Sources */,
 				3218EB269C821EE5C6F62552 /* OpenbankMexicoParserTests.swift in Sources */,
 				E0B7636C75F0385A4FBB3534 /* OpenbankMultiAccountTests.swift in Sources */,
+				374CBFF23B507C4FFB9E333B /* PastedHsbc2NowParserTests.swift in Sources */,
 				1F8B12CA89D3CA8BCA7DD553 /* SPEIDestinationRulesTests.swift in Sources */,
 				2E7AEBE1B98E9692093C5E48 /* SemanticNormalizerTests.swift in Sources */,
 				8EE9599CFC5E7D2DE6471E61 /* StatementBalanceTests.swift in Sources */,
