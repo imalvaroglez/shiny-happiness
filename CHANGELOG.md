@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+**HSBC 2Now credit card support (Phases 1 + 2)**
+- `Account`: gained `creditLimit`, `statementDayOfMonth`, `paymentDayOfMonth` (all optional, lightweight migration)
+- `Statement`: gained `minimumPayment`, `paymentForNoInterest`, `paymentDueDate`, `interestCharged`, `feesCharged`, `ivaCharged`. Explicit `inverse: \Transaction.statement` to keep the relationship deterministic alongside the new `InstallmentPlan` inverse
+- `Transaction`: gained `cardLast4` (disambiguate titular vs supplementary card) and `installmentPlan` relationship
+- New `@Model InstallmentPlan` for Meses Sin Intereses (MSI) tracking — original amount, total months, current month, monthly amount, rate
+- `CategoryKind.creditCardPayment` to keep card payments out of generic `.transfer` aggregates
+- Seed data: promoted "Credit Card Payments" to a top-level category; new HSBC rules for `SU PAGO GRACIAS SPEI`, interest, and annual fee
+- New `PastedHsbc2NowParser`: ingests statement text the user copies from the HSBC portal. Extracts statement header (period, due date, balances, credit limit), MSI table (Home Depot 02 de 12), and per-card transaction sections. Tolerates OCR-style number artifacts (dot/space thousands separators)
+- New `@Model PendingImport`: records lines the parser couldn't confidently decode, with best-effort partial parse fields and a nullable link to the resolved `Transaction`. Forms the basis of the manual-review + learning flow
+- `IngestPipeline.ingestPastedText(...)`: paste-text entry point; confident rows persist as usual, ambiguous rows become `PendingImport` attached to the same `Statement`. Dedup hash is SHA-256 of the pasted text
+- `Detector.detectFromPastedText(...)`: HSBC 2Now classifier for paste payloads (matches "HSBC" + "2Now")
+- 6 new tests covering header extraction, MSI parsing, both card sections, combined-card reconciliation against documented totals, SU PAGO classification as payment, and PendingImport creation for a broken row
+
+### Architectural decisions
+
+- **AD-C1** Supplementary cards modeled as a `cardLast4` field on `Transaction`, not as separate Accounts
+- **AD-C2** Liability balances stored signed-negative so consolidated net worth = simple sum
+- **AD-C3** MSI installments produce both an original-purchase Transaction and per-month installment Transactions, linked through `InstallmentPlan`
+- **AD-C4** Credit-card storage convention: negative = money out, positive = money in. HSBC's "+" (charge) is flipped during parsing
+- **AD-C5** `SU PAGO GRACIAS SPEI` payments categorize as `.creditCardPayment` and are excluded from cash-flow aggregates everywhere
+
 ### Changed
 
 **Liquid Glass adoption — removed all opaque backgrounds**
