@@ -8,6 +8,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Scroll performance — GlassCard hover refactor**
+- `GlassCard`: replaced `.repeatForever` AngularGradient rotation with a static 35° stroke that fades in on hover (0.25s easeInOut). Multiple interactive cards no longer saturate the GPU during scroll.
+
+**Drill-down completeness fix**
+- `DashboardViewModel`: removed `Array(transactions.prefix(20))` from `buildConsolidated`, `buildAsset`, and `buildLiability`. Snapshots now carry the full filtered set so `BreakdownSheet` sees all matching rows for every aggregate (interest earned, income, expenses, category spending). Dashboard "Recent Transactions" panels already cap at `.prefix(10)` at the render site.
+- New `DashboardSnapshotTests.interestDrilldownIsComplete` test asserting both row visibility and `totalInterestEarned` accuracy.
+
+**Multi-HSBC account isolation**
+- `IngestPipeline.findOrCreateAccount`: when `sectionNumber` is supplied and doesn't match an existing account, creates a new Account instead of falling through to the `(institution, type)` fallback. Closes the multi-HSBC merge bug where two physical card accounts were merged into one.
+- `PastedHsbc2NowParser`: both titular and adicional sections now share the titular card's `last4` as `accountNumber`, so one Account is created per physical card (not per `cardLast4`).
+- `StructuralParser.extractAccountNumber`: tightened to match only labeled account numbers (CLABE/Cuenta/No./contrato), avoiding false positives on random 4-digit numbers. Returns nil when no labeled number found, so Openbank accounts still merge via the `(institution, type)` fallback.
+- `AccountIdentity`: deterministic hue offset (±20°) derived from `Account.id` so two same-institution accounts receive visibly distinct colors.
+- New `MultiHSBCAccountTests` with 3 tests: two accounts remain distinct after two pastes, transactions don't cross accounts, identity colors differ.
+- New fixture `samples/2026-05-08_HSBC_2Now_paste_accountB.txt` simulating a second HSBC 2Now account.
+
+**Account.displayName + per-account editor**
+- `Account.displayName` computed property: prefers user-set nickname, then `"<institution> ····<last4>"`, then institution name. Replaced every `.nickname` call site across dashboards, sidebar, breakdown sheet, and transactions table.
+- `AccountSummary.displayName` replaces the old `nickname` field.
+- `SettingsView`: accounts section now includes per-account nickname `TextField`, identity-color `ColorPicker` (round-trips through `Account.tintHex`), and credit-limit field (credit cards only).
+
+**Data safety: lastModifiedAt + soft-delete + local backup**
+- `lastModifiedAt: Date = Date.now` added to all 8 `@Model` classes. `PersistentModel.touch()` extension centralizes timestamp updates. Every mutation path (editable cells, pending-import resolution, learning hooks, apply-to-similar, installment plan updates) stamps the field before save.
+- `Transaction.deletedAt: Date? = nil` for soft-delete. All `FetchDescriptor<Transaction>` filters default to `deletedAt == nil`. Context-menu delete sets `deletedAt = Date.now`. "Recently Deleted" toggle in Transactions toolbar swaps the `@Query` to show soft-deleted rows with a Restore action.
+- `Deduplicator` returns `matchedDeleted` entries when an incoming row matches a soft-deleted transaction. The pipeline creates `PendingImport` rows with "Matches a deleted transaction" reason. `PendingReviewSection` shows Restore / Keep Deleted actions.
+- `BackupArchive.export(to:from:)` writes a `.ftbackup` folder bundle (Info.plist + manifest.json with SHA-256 content hashes + per-model JSON snapshots + verbatim copies of imported statement files).
+- `BackupArchive.restore(from:into:strategy:)` reads the bundle and materializes rows. Two strategies: `mergeKeepingNewer` (per-row `lastModifiedAt` comparison) and `replaceAll` (wipe-then-import).
+- `BackupScheduler.runIfNeeded()` writes a snapshot on launch if the last one is >24h old, then prunes to 7 daily / 4 weekly / 12 monthly snapshots under `~/Library/Application Support/FinanceTracker/Backups/`.
+- Settings → Backup section: last-snapshot timestamp, snapshot count, Export / Restore / Reveal in Finder buttons.
+- New `BackupArchiveTests` with 3 tests: round-trip replaceAll, mergeKeepingNewer, manifest hash integrity.
+
+### Architectural decisions
+
+- **AD-015** Soft-delete via `Transaction.deletedAt`; permanent deletion is the backup retention's job.
+- **AD-016** Local `.ftbackup` folder bundle is the primary durability story; CloudKit sync deferred to backlog.
+- **AD-017** `findOrCreateAccount` never falls back to `(institution, type)` when `sectionNumber` is supplied.
+- **AD-018** Deduplicator never silently suppresses or re-imports against a soft-deleted row.
+
+### Added
+
 **Per-account dashboards + interactive charts + drill-downs (Stage 3)**
 - New `DashboardScope` (`.consolidated | .account(UUID)`) and `DashboardSnapshot` union (`.consolidated | .asset | .liability | .empty`); the dashboard view dispatches on the snapshot so consolidated, asset, and liability cases get purpose-built presentations
 - Sidebar now lists every `Account` with a type-appropriate icon under an `Accounts` section; selecting one drives the scope

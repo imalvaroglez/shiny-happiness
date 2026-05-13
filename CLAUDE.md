@@ -108,6 +108,14 @@ Swift 6 strict concurrency (`SWIFT_STRICT_CONCURRENCY = complete`). All ViewMode
 - `StatementParser.parse(data:)` returns `[RawTransaction]` only — account assignment happens in `Normalizer`, not parsers (AD-008).
 - `StructuralParser.init?()` returns `nil` if knowledge JSON bundle resources are missing — always handle this nil case.
 
+### Backup architecture
+
+- `.ftbackup` folder bundles under `~/Library/Application Support/FinanceTracker/Backups/`. Each bundle contains `Info.plist`, `manifest.json`, per-model JSON snapshots under `models/`, and verbatim copies of imported statement files under `statements/`.
+- `BackupScheduler.runIfNeeded()` called from DashboardView's `.task` on launch. Writes a snapshot if the last one is >24h old, then prunes to retain 7 daily / 4 weekly / 12 monthly snapshots.
+- `BackupArchive.export(to:from:)` and `BackupArchive.restore(from:into:strategy:)` are the I/O entry points. Two restore strategies: `replaceAll` (wipe + import) and `mergeKeepingNewer` (per-row `lastModifiedAt` comparison).
+- Soft-delete via `Transaction.deletedAt`; "Recently Deleted" toggle in TransactionsView. Soft-deleted rows are included in exports.
+- Deduplicator surfaces soft-deleted matches as `PendingImport` with "Matches a deleted transaction" reason and Restore/Keep-Deleted actions (AD-018).
+
 ## Adding a New Parser
 
 1. Create `FinanceTracker/Ingest/Parsers/CSV/YourBankParser.swift`, conform to `StatementParser`.
@@ -124,4 +132,4 @@ Full rationale in `DECISIONS.md`. Key points:
 - PDFKit positional extraction; Vision OCR deferred (AD-002). HSBC 2Now uses paste-text instead.
 - Statement dedup via SHA-256 hash of the source (file bytes or pasted text), checked before any parsing.
 - `project.yml` + XcodeGen; never edit `.xcodeproj` directly (AD-005).
-- Manual review + learning over heuristics (AD-009). Liability balances stored signed-negative (AD-010). Supplementary cards as `cardLast4` not separate Accounts (AD-011). MSI: both original + monthly installments (AD-012). `SU PAGO GRACIAS SPEI` is `.creditCardPayment` and excluded from cash flow (AD-013). Manual fixes feed `CategoryRule` + `SignRecoveryHint` (AD-014).
+- Manual review + learning over heuristics (AD-009). Liability balances stored signed-negative (AD-010). Supplementary cards as `cardLast4` not separate Accounts (AD-011). MSI: both original + monthly installments (AD-012). `SU PAGO GRACIAS SPEI` is `.creditCardPayment` and excluded from cash flow (AD-013). Manual fixes feed `CategoryRule` + `SignRecoveryHint` (AD-014). Soft-delete via `Transaction.deletedAt` (AD-015). Local backup primary durability, CloudKit deferred (AD-016). `findOrCreateAccount` never falls back when sectionNumber is supplied (AD-017). Deduplicator surfaces soft-deleted matches for manual review (AD-018).
