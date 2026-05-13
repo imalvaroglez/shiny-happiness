@@ -53,7 +53,11 @@ final class IngestPipeline {
             )
         }
 
-        let parser = PastedHsbc2NowParser()
+        let hintDescriptor = FetchDescriptor<SignRecoveryHint>()
+        let signHints: [PastedHsbc2NowParser.SignHint] = ((try? context.fetch(hintDescriptor)) ?? [])
+            .map { PastedHsbc2NowParser.SignHint(pattern: $0.pattern, implicitSign: $0.implicitSign) }
+
+        let parser = PastedHsbc2NowParser(signHints: signHints)
         let result = parser.parse(text)
 
         guard !result.sections.isEmpty else {

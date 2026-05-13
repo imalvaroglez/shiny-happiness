@@ -13,6 +13,13 @@ import os
 /// start with a "Tarjeta titular 5470...1111" or "Tarjeta adicional ...1112" line.
 struct PastedHsbc2NowParser {
 
+    /// Sendable snapshot of a `SignRecoveryHint`, passed in by the pipeline so the
+    /// parser can stay free of SwiftData dependencies.
+    struct SignHint: Sendable {
+        let pattern: String      // case-insensitive regex
+        let implicitSign: Int    // -1 = charge (HSBC "+"), +1 = payment (HSBC "-")
+    }
+
     struct UnparsedLine: Sendable {
         let rawText: String
         let reason: String
@@ -29,6 +36,14 @@ struct PastedHsbc2NowParser {
         let parsedTotalCharges: Decimal
         /// Sum of all `-`-signed amounts the parser recognized.
         let parsedTotalPayments: Decimal
+    }
+
+    /// Learned hints consulted when a row's description matches but the line lacked
+    /// an explicit +/- glyph. Defaults to empty; the pipeline supplies the live set.
+    let signHints: [SignHint]
+
+    init(signHints: [SignHint] = []) {
+        self.signHints = signHints
     }
 
     func parse(_ text: String) -> ParseResult {
@@ -307,26 +322,55 @@ struct PastedHsbc2NowParser {
     ///   `<dd-Mmm-yyyy> <dd-Mmm-yyyy> <description…> <+ or -> $<amount>`
     /// The two dates may be the same (op + posting). Description spans the space between
     /// the second date and the sign. Sign+amount is at the line's tail.
+    ///
+    /// If the strict pattern fails to match because the sign glyph is missing, the
+    /// parser tries a loose pattern and consults `signHints` to recover the sign
+    /// from the description. If no hint matches, returns nil — the pipeline will
+    /// stage the line as a `PendingImport`.
     func parseTransactionLine(_ line: String, cardLast4: String) -> RawTransaction? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
         // Pattern: leading date(s), description, then trailing sign + $ + amount.
-        let pattern = #/^(\d{1,2}-[A-Za-zñÑáéíóúÁÉÍÓÚ]{3}-\d{4})\s+(\d{1,2}-[A-Za-zñÑáéíóúÁÉÍÓÚ]{3}-\d{4})\s+(.+?)\s+([+\-])\s*\$\s*(\d[\d,]*(?:\.\d{1,2})?)\s*$/#
-        guard let m = trimmed.firstMatch(of: pattern) else { return nil }
+        let strict = #/^(\d{1,2}-[A-Za-zñÑáéíóúÁÉÍÓÚ]{3}-\d{4})\s+(\d{1,2}-[A-Za-zñÑáéíóúÁÉÍÓÚ]{3}-\d{4})\s+(.+?)\s+([+\-])\s*\$\s*(\d[\d,]*(?:\.\d{1,2})?)\s*$/#
 
+        if let m = trimmed.firstMatch(of: strict) {
+            guard let opDate = parseSpanishDate(String(m.1)) else { return nil }
+            let postDate = parseSpanishDate(String(m.2)) ?? opDate
+            let description = String(m.3).trimmingCharacters(in: .whitespacesAndNewlines)
+            let signChar = String(m.4)
+            guard let absAmount = parseAmountBody(String(m.5)) else { return nil }
+
+            // HSBC convention: '+' = charge (debt up, money out of pocket);
+            // '-' = payment/refund. App convention: positive = money in, negative = money out.
+            // Flip the HSBC sign; then let a learned hint override if the description
+            // matches a known payment/charge phrase.
+            var appAmount: Decimal = (signChar == "-") ? absAmount : -absAmount
+            if let override = signHintOverride(for: description) {
+                appAmount = override > 0 ? absAmount : -absAmount
+            }
+
+            return RawTransaction(
+                postedAt: postDate,
+                amount: appAmount,
+                currency: "MXN",
+                descriptionRaw: description,
+                merchantNormalized: description,
+                cardLast4: cardLast4
+            )
+        }
+
+        // Loose pattern: tail amount with no `+`/`-` sign. Only accepted when a
+        // learned SignRecoveryHint matches the description.
+        let loose = #/^(\d{1,2}-[A-Za-zñÑáéíóúÁÉÍÓÚ]{3}-\d{4})\s+(\d{1,2}-[A-Za-zñÑáéíóúÁÉÍÓÚ]{3}-\d{4})\s+(.+?)\s+\$\s*(\d[\d,]*(?:\.\d{1,2})?)\s*$/#
+        guard let m = trimmed.firstMatch(of: loose) else { return nil }
         guard let opDate = parseSpanishDate(String(m.1)) else { return nil }
         let postDate = parseSpanishDate(String(m.2)) ?? opDate
         let description = String(m.3).trimmingCharacters(in: .whitespacesAndNewlines)
-        let signChar = String(m.4)
-        guard let absAmount = parseAmountBody(String(m.5)) else { return nil }
+        guard let absAmount = parseAmountBody(String(m.4)) else { return nil }
+        guard let override = signHintOverride(for: description) else { return nil }
 
-        // HSBC convention: '+' = charge (debt up, money out of pocket); '-' = payment/refund.
-        // App convention: positive = money in, negative = money out. Flip.
-        // OCR/whitespace can sometimes drop the sign; we already require it via the regex
-        // so any unsigned row falls through to pendings.
-        let appAmount: Decimal = (signChar == "-") ? absAmount : -absAmount
-
+        let appAmount: Decimal = override > 0 ? absAmount : -absAmount
         return RawTransaction(
             postedAt: postDate,
             amount: appAmount,
@@ -335,6 +379,17 @@ struct PastedHsbc2NowParser {
             merchantNormalized: description,
             cardLast4: cardLast4
         )
+    }
+
+    /// Returns `+1` or `-1` if a `SignHint` matches `description` (or `nil` if none).
+    /// Implicit sign is in **app convention** (positive = money in).
+    private func signHintOverride(for description: String) -> Int? {
+        for hint in signHints {
+            if description.range(of: hint.pattern, options: .regularExpression) != nil {
+                return hint.implicitSign >= 0 ? 1 : -1
+            }
+        }
+        return nil
     }
 
     private func looksLikeTransactionAttempt(_ line: String) -> Bool {

@@ -67,6 +67,8 @@ struct CategorizerTransferTests {
             Category.self,
             CategoryRule.self,
             InstallmentPlan.self,
+            PendingImport.self,
+            SignRecoveryHint.self,
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
