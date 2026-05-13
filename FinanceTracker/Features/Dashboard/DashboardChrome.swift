@@ -9,11 +9,15 @@ enum MoneyFormat {
     /// Render a Decimal in the given currency code. Always emits monospaced
     /// digits via the formatter; callers should still apply `.monospacedDigit()`
     /// at the Text level for alignment across rows when the digit width matters.
+    private static let _formatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        return f
+    }()
+
     static func string(_ amount: Decimal, code: String = "MXN") -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = code
-        return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
+        _formatter.currencyCode = code
+        return _formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
     }
 
     /// Labeled form used by view code that has the currency code on a snapshot

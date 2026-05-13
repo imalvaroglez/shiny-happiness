@@ -60,11 +60,6 @@ struct GlassCard<Content: View>: View {
                     .blendMode(.plusLighter)
                     .allowsHitTesting(false)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .stroke(scopedTint.opacity(0.10), lineWidth: 0.5)
-                    .allowsHitTesting(false)
-            )
             .onHover { isHovering in
                 guard isInteractive else { return }
                 withAnimation(.easeInOut(duration: 0.25)) {

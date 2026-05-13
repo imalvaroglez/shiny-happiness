@@ -152,7 +152,7 @@ struct Detector: Sendable {
     }
 
     private static func detectCSV(data: Data) -> DetectionResult {
-        guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+        guard (String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)) != nil else {
             return DetectionResult(issuer: .unknown, format: .csv, confidence: 0, suggestedAccountType: .other)
         }
 

@@ -15,11 +15,15 @@ extension Decimal {
         }
     }
 
+    private static let _mxnFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = "MXN"
+        f.locale = Locale(identifier: "es_MX")
+        return f
+    }()
+
     var moneyDisplay: String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "MXN"
-        formatter.locale = Locale(identifier: "es_MX")
-        return formatter.string(from: self as NSDecimalNumber) ?? "\(self)"
+        Self._mxnFormatter.string(from: self as NSDecimalNumber) ?? "\(self)"
     }
 }

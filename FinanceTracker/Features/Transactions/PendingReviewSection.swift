@@ -193,11 +193,15 @@ private struct PendingReviewRow: View {
         try? modelContext.save()
     }
 
+    private static let _plainFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.minimumFractionDigits = 2
+        f.maximumFractionDigits = 2
+        f.usesGroupingSeparator = false
+        return f
+    }()
+
     private func amountString(_ amount: Decimal) -> String {
-        let formatter = NumberFormatter()
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        formatter.usesGroupingSeparator = false
-        return formatter.string(from: amount as NSDecimalNumber) ?? "\(amount)"
+        Self._plainFormatter.string(from: amount as NSDecimalNumber) ?? "\(amount)"
     }
 }
