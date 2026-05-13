@@ -10,7 +10,10 @@ enum CategoryFilter: Hashable {
 
 struct TransactionsView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Transaction.postedAt, order: .reverse) private var allTransactions: [Transaction]
+    @Query(filter: #Predicate<Transaction> { $0.deletedAt == nil },
+           sort: \Transaction.postedAt, order: .reverse) private var allTransactions: [Transaction]
+    @Query(filter: #Predicate<Transaction> { $0.deletedAt != nil },
+           sort: \Transaction.postedAt, order: .reverse) private var deletedTransactions: [Transaction]
     @Query private var accounts: [Account]
     @Query private var categories: [Category]
     @Query(filter: #Predicate<PendingImport> { $0.resolvedTransaction == nil },
@@ -25,6 +28,7 @@ struct TransactionsView: View {
     @State private var accountFilter: Account?
     @State private var categoryFilter: CategoryFilter = .all
     @State private var sortOrder = [KeyPathComparator(\Transaction.postedAt, order: .reverse)]
+    @State private var showingRecentlyDeleted = false
 
     private var parentCategories: [Category] {
         var seen = Set<String>()
@@ -41,7 +45,7 @@ struct TransactionsView: View {
     }
 
     private var filteredTransactions: [Transaction] {
-        var result = allTransactions
+        var result = showingRecentlyDeleted ? deletedTransactions : allTransactions
 
         if let filter = accountFilter {
             result = result.filter { $0.account?.id == filter.id }
@@ -155,6 +159,15 @@ struct TransactionsView: View {
 
             Spacer()
 
+            if !deletedTransactions.isEmpty {
+                Toggle(isOn: $showingRecentlyDeleted) {
+                    Text("Recently Deleted (\(deletedTransactions.count))")
+                        .font(.caption)
+                }
+                .toggleStyle(.button)
+                .tint(showingRecentlyDeleted ? .red : .secondary)
+            }
+
             Text("\(filteredTransactions.count) transactions")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -175,18 +188,40 @@ struct TransactionsView: View {
             .width(min: 110, ideal: 120)
 
             TableColumn("Description", value: \.descriptionRaw) { tx in
-                VStack(alignment: .leading, spacing: 2) {
-                    EditableTextCell(initialText: tx.descriptionRaw, placeholder: "Description") { newText in
-                        tx.descriptionRaw = newText
-                        tx.merchantNormalized = newText
-                        tx.touch()
-                        try? modelContext.save()
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        EditableTextCell(initialText: tx.descriptionRaw, placeholder: "Description") { newText in
+                            tx.descriptionRaw = newText
+                            tx.merchantNormalized = newText
+                            tx.touch()
+                            try? modelContext.save()
+                        }
+                        if let nickname = tx.account?.displayName {
+                            Text(nickname)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                    if let nickname = tx.account?.displayName {
-                        Text(nickname)
-                            .font(.caption2)
+                    Spacer()
+                    Menu {
+                        if showingRecentlyDeleted {
+                            Button("Restore") {
+                                tx.deletedAt = nil
+                                tx.touch()
+                                try? modelContext.save()
+                            }
+                        } else {
+                            Button("Delete", role: .destructive) {
+                                tx.deletedAt = Date.now
+                                tx.touch()
+                                try? modelContext.save()
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
                             .foregroundStyle(.tertiary)
                     }
+                    .menuStyle(.borderlessButton)
                 }
             }
             .width(min: 200, ideal: 350)

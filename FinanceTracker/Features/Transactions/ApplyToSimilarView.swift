@@ -138,7 +138,9 @@ struct ApplyToSimilarView: View {
 
     private func loadMatches() {
         guard let keyword else { return }
-        let descriptor = FetchDescriptor<Transaction>()
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.deletedAt == nil }
+        )
         let all = (try? modelContext.fetch(descriptor)) ?? []
         matchingTransactions = all
             .filter { $0.descriptionRaw.localizedCaseInsensitiveContains(keyword) && $0.id != transaction.id }
