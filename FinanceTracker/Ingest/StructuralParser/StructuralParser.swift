@@ -150,15 +150,13 @@ struct StructuralParser: StatementParser {
     }
 
     private func extractAccountNumber(from text: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: #"\b\d{4}\b"#) else { return nil }
+        guard let regex = try? NSRegularExpression(pattern: #"CLABE\s*:?\s*\d{16,18}|"# + #"Cuenta\s*:?\s*\d{8,20}|"# + #"No\.\s*:?\s*\d{6,20}|"# + #"contrato\s*:?\s*\d{6,20}"#) else { return nil }
         let range = NSRange(text.startIndex..., in: text)
         let matches = regex.matches(in: text, range: range)
-        for match in matches {
-            guard let r = Range(match.range, in: text) else { continue }
-            let candidate = String(text[r])
-            if let num = Int(candidate), num >= 1000 {
-                return candidate
-            }
+        if let match = matches.first {
+            guard let r = Range(match.range, in: text) else { return nil }
+            let raw = String(text[r]).filter(\.isNumber)
+            if raw.count >= 4 { return String(raw.suffix(4)) }
         }
         return nil
     }
