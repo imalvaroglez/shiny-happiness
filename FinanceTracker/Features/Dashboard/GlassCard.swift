@@ -24,7 +24,7 @@ struct GlassCard<Content: View>: View {
 
     @Environment(\.scopedTint) private var scopedTint
     @State private var hovered = false
-    @State private var rotation: Double = 0
+    private let rotation: Double = 35
 
     init(role: Role = .card, interactive: Bool = false, @ViewBuilder content: @escaping () -> Content) {
         self.role = role
@@ -69,15 +69,6 @@ struct GlassCard<Content: View>: View {
                 guard isInteractive else { return }
                 withAnimation(.easeInOut(duration: 0.25)) {
                     hovered = isHovering
-                }
-                if isHovering {
-                    withAnimation(.linear(duration: 4.0).repeatForever(autoreverses: false)) {
-                        rotation = 360
-                    }
-                } else {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        rotation = 0
-                    }
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
