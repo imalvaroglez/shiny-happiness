@@ -49,6 +49,20 @@ struct DashboardView: View {
 
     @State private var sidebarSelection: SidebarSelection = .overview
 
+    /// Identity color of the currently scoped account, used by glass cards
+    /// (specular tint), the sidebar selection highlight, and chart plot-area
+    /// strokes. Resolved from the snapshot so it tracks `sidebarSelection`.
+    private var scopedTint: Color {
+        switch viewModel.snapshot {
+        case .consolidated, .empty:
+            return AccountIdentity.consolidated
+        case .asset(let snap):
+            return AccountIdentity.color(for: snap.account)
+        case .liability(let snap):
+            return AccountIdentity.color(for: snap.account)
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -56,6 +70,7 @@ struct DashboardView: View {
         } detail: {
             detailPane
         }
+        .environment(\.scopedTint, scopedTint)
         .task {
             SeedDataLoader.bootstrapIfNeeded(context: modelContext)
             viewModel.configure(context: modelContext)
@@ -199,20 +214,24 @@ struct DashboardView: View {
     }
 
     private func emptyState(reason: String) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "tray")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text(reason == "Loading…" ? "Loading…" : "No transactions yet")
-                .font(.headline)
-            if reason != "Loading…" {
-                Text("Import a bank statement to get started")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+        GlassCard(role: .card, interactive: false) {
+            VStack(spacing: 14) {
+                Image(systemName: "chart.line.uptrend.xyaxis.circle.fill")
+                    .font(.system(size: 56))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(scopedTint)
+                Text(reason == "Loading…" ? "Loading…" : "No transactions yet")
+                    .font(.headline)
+                if reason != "Loading…" {
+                    Text("Import a bank statement to get started")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 40)
+            .padding(.horizontal, 24)
         }
-        .frame(maxWidth: .infinity)
-        .padding(40)
     }
 
     // MARK: - Time range picker / custom popover
@@ -257,11 +276,25 @@ private struct AccountSidebarRow: View {
     let account: Account
     let scopedViewModel: DashboardViewModel  // used to read the latest snapshot if needed
 
+    /// Most-recent closing balance for this account (synchronous DB lookup).
+    /// Powers the utilization bar (Item 6) for credit-card accounts.
+    @Query private var statements: [Statement]
+
+    init(account: Account, scopedViewModel: DashboardViewModel) {
+        self.account = account
+        self.scopedViewModel = scopedViewModel
+        let id = account.id
+        _statements = Query(
+            filter: #Predicate<Statement> { $0.account?.id == id },
+            sort: [SortDescriptor(\Statement.periodEnd, order: .reverse)]
+        )
+    }
+
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             iconForType
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 0) {
+                .foregroundStyle(AccountIdentity.color(for: account))
+            VStack(alignment: .leading, spacing: 2) {
                 Text(account.nickname)
                     .font(.body)
                     .lineLimit(1)
@@ -269,9 +302,27 @@ private struct AccountSidebarRow: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                if account.type == .creditCard, let utilization = utilization {
+                    ProgressView(value: min(max(utilization, 0), 1))
+                        .progressViewStyle(.linear)
+                        .tint(utilization > 0.7 ? .red : (utilization > 0.3 ? .orange : AccountIdentity.color(for: account)))
+                        .frame(height: 3)
+                        .padding(.top, 2)
+                }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
+    }
+
+    private var utilization: Double? {
+        guard account.type == .creditCard,
+              let limit = account.creditLimit,
+              limit > 0,
+              let latest = statements.first,
+              let balance = latest.closingBalance else { return nil }
+        let owed = (abs(balance) as NSDecimalNumber).doubleValue
+        let lim = (limit as NSDecimalNumber).doubleValue
+        return owed / lim
     }
 
     private var iconForType: some View {

@@ -22,6 +22,7 @@ struct AccountSummary: Identifiable, Hashable {
     let nickname: String
     let institution: String
     let type: AccountType
+    let currency: String
     /// Signed: positive = asset balance, negative = liability balance.
     let latestBalance: Decimal
     /// Only populated for credit-card accounts.
@@ -42,6 +43,15 @@ struct ConsolidatedSnapshot {
     let recentTransactions: [Transaction]
     let accountSummaries: [AccountSummary]
     let totalTransactions: Int
+
+    /// Most common currency across the user's accounts; used for the consolidated
+    /// summary cards. Falls back to "MXN" when no accounts exist yet.
+    var currencyCode: String {
+        let codes = accountSummaries.map(\.currency)
+        guard !codes.isEmpty else { return "MXN" }
+        let counts = Dictionary(grouping: codes, by: { $0 }).mapValues(\.count)
+        return counts.max(by: { $0.value < $1.value })?.key ?? "MXN"
+    }
 }
 
 // MARK: - Asset (checking, savings, etc.)
@@ -57,6 +67,8 @@ struct AssetAccountSnapshot {
     let totalInterestEarned: Decimal
     let recentTransactions: [Transaction]
     let totalTransactions: Int
+
+    var currencyCode: String { account.currency }
 }
 
 // MARK: - Liability (credit cards)
@@ -85,6 +97,8 @@ struct LiabilityAccountSnapshot {
         guard let due = latestStatement?.paymentDueDate else { return nil }
         return Calendar(identifier: .gregorian).dateComponents([.day], from: .now, to: due).day
     }
+
+    var currencyCode: String { account.currency }
 }
 
 struct MonthlyChargesPayments: Identifiable {

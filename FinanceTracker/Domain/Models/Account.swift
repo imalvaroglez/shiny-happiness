@@ -14,6 +14,9 @@ final class Account {
     var creditLimit: Decimal?
     var statementDayOfMonth: Int?
     var paymentDayOfMonth: Int?
+    /// Optional user-chosen identity color stored as `#RRGGBB`. When nil,
+    /// `AccountIdentity.color(for:)` falls back to the institution default map.
+    var tintHex: String?
 
     init(
         id: UUID = UUID(),
@@ -26,7 +29,8 @@ final class Account {
         closedAt: Date? = nil,
         creditLimit: Decimal? = nil,
         statementDayOfMonth: Int? = nil,
-        paymentDayOfMonth: Int? = nil
+        paymentDayOfMonth: Int? = nil,
+        tintHex: String? = nil
     ) {
         self.id = id
         self.institution = institution
@@ -39,5 +43,6 @@ final class Account {
         self.creditLimit = creditLimit
         self.statementDayOfMonth = statementDayOfMonth
         self.paymentDayOfMonth = paymentDayOfMonth
+        self.tintHex = tintHex
     }
 }

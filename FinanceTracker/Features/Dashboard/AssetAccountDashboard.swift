@@ -26,14 +26,14 @@ struct AssetAccountDashboard: View {
     private var summaryCards: some View {
         GlassEffectContainer {
             HStack(spacing: 16) {
-                SummaryCard(title: "Balance", amount: snapshot.currentBalance)
-                SummaryCard(title: "Income", amount: snapshot.totalIncome, tint: .green) {
+                SummaryCard(title: "Balance", amount: snapshot.currentBalance, currencyCode: snapshot.currencyCode)
+                SummaryCard(title: "Income", amount: snapshot.totalIncome, currencyCode: snapshot.currencyCode, tint: .green) {
                     breakdown = .income(transactions: snapshot.recentTransactions, total: snapshot.totalIncome)
                 }
-                SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), tint: .red) {
+                SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), currencyCode: snapshot.currencyCode, tint: .red) {
                     breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses)
                 }
-                SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, tint: .mint) {
+                SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, currencyCode: snapshot.currencyCode, tint: .mint) {
                     breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
                 }
             }
@@ -69,8 +69,8 @@ struct AssetAccountDashboard: View {
                    let xPos = proxy.position(forX: entry.month) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
-                        Text("Income: \(MoneyFormat.string(entry.income))").font(.caption2).foregroundStyle(.green)
-                        Text("Expenses: \(MoneyFormat.string(abs(entry.expenses)))").font(.caption2).foregroundStyle(.red)
+                        Text("Income: \(MoneyFormat.string(code: snapshot.currencyCode,entry.income))").font(.caption2).foregroundStyle(.green)
+                        Text("Expenses: \(MoneyFormat.string(code: snapshot.currencyCode,abs(entry.expenses)))").font(.caption2).foregroundStyle(.red)
                     }
                     .padding(8)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
@@ -105,7 +105,7 @@ struct AssetAccountDashboard: View {
                    let xPos = proxy.position(forX: point.month) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(point.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
-                        Text(MoneyFormat.string(point.balance)).font(.caption2).foregroundStyle(.secondary)
+                        Text(MoneyFormat.string(code: snapshot.currencyCode,point.balance)).font(.caption2).foregroundStyle(.secondary)
                     }
                     .padding(8)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
@@ -130,7 +130,7 @@ struct AssetAccountDashboard: View {
                     if entry.amount > total / 5 {
                         VStack(spacing: 2) {
                             Text(entry.category.name).font(.caption2).fontWeight(.semibold)
-                            Text(MoneyFormat.string(entry.amount)).font(.caption2)
+                            Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount)).font(.caption2)
                         }
                         .foregroundStyle(.white)
                     }
@@ -146,7 +146,7 @@ struct AssetAccountDashboard: View {
                         Circle().fill(CategoryPalette.color(for: entry.category.name)).frame(width: 8, height: 8)
                         Text(entry.category.name).font(.caption)
                         Spacer()
-                        Text(MoneyFormat.string(entry.amount)).font(.caption).foregroundStyle(.secondary)
+                        Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .buttonStyle(.plain)
