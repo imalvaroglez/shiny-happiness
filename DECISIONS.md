@@ -47,3 +47,41 @@
 **Context:** Original protocol had `parse(data:account:)` but no parser uses the Account parameter. Passing `@Model` objects across actor boundaries triggers Swift 6 concurrency errors.
 **Decision:** Remove `account` from `StatementParser.parse()`. Account assignment happens in the Normalizer step, not during parsing. Parsers only produce `[RawTransaction]`.
 **Consequence:** Clean actor isolation. Parsers are pure `Sendable` computation units.
+
+## AD-009: Manual-review-first parsing — `PendingImport` over heuristics
+**Date:** 2026-05-11
+**Context:** Some issuers (HSBC 2Now) emit PDFs with a custom font and no ToUnicode CMap, so PDFKit returns empty strings and OCR is fragile on dense tables. Adding heuristics to "guess" a row's date/amount/sign multiplies edge-case bugs.
+**Decision:** Whenever the parser cannot confidently decode a line, persist it as a `PendingImport` row attached to the same `Statement`. The user reviews and resolves these inline from the editable Transactions view. Each manual resolution feeds the learning hooks (AD-014).
+**Consequence:** The system stays correct by default and gets sharper over time. No transaction is silently dropped; no transaction is silently wrong.
+
+## AD-010: Liability balances stored signed-negative
+**Date:** 2026-05-11
+**Context:** `Statement.closingBalance` was assumed positive for asset accounts. With credit cards a "balance" is debt. We need consolidated net worth to be a simple sum.
+**Decision:** Credit-card `Statement.closingBalance` is stored as a **negative** Decimal. Asset closing balances stay positive. The HSBC paste parser flips the documented "Saldo deudor total" sign during normalization.
+**Consequence:** `Sum(latest closing balance across accounts) == net worth` — no per-type sign-flipping anywhere in the dashboard logic.
+
+## AD-011: Supplementary cards as `cardLast4` on `Transaction`, not separate Accounts
+**Date:** 2026-05-11
+**Context:** HSBC 2Now bills primary + supplementary cards together under one statement with one credit limit. Modeling each supplementary card as its own `Account` doubles the rows in summaries, splits the credit-limit logic, and forces accounts to know about each other.
+**Decision:** Each `Transaction` carries an optional `cardLast4: String?` tag. The `Account` represents the card *account* (one credit limit, one due date). Supplementary card filtering is a query, not a separate row.
+**Consequence:** Sidebar shows one HSBC entry; charges-vs-payments and utilization treat the account as a single unit. Tests filter by `cardLast4` when needed.
+
+## AD-012: MSI — both original purchase and per-month installments as separate `Transaction`s
+**Date:** 2026-05-11
+**Context:** A "Meses Sin Intereses" purchase shows up on the statement as a one-time event AND as a monthly cuota. Storing only the original misses the periodic cash impact; storing only the cuotas hides the underlying purchase.
+**Decision:** The parser emits one `Transaction` for the original purchase (linked to an `InstallmentPlan`) AND one `Transaction` per monthly cuota. Cash-flow aggregates skip the original-purchase rows (their cash impact lives in the cuotas) but `spendingByCategory` and the merchant-level history keep the original.
+**Consequence:** The Charges-vs-Payments chart and dashboard totals reflect what the user actually pays this month, while the Installment Plans card shows the multi-month commitment.
+
+## AD-013: `SU PAGO GRACIAS SPEI` payments classify as `.creditCardPayment` and are excluded from cash flow
+**Date:** 2026-05-11
+**Context:** The same money appears as an outgoing SPEI from the user's checking account and as an incoming payment on the credit card. Naively, both sides land in dashboard aggregates and double-count.
+**Decision:** Add `CategoryKind.creditCardPayment` and a seed rule that classifies the HSBC SPEI payment line. `DashboardViewModel` excludes `.creditCardPayment` AND `.transfer` kinds from cash flow / spending-by-category aggregates. Net worth uses signed-stored balances (AD-010) so the payment naturally moves the right amount between asset and liability accounts.
+**Consequence:** Importing both sides of a transfer doesn't double-count. The Transactions view still shows both rows so the user can reconcile.
+
+## AD-014: Learning hooks — every manual fix teaches the system
+**Date:** 2026-05-12
+**Context:** Manual review of ambiguous rows is acceptable once; doing it on every import is not.
+**Decision:** Two hooks fire from the manual-review surfaces:
+- `LearningHooks.recordCategorization` writes a `CategoryRule(source: "user_correction", priority: 90)` whenever the user assigns a category, idempotent on `(pattern, category)`.
+- `LearningHooks.recordSignRecovery` writes a `SignRecoveryHint(source: "user_correction")` whenever a resolved `PendingImport`'s raw text lacked an explicit `+/-` glyph. The parser consults these hints on the next paste import.
+**Consequence:** The same merchant or sign-quirk never needs to be fixed twice. Rules and hints accumulate; their `createdFrom` keeps provenance.
