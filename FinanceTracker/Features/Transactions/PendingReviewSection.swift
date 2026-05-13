@@ -154,6 +154,8 @@ private struct PendingReviewRow: View {
             in: modelContext
         )
 
+        pending.touch()
+        txn.touch()
         try? modelContext.save()
         onResolved(txn)
     }

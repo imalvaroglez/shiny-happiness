@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 @Model
-final class Transaction {
+final class Transaction: LastModifiedTracking {
     var id: UUID
     @Relationship(deleteRule: .nullify) var account: Account?
     @Relationship(deleteRule: .nullify) var statement: Statement?
@@ -17,6 +17,7 @@ final class Transaction {
     var isDuplicate: Bool
     var cardLast4: String?
     @Relationship(deleteRule: .nullify, inverse: \InstallmentPlan.installments) var installmentPlan: InstallmentPlan?
+    var lastModifiedAt: Date = Date.now
 
     init(
         id: UUID = UUID(),

@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 @Model
-final class PendingImport {
+final class PendingImport: LastModifiedTracking {
     var id: UUID
     @Relationship(deleteRule: .nullify) var account: Account?
     @Relationship(deleteRule: .nullify) var statement: Statement?
@@ -18,6 +18,7 @@ final class PendingImport {
     /// Set when the user resolves the row; the resolved Transaction lives in the regular tables.
     @Relationship(deleteRule: .nullify) var resolvedTransaction: Transaction?
     var createdAt: Date
+    var lastModifiedAt: Date = Date.now
 
     init(
         id: UUID = UUID(),
