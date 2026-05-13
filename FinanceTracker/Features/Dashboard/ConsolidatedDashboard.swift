@@ -35,16 +35,16 @@ struct ConsolidatedDashboard: View {
     private var summaryCards: some View {
         GlassEffectContainer {
             HStack(spacing: 16) {
-                SummaryCard(title: "Net Worth", amount: snapshot.netWorth) {
+                SummaryCard(title: "Net Worth", amount: snapshot.netWorth, currencyCode: snapshot.currencyCode) {
                     breakdown = .netWorth(snapshot.accountSummaries)
                 }
-                SummaryCard(title: "Income", amount: snapshot.totalIncome, tint: .green) {
+                SummaryCard(title: "Income", amount: snapshot.totalIncome, currencyCode: snapshot.currencyCode, tint: .green) {
                     breakdown = .income(transactions: snapshot.recentTransactions, total: snapshot.totalIncome)
                 }
-                SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), tint: .red) {
+                SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), currencyCode: snapshot.currencyCode, tint: .red) {
                     breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses)
                 }
-                SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, tint: .mint) {
+                SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, currencyCode: snapshot.currencyCode, tint: .mint) {
                     breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
                 }
             }
@@ -132,11 +132,11 @@ struct ConsolidatedDashboard: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(entry.month, format: .dateTime.month(.wide).year())
                 .font(.caption.bold())
-            Text("Income: \(MoneyFormat.string(entry.income))")
+            Text("Income: \(MoneyFormat.string(code: snapshot.currencyCode,entry.income))")
                 .font(.caption2).foregroundStyle(.green)
-            Text("Expenses: \(MoneyFormat.string(abs(entry.expenses)))")
+            Text("Expenses: \(MoneyFormat.string(code: snapshot.currencyCode,abs(entry.expenses)))")
                 .font(.caption2).foregroundStyle(.red)
-            Text("Net: \(MoneyFormat.string(entry.savings))")
+            Text("Net: \(MoneyFormat.string(code: snapshot.currencyCode,entry.savings))")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .padding(8)
@@ -179,7 +179,7 @@ struct ConsolidatedDashboard: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(point.month, format: .dateTime.month(.wide).year())
                                 .font(.caption.bold())
-                            Text(MoneyFormat.string(point.balance))
+                            Text(MoneyFormat.string(code: snapshot.currencyCode,point.balance))
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         .padding(8)
@@ -213,7 +213,7 @@ struct ConsolidatedDashboard: View {
                         VStack(spacing: 2) {
                             Text(entry.category.name)
                                 .font(.caption2).fontWeight(.semibold)
-                            Text(MoneyFormat.string(entry.amount))
+                            Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount))
                                 .font(.caption2)
                         }
                         .foregroundStyle(.white)
@@ -233,7 +233,7 @@ struct ConsolidatedDashboard: View {
                             .frame(width: 8, height: 8)
                         Text(entry.category.name).font(.caption)
                         Spacer()
-                        Text(MoneyFormat.string(entry.amount))
+                        Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -262,7 +262,7 @@ struct ConsolidatedDashboard: View {
                             .padding(.vertical, 2)
                             .glassEffect(.regular, in: .capsule)
                     }
-                    Text(MoneyFormat.string(summary.latestBalance))
+                    Text(MoneyFormat.string(code: snapshot.currencyCode,summary.latestBalance))
                         .font(.body.bold())
                         .foregroundStyle(summary.latestBalance >= 0 ? .green : .red)
                 }

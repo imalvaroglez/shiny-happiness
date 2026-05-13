@@ -44,7 +44,7 @@ struct LiabilityAccountDashboard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Utilization").font(.caption).foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline) {
-                Text(MoneyFormat.string(snapshot.amountOwed))
+                Text(MoneyFormat.string(code: snapshot.currencyCode,snapshot.amountOwed))
                     .font(.title.bold())
                     .foregroundStyle(.red)
                 Spacer()
@@ -55,7 +55,7 @@ struct LiabilityAccountDashboard: View {
                 }
             }
             if let limit = snapshot.creditLimit {
-                Text("of \(MoneyFormat.string(limit)) credit limit")
+                Text("of \(MoneyFormat.string(code: snapshot.currencyCode,limit)) credit limit")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             if let pct = snapshot.utilizationPercent {
@@ -86,14 +86,14 @@ struct LiabilityAccountDashboard: View {
                     HStack {
                         Text("Minimum").font(.caption2).foregroundStyle(.secondary)
                         Spacer()
-                        Text(MoneyFormat.string(min)).font(.caption.monospacedDigit())
+                        Text(MoneyFormat.string(code: snapshot.currencyCode,min)).font(.caption.monospacedDigit())
                     }
                 }
                 if let no = stmt.paymentForNoInterest {
                     HStack {
                         Text("No Interest").font(.caption2).foregroundStyle(.secondary)
                         Spacer()
-                        Text(MoneyFormat.string(no)).font(.caption.monospacedDigit())
+                        Text(MoneyFormat.string(code: snapshot.currencyCode,no)).font(.caption.monospacedDigit())
                     }
                 }
             } else {
@@ -144,8 +144,8 @@ struct LiabilityAccountDashboard: View {
                    let xPos = proxy.position(forX: entry.month) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
-                        Text("Charges: \(MoneyFormat.string(entry.charges))").font(.caption2).foregroundStyle(.red)
-                        Text("Payments: \(MoneyFormat.string(entry.payments))").font(.caption2).foregroundStyle(.green)
+                        Text("Charges: \(MoneyFormat.string(code: snapshot.currencyCode,entry.charges))").font(.caption2).foregroundStyle(.red)
+                        Text("Payments: \(MoneyFormat.string(code: snapshot.currencyCode,entry.payments))").font(.caption2).foregroundStyle(.green)
                     }
                     .padding(8)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
@@ -154,10 +154,10 @@ struct LiabilityAccountDashboard: View {
             }
 
             HStack {
-                Label(MoneyFormat.string(snapshot.totalCharges), systemImage: "arrow.up.right")
+                Label(MoneyFormat.string(code: snapshot.currencyCode,snapshot.totalCharges), systemImage: "arrow.up.right")
                     .foregroundStyle(.red)
                 Spacer()
-                Label(MoneyFormat.string(snapshot.totalPayments), systemImage: "arrow.down.left")
+                Label(MoneyFormat.string(code: snapshot.currencyCode,snapshot.totalPayments), systemImage: "arrow.down.left")
                     .foregroundStyle(.green)
             }
             .font(.caption.monospacedDigit())
@@ -180,10 +180,10 @@ struct LiabilityAccountDashboard: View {
                             .foregroundStyle(.secondary)
                     }
                     HStack {
-                        Text("Monthly: \(MoneyFormat.string(plan.monthlyAmount))")
+                        Text("Monthly: \(MoneyFormat.string(code: snapshot.currencyCode,plan.monthlyAmount))")
                             .font(.caption2).foregroundStyle(.secondary)
                         Spacer()
-                        Text("Original: \(MoneyFormat.string(plan.originalAmount))")
+                        Text("Original: \(MoneyFormat.string(code: snapshot.currencyCode,plan.originalAmount))")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                     ProgressView(value: Double(plan.currentMonth) / Double(max(plan.totalMonths, 1)))
@@ -205,14 +205,14 @@ struct LiabilityAccountDashboard: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Interest").font(.caption).foregroundStyle(.secondary)
-                    Text(MoneyFormat.string(snapshot.interestCharged))
+                    Text(MoneyFormat.string(code: snapshot.currencyCode,snapshot.interestCharged))
                         .font(.title3.bold())
                         .foregroundStyle(snapshot.interestCharged > 0 ? .red : .secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
                     Text("Fees").font(.caption).foregroundStyle(.secondary)
-                    Text(MoneyFormat.string(snapshot.feesCharged))
+                    Text(MoneyFormat.string(code: snapshot.currencyCode,snapshot.feesCharged))
                         .font(.title3.bold())
                         .foregroundStyle(snapshot.feesCharged > 0 ? .red : .secondary)
                 }
@@ -235,7 +235,7 @@ struct LiabilityAccountDashboard: View {
                     if entry.amount > total / 5 {
                         VStack(spacing: 2) {
                             Text(entry.category.name).font(.caption2).fontWeight(.semibold)
-                            Text(MoneyFormat.string(entry.amount)).font(.caption2)
+                            Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount)).font(.caption2)
                         }
                         .foregroundStyle(.white)
                     }
@@ -251,7 +251,7 @@ struct LiabilityAccountDashboard: View {
                         Circle().fill(CategoryPalette.color(for: entry.category.name)).frame(width: 8, height: 8)
                         Text(entry.category.name).font(.caption)
                         Spacer()
-                        Text(MoneyFormat.string(entry.amount)).font(.caption).foregroundStyle(.secondary)
+                        Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .buttonStyle(.plain)

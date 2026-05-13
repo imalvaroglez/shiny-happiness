@@ -371,6 +371,7 @@ final class DashboardViewModel {
                 nickname: account.nickname,
                 institution: account.institution,
                 type: account.type,
+                currency: account.currency,
                 latestBalance: balance,
                 creditLimit: account.creditLimit,
                 utilizationPercent: util

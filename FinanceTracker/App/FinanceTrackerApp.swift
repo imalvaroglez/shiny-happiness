@@ -5,7 +5,10 @@ import SwiftData
 struct FinanceTrackerApp: App {
     var body: some Scene {
         WindowGroup {
-            DashboardView()
+            ZStack {
+                AppBackdrop()
+                DashboardView()
+            }
         }
         // Must list every @Model the app reads or writes. Missing models silently
         // create a "shadow" empty container at runtime — paste imports lose
