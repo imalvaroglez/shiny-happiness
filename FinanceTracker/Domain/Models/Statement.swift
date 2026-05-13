@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 @Model
-final class Statement {
+final class Statement: LastModifiedTracking {
     var id: UUID
     @Relationship(deleteRule: .nullify) var account: Account?
     var periodStart: Date
@@ -19,6 +19,7 @@ final class Statement {
     var feesCharged: Decimal?
     var ivaCharged: Decimal?
     @Relationship(deleteRule: .cascade, inverse: \Transaction.statement) var transactions: [Transaction] = []
+    var lastModifiedAt: Date = Date.now
 
     init(
         id: UUID = UUID(),

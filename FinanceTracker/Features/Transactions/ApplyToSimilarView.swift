@@ -160,6 +160,7 @@ struct ApplyToSimilarView: View {
 
         for tx in matchingTransactions where selectedIDs.contains(tx.id) {
             tx.category = category
+            tx.touch()
         }
 
         try? modelContext.save()

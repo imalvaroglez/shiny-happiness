@@ -2,12 +2,13 @@ import Foundation
 import SwiftData
 
 @Model
-final class Category {
+final class Category: LastModifiedTracking {
     var id: UUID
     var name: String
     @Relationship(deleteRule: .nullify) var parent: Category?
     var kind: CategoryKind
     @Relationship(deleteRule: .cascade) var subcategories: [Category] = []
+    var lastModifiedAt: Date = Date.now
 
     init(
         id: UUID = UUID(),

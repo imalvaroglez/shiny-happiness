@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 @Model
-final class CategoryRule {
+final class CategoryRule: LastModifiedTracking {
     var id: UUID
     var patternRegex: String
     var merchantMatch: String
@@ -11,6 +11,7 @@ final class CategoryRule {
     var source: String
     var matchCount: Int
     var createdFrom: String?
+    var lastModifiedAt: Date = Date.now
 
     init(
         id: UUID = UUID(),

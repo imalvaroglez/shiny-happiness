@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 @Model
-final class InstallmentPlan {
+final class InstallmentPlan: LastModifiedTracking {
     var id: UUID
     @Relationship(deleteRule: .nullify) var account: Account?
     @Relationship(deleteRule: .nullify) var originalPurchase: Transaction?
@@ -14,6 +14,7 @@ final class InstallmentPlan {
     var ratePercent: Decimal
     var firstChargeDate: Date
     var merchantDescription: String
+    var lastModifiedAt: Date = Date.now
 
     init(
         id: UUID = UUID(),

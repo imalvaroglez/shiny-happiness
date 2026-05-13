@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 @Model
-final class Account {
+final class Account: LastModifiedTracking {
     var id: UUID
     var institution: String
     var type: AccountType
@@ -17,6 +17,7 @@ final class Account {
     /// Optional user-chosen identity color stored as `#RRGGBB`. When nil,
     /// `AccountIdentity.color(for:)` falls back to the institution default map.
     var tintHex: String?
+    var lastModifiedAt: Date = Date.now
 
     init(
         id: UUID = UUID(),

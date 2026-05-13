@@ -580,6 +580,7 @@ final class IngestPipeline {
             // Keep currentMonth as the max seen across reimports.
             if hint.currentMonth > plan.currentMonth {
                 plan.currentMonth = hint.currentMonth
+                plan.touch()
             }
 
             // Link the persisted Transaction whose amount/description/date best match this raw row.

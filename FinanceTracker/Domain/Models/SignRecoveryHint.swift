@@ -7,7 +7,7 @@ import SwiftData
 /// manually resolves a PendingImport whose amount lacked a sign, we save a hint so
 /// the next paste handles the same kind of line automatically.
 @Model
-final class SignRecoveryHint {
+final class SignRecoveryHint: LastModifiedTracking {
     var id: UUID = UUID()
     /// Case-insensitive regex against `Transaction.descriptionRaw`.
     var pattern: String = ""
@@ -19,6 +19,7 @@ final class SignRecoveryHint {
     /// An example raw line, useful for diagnostics.
     var createdFrom: String?
     var matchCount: Int = 0
+    var lastModifiedAt: Date = Date.now
 
     init(
         id: UUID = UUID(),

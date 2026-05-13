@@ -92,6 +92,7 @@ struct TransactionsView: View {
             if let tx = selectedTransaction {
                 CategoryPickerView(transaction: tx) { category, keyword in
                     tx.category = category
+                    tx.touch()
                     LearningHooks.recordCategorization(
                         keyword: keyword,
                         category: category,
@@ -167,6 +168,7 @@ struct TransactionsView: View {
             TableColumn("Date", value: \.postedAt) { tx in
                 EditableDateCell(date: tx.postedAt) { newDate in
                     tx.postedAt = newDate
+                    tx.touch()
                     try? modelContext.save()
                 }
             }
@@ -177,6 +179,7 @@ struct TransactionsView: View {
                     EditableTextCell(initialText: tx.descriptionRaw, placeholder: "Description") { newText in
                         tx.descriptionRaw = newText
                         tx.merchantNormalized = newText
+                        tx.touch()
                         try? modelContext.save()
                     }
                     if let nickname = tx.account?.displayName {
@@ -191,6 +194,7 @@ struct TransactionsView: View {
             TableColumn("Amount", value: \.amount) { tx in
                 EditableAmountCell(amount: tx.amount, currencyCode: tx.currency) { newAmount in
                     tx.amount = newAmount
+                    tx.touch()
                     try? modelContext.save()
                 }
             }
