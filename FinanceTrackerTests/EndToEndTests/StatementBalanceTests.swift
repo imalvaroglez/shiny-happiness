@@ -87,6 +87,8 @@ struct StatementBalancePersistenceTests {
             Category.self,
             CategoryRule.self,
             InstallmentPlan.self,
+            PendingImport.self,
+            SignRecoveryHint.self,
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])

@@ -92,6 +92,12 @@ struct TransactionsView: View {
             if let tx = selectedTransaction {
                 CategoryPickerView(transaction: tx) { category, keyword in
                     tx.category = category
+                    LearningHooks.recordCategorization(
+                        keyword: keyword,
+                        category: category,
+                        sourceDescription: tx.descriptionRaw,
+                        in: modelContext
+                    )
                     try? modelContext.save()
                     pendingCategory = category
                     pendingKeyword = keyword

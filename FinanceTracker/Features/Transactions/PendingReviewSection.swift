@@ -141,6 +141,18 @@ private struct PendingReviewRow: View {
         let rules = (try? modelContext.fetch(descriptor)) ?? []
         _ = Categorizer.categorize(transactions: [txn], rules: rules)
 
+        // Sign-recovery learning: if the original raw line lacked a sign glyph,
+        // record a hint so future imports of the same kind of line apply this sign
+        // automatically.
+        let keyword = MerchantExtractor.extractMerchant(from: description) ?? description
+        let resolvedSign: Int = amount >= 0 ? 1 : -1
+        LearningHooks.recordSignRecovery(
+            rawText: pending.rawText,
+            descriptionKeyword: keyword,
+            resolvedSign: resolvedSign,
+            in: modelContext
+        )
+
         try? modelContext.save()
         onResolved(txn)
     }

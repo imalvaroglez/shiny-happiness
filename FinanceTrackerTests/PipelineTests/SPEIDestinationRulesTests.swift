@@ -75,7 +75,7 @@ struct SPEIDestinationRulesTests {
     @Test("All transfer subcategories excluded from cash flow")
     @MainActor
     func testTransferSubcategoriesExcluded() async throws {
-        let schema = Schema([Account.self, Transaction.self, Statement.self, FinanceTracker.Category.self, CategoryRule.self, InstallmentPlan.self])
+        let schema = Schema([Account.self, Transaction.self, Statement.self, FinanceTracker.Category.self, CategoryRule.self, InstallmentPlan.self, PendingImport.self, SignRecoveryHint.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
         let context = container.mainContext
