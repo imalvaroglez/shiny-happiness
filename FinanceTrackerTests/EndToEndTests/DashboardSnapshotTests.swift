@@ -204,6 +204,62 @@ struct DashboardSnapshotTests {
         #expect(!suspect, "Cash flow appears to include a $25,986 row from the SU PAGO pair — both sides should be excluded as .creditCardPayment")
     }
 
+    @Test("Interest Earned drill-down sees all matching transactions, not just recent-20")
+    func interestDrilldownIsComplete() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let savings = Account(institution: "Synthetic Bank", type: .savings, currency: "MXN")
+        context.insert(savings)
+        let interestCategory = (try? context.fetch(FetchDescriptor<FinanceTracker.Category>()))?
+            .first { $0.name == "Interest" }
+
+        for i in 0..<5 {
+            let tx = Transaction(
+                account: savings,
+                postedAt: .now.addingTimeInterval(TimeInterval(-(100 - i) * 86400)),
+                amount: 100,
+                currency: "MXN",
+                descriptionRaw: "Abono de intereses #\(i)",
+                category: interestCategory
+            )
+            context.insert(tx)
+        }
+        for i in 0..<20 {
+            let tx = Transaction(
+                account: savings,
+                postedAt: .now.addingTimeInterval(TimeInterval(-i * 86400)),
+                amount: -10,
+                currency: "MXN",
+                descriptionRaw: "Coffee #\(i)"
+            )
+            context.insert(tx)
+        }
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        viewModel.scope = .consolidated
+        viewModel.configure(context: context)
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+
+        #expect(snap.recentTransactions.count >= 25,
+                "recentTransactions should hold the full filtered set, got \(snap.recentTransactions.count)")
+
+        let interestRows = snap.recentTransactions.filter {
+            $0.category?.name == "Interest" && $0.amount > 0
+        }
+        #expect(interestRows.count == 5,
+                "Expected all 5 interest rows visible to BreakdownSheet, got \(interestRows.count)")
+
+        #expect(snap.totalInterestEarned == 500,
+                "totalInterestEarned should sum the 5 interest rows ($100 each)")
+    }
+
     private func dateFromComponents(year: Int, month: Int, day: Int) -> Date {
         var c = DateComponents()
         c.year = year; c.month = month; c.day = day
