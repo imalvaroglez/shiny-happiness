@@ -211,18 +211,14 @@ struct TransactionsView: View {
 
     @ViewBuilder
     private func categoryBadge(for tx: Transaction) -> some View {
-        if let cat = tx.category {
-            Text(cat.name)
+        let label = tx.category?.name ?? "Uncategorized"
+        let color: Color = tx.category.map { CategoryPalette.color(for: $0.name) } ?? .secondary
+        GlassChip {
+            Text(label)
                 .font(.caption)
+                .foregroundStyle(color)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .glassEffect(.regular, in: .capsule)
-        } else {
-            Text("Uncategorized")
-                .font(.caption)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .glassEffect(.regular, in: .capsule)
         }
     }
 
