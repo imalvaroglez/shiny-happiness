@@ -88,7 +88,6 @@ final class DashboardViewModel {
 
     private func buildConsolidated(context: ModelContext) -> ConsolidatedSnapshot {
         let transactions = windowedTransactions(context: context)
-        let recent = Array(transactions.prefix(20))
 
         let cashFlow = computeMonthlyCashFlow(transactions)
         let spending = computeSpendingByCategory(transactions, kindFilter: nil)
@@ -107,7 +106,7 @@ final class DashboardViewModel {
             totalExpenses: expenses,
             totalInterestEarned: interestEarned,
             totalInterestCharged: interestCharged,
-            recentTransactions: recent,
+            recentTransactions: transactions,
             accountSummaries: accountSummaries,
             totalTransactions: transactions.count
         )
@@ -121,9 +120,7 @@ final class DashboardViewModel {
         }
 
         let transactions = windowedTransactions(context: context, accountId: accountId)
-        let recent = Array(transactions.prefix(20))
 
-        // Determine current balance from the most recent statement on this account.
         let latestStatement = latestStatement(context: context, accountId: accountId)
         let currentBalance = latestStatement?.closingBalance ?? 0
 
@@ -134,8 +131,7 @@ final class DashboardViewModel {
                 account: account,
                 transactions: transactions,
                 latestStatement: latestStatement,
-                currentBalance: currentBalance,
-                recent: recent
+                currentBalance: currentBalance
             ))
         default:
             return .asset(buildAsset(
@@ -143,8 +139,7 @@ final class DashboardViewModel {
                 account: account,
                 transactions: transactions,
                 latestStatement: latestStatement,
-                currentBalance: currentBalance,
-                recent: recent
+                currentBalance: currentBalance
             ))
         }
     }
@@ -154,8 +149,7 @@ final class DashboardViewModel {
         account: Account,
         transactions: [Transaction],
         latestStatement: Statement?,
-        currentBalance: Decimal,
-        recent: [Transaction]
+        currentBalance: Decimal
     ) -> AssetAccountSnapshot {
         let cashFlow = computeMonthlyCashFlow(transactions)
         let spending = computeSpendingByCategory(transactions, kindFilter: nil)
@@ -172,7 +166,7 @@ final class DashboardViewModel {
             totalIncome: income,
             totalExpenses: expenses,
             totalInterestEarned: interestEarned,
-            recentTransactions: recent,
+            recentTransactions: transactions,
             totalTransactions: transactions.count
         )
     }
@@ -182,8 +176,7 @@ final class DashboardViewModel {
         account: Account,
         transactions: [Transaction],
         latestStatement: Statement?,
-        currentBalance: Decimal,
-        recent: [Transaction]
+        currentBalance: Decimal
     ) -> LiabilityAccountSnapshot {
         let chargesVsPayments = computeChargesVsPayments(transactions)
         let spending = computeSpendingByCategory(transactions, kindFilter: nil)
@@ -221,7 +214,7 @@ final class DashboardViewModel {
             interestCharged: interestCharged,
             feesCharged: feesCharged,
             activeInstallmentPlans: plans,
-            recentTransactions: recent,
+            recentTransactions: transactions,
             totalTransactions: transactions.count
         )
     }
