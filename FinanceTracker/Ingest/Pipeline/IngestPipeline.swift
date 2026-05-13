@@ -101,7 +101,8 @@ final class IngestPipeline {
 
             let transactions = Normalizer.normalizeAll(section.transactions, account: account, statement: statement)
             let existing = fetchExistingTransactions(for: account)
-            let dedup = Deduplicator.deduplicate(incoming: transactions, existing: existing)
+            let softDeleted = fetchSoftDeletedTransactions(for: account)
+            let dedup = Deduplicator.deduplicate(incoming: transactions, existing: existing, softDeleted: softDeleted)
 
             let rules = fetchCategoryRules()
             let cat = Categorizer.categorize(transactions: dedup.unique, rules: rules)
@@ -114,6 +115,21 @@ final class IngestPipeline {
 
             persist(account: account, statement: statement, transactions: dedup.unique + dedup.duplicates)
             linkInstallmentPlans(account: account, section: section, transactions: dedup.unique + dedup.duplicates)
+
+            for match in dedup.matchedDeleted {
+                let pending = PendingImport(
+                    account: account,
+                    statement: statement,
+                    rawText: match.incoming.descriptionRaw,
+                    reason: "Matches a deleted transaction",
+                    parsedDate: match.incoming.postedAt,
+                    parsedAmount: match.incoming.amount,
+                    parsedDescription: match.incoming.descriptionRaw,
+                    cardLast4: match.incoming.cardLast4,
+                    matchedDeletedTransactionId: match.deletedId
+                )
+                context.insert(pending)
+            }
 
             // Persist any pending rows for this card under the same statement.
             // Match by the cardLast4 values present in this section's transactions,
@@ -297,7 +313,8 @@ final class IngestPipeline {
             let transactions = Normalizer.normalizeAll(section.transactions, account: account, statement: statement)
 
             let existingTransactions = fetchExistingTransactions(for: account)
-            let dedupResult = Deduplicator.deduplicate(incoming: transactions, existing: existingTransactions)
+            let softDeleted = fetchSoftDeletedTransactions(for: account)
+            let dedupResult = Deduplicator.deduplicate(incoming: transactions, existing: existingTransactions, softDeleted: softDeleted)
 
             let rules = fetchCategoryRules()
             let catResult = Categorizer.categorize(transactions: dedupResult.unique, rules: rules)
@@ -311,6 +328,21 @@ final class IngestPipeline {
 
             persist(account: account, statement: statement, transactions: dedupResult.unique + dedupResult.duplicates)
             linkInstallmentPlans(account: account, section: section, transactions: dedupResult.unique + dedupResult.duplicates)
+
+            for match in dedupResult.matchedDeleted {
+                let pending = PendingImport(
+                    account: account,
+                    statement: statement,
+                    rawText: match.incoming.descriptionRaw,
+                    reason: "Matches a deleted transaction",
+                    parsedDate: match.incoming.postedAt,
+                    parsedAmount: match.incoming.amount,
+                    parsedDescription: match.incoming.descriptionRaw,
+                    cardLast4: match.incoming.cardLast4,
+                    matchedDeletedTransactionId: match.deletedId
+                )
+                context.insert(pending)
+            }
 
             totalNew += dedupResult.unique.count
             totalDupes += dedupResult.duplicates.count
@@ -523,6 +555,14 @@ final class IngestPipeline {
         let accountId = account.id
         let descriptor = FetchDescriptor<Transaction>(
             predicate: #Predicate<Transaction> { $0.account?.id == accountId && $0.deletedAt == nil }
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    private func fetchSoftDeletedTransactions(for account: Account) -> [Transaction] {
+        let accountId = account.id
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.account?.id == accountId && $0.deletedAt != nil }
         )
         return (try? context.fetch(descriptor)) ?? []
     }

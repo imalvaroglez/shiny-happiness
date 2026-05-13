@@ -90,9 +90,16 @@ private struct PendingReviewRow: View {
                 TextField("Description", text: $draftDescription)
                     .textFieldStyle(.roundedBorder)
 
-                Button("Resolve") { resolve() }
-                    .buttonStyle(.glassProminent)
-                    .disabled(!canResolve)
+                if pending.matchedDeletedTransactionId != nil {
+                    Button("Restore Deleted") { restoreDeleted() }
+                        .buttonStyle(.glassProminent)
+                    Button("Keep Deleted") { keepDeleted() }
+                        .buttonStyle(.bordered)
+                } else {
+                    Button("Resolve") { resolve() }
+                        .buttonStyle(.glassProminent)
+                        .disabled(!canResolve)
+                }
             }
         }
         .onAppear { seedDraftsIfNeeded() }
@@ -136,15 +143,10 @@ private struct PendingReviewRow: View {
         modelContext.insert(txn)
         pending.resolvedTransaction = txn
 
-        // Run the existing categorizer rules so this row picks up any matching
-        // user-correction or seed rule the same way fresh imports do.
         let descriptor = FetchDescriptor<CategoryRule>()
         let rules = (try? modelContext.fetch(descriptor)) ?? []
         _ = Categorizer.categorize(transactions: [txn], rules: rules)
 
-        // Sign-recovery learning: if the original raw line lacked a sign glyph,
-        // record a hint so future imports of the same kind of line apply this sign
-        // automatically.
         let keyword = MerchantExtractor.extractMerchant(from: description) ?? description
         let resolvedSign: Int = amount >= 0 ? 1 : -1
         LearningHooks.recordSignRecovery(
@@ -158,6 +160,37 @@ private struct PendingReviewRow: View {
         txn.touch()
         try? modelContext.save()
         onResolved(txn)
+    }
+
+    private func restoreDeleted() {
+        guard let deletedId = pending.matchedDeletedTransactionId else { return }
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.id == deletedId }
+        )
+        guard let deleted = (try? modelContext.fetch(descriptor))?.first else { return }
+        deleted.deletedAt = nil
+        deleted.touch()
+        pending.resolvedTransaction = deleted
+        pending.touch()
+        try? modelContext.save()
+        onResolved(deleted)
+    }
+
+    private func keepDeleted() {
+        pending.resolvedTransaction = Transaction(
+            account: pending.account,
+            statement: pending.statement,
+            postedAt: .now,
+            amount: 0,
+            currency: pending.account?.currency ?? "MXN",
+            descriptionRaw: "Suppressed — kept deleted"
+        )
+        if let txn = pending.resolvedTransaction {
+            modelContext.insert(txn)
+            txn.touch()
+        }
+        pending.touch()
+        try? modelContext.save()
     }
 
     private func amountString(_ amount: Decimal) -> String {

@@ -19,6 +19,7 @@ final class PendingImport: LastModifiedTracking {
     @Relationship(deleteRule: .nullify) var resolvedTransaction: Transaction?
     var createdAt: Date
     var lastModifiedAt: Date = Date.now
+    var matchedDeletedTransactionId: UUID?
 
     init(
         id: UUID = UUID(),
@@ -31,7 +32,8 @@ final class PendingImport: LastModifiedTracking {
         parsedDescription: String? = nil,
         cardLast4: String? = nil,
         resolvedTransaction: Transaction? = nil,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        matchedDeletedTransactionId: UUID? = nil
     ) {
         self.id = id
         self.account = account
@@ -44,6 +46,7 @@ final class PendingImport: LastModifiedTracking {
         self.cardLast4 = cardLast4
         self.resolvedTransaction = resolvedTransaction
         self.createdAt = createdAt
+        self.matchedDeletedTransactionId = matchedDeletedTransactionId
     }
 
     var isResolved: Bool {
