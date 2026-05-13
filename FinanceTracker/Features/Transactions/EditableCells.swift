@@ -147,18 +147,26 @@ struct EditableAmountCell: View {
         isEditing = false
     }
 
+    private static let _decimalFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.minimumFractionDigits = 2
+        f.maximumFractionDigits = 2
+        f.usesGroupingSeparator = false
+        return f
+    }()
+
     private static func decimalString(_ amount: Decimal) -> String {
-        let formatter = NumberFormatter()
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        formatter.usesGroupingSeparator = false
-        return formatter.string(from: amount as NSDecimalNumber) ?? "\(amount)"
+        _decimalFormatter.string(from: amount as NSDecimalNumber) ?? "\(amount)"
     }
 
+    private static let _moneyFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        return f
+    }()
+
     static func formatMoney(_ amount: Decimal, currencyCode: String) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = currencyCode
-        return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
+        _moneyFormatter.currencyCode = currencyCode
+        return _moneyFormatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
     }
 }

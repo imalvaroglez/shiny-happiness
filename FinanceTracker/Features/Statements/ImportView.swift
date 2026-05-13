@@ -94,9 +94,13 @@ struct ImportView: View {
         .frame(minHeight: 200)
     }
 
+    private final class URLBag: @unchecked Sendable {
+        var urls: [URL] = []
+    }
+
     private func handleDrop(_ providers: [NSItemProvider]) {
         let group = DispatchGroup()
-        var urls: [URL] = []
+        let bag = URLBag()
 
         for provider in providers {
             group.enter()
@@ -105,14 +109,14 @@ struct ImportView: View {
                 guard let data = data as? Data,
                       let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
                 _ = url.startAccessingSecurityScopedResource()
-                urls.append(url)
+                bag.urls.append(url)
             }
         }
 
         group.notify(queue: .main) {
             Task {
-                await viewModel.importFiles(urls)
-                for url in urls {
+                await viewModel.importFiles(bag.urls)
+                for url in bag.urls {
                     url.stopAccessingSecurityScopedResource()
                 }
             }

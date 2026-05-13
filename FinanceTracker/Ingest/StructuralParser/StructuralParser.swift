@@ -191,25 +191,19 @@ struct StructuralParser: StatementParser {
         var transactions: [RawTransaction] = []
         var inTransactionSection = false
         var currentConvention: String? = nil
-        var pendingDateStr: String? = nil
-        var pendingDescription: String? = nil
 
-        for (rowIndex, row) in rows.enumerated() {
+        for (_, row) in rows.enumerated() {
             let lineText = row.cells.map { $0.text }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
             guard !lineText.isEmpty else { continue }
 
             if columnDetector.vocabulary.isSectionStart(lineText) {
                 inTransactionSection = true
                 currentConvention = nil
-                pendingDateStr = nil
-                pendingDescription = nil
                 continue
             }
 
             if columnDetector.vocabulary.isSectionEnd(lineText) {
                 inTransactionSection = false
-                pendingDateStr = nil
-                pendingDescription = nil
                 continue
             }
 
@@ -223,11 +217,6 @@ struct StructuralParser: StatementParser {
             let parsed = parseSingleLine(lineText, context: context, convention: currentConvention)
             if !parsed.isEmpty {
                 transactions.append(contentsOf: parsed)
-                pendingDateStr = nil
-                pendingDescription = nil
-            } else if let (date, desc) = extractDateWithoutAmount(from: lineText, context: context) {
-                pendingDateStr = date
-                pendingDescription = desc
             }
         }
 
@@ -595,7 +584,7 @@ struct StructuralParser: StatementParser {
         var transactions: [RawTransaction] = []
         let dataRows = Array(rows[table.dataRowRange])
 
-        for (rowIdx, row) in dataRows.enumerated() {
+        for (_, row) in dataRows.enumerated() {
             var dateStr: String?
             var descriptionParts: [String] = []
             var amountTexts: [String] = []

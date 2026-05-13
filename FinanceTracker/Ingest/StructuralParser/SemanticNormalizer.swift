@@ -414,7 +414,7 @@ struct SemanticNormalizer: Sendable {
 
         let startMonthStr = String(text[startMonthRange])
         let endMonthStr = String(text[endMonthRange])
-        var endYearStr = String(text[endYearRange])
+        let endYearStr = String(text[endYearRange])
 
         let startMonth = lookupMonth(startMonthStr, in: monthMap)
         let endMonth = lookupMonth(endMonthStr, in: monthMap)

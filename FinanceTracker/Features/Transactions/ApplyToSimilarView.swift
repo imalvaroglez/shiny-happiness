@@ -168,10 +168,14 @@ struct ApplyToSimilarView: View {
         try? modelContext.save()
     }
 
+    private static let _mxnFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = "MXN"
+        return f
+    }()
+
     private func formatMoney(_ amount: Decimal) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "MXN"
-        return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
+        Self._mxnFormatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
     }
 }

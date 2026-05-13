@@ -252,19 +252,23 @@ struct TransactionsView: View {
     private func categoryBadge(for tx: Transaction) -> some View {
         let label = tx.category?.name ?? "Uncategorized"
         let color: Color = tx.category.map { CategoryPalette.color(for: $0.name) } ?? .secondary
-        GlassChip {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(color)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-        }
+        Text(label)
+            .font(.caption)
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(color.opacity(0.12)))
+            .overlay(Capsule().stroke(color.opacity(0.25), lineWidth: 0.5))
     }
 
+    private static let _mxnFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = "MXN"
+        return f
+    }()
+
     private func formatMoney(_ amount: Decimal) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "MXN"
-        return formatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
+        Self._mxnFormatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
     }
 }

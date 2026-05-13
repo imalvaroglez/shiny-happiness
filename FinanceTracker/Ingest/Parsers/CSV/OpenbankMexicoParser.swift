@@ -86,7 +86,6 @@ struct OpenbankMexicoParser: StatementParser, Sendable {
         guard let primaryAmount = amounts.first else { return nil }
 
         let description = cleanDescription(fullText)
-        let isDeposit = primaryAmount > 0
 
         return RawTransaction(
             postedAt: date,

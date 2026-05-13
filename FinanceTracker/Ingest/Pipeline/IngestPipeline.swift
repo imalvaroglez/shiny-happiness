@@ -282,7 +282,7 @@ final class IngestPipeline {
         var totalNew = 0
         var totalDupes = 0
         var totalUncategorized = 0
-        var allErrors: [IngestError] = []
+        let allErrors: [IngestError] = []
 
         for section in sections {
             guard !section.transactions.isEmpty else { continue }
