@@ -30,6 +30,7 @@
 		374CBFF23B507C4FFB9E333B /* PastedHsbc2NowParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A752AE4F8853003301F69F59 /* PastedHsbc2NowParserTests.swift */; };
 		3D0930487B76158709350E82 /* DashboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D0F8EAA9E3499170618A1C7 /* DashboardChrome.swift */; };
 		3D3B81B6595F4B1EF332472D /* IngestPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D60770616C79673217A9F8A /* IngestPipeline.swift */; };
+		3DE1CB18E921445F47570CF4 /* DashboardSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 766DC0704044F15C95A1B59B /* DashboardSnapshotTests.swift */; };
 		3E08E1FC36634352EE090146 /* Date+Period.swift in Sources */ = {isa = PBXBuildFile; fileRef = B833F7810F33D61E067029F4 /* Date+Period.swift */; };
 		3FE44D2B230509CC8545E9EE /* Statement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF4B815E55BBE994A9DF4A5B /* Statement.swift */; };
 		40AA5D56C191AF5969E07208 /* AmexMexicoParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B2A8EE8B8D6A8999231F0C /* AmexMexicoParserTests.swift */; };
@@ -143,6 +144,7 @@
 		7205046DB5CF280B9AEB4B0C /* DashboardSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardSnapshot.swift; sourceTree = "<group>"; };
 		757995A4D36A72157916AA04 /* FinanceTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FinanceTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		762031234D540053D316B47E /* DeduplicatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeduplicatorTests.swift; sourceTree = "<group>"; };
+		766DC0704044F15C95A1B59B /* DashboardSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardSnapshotTests.swift; sourceTree = "<group>"; };
 		76945E0492AC714D84088096 /* EndToEndPDFTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndToEndPDFTests.swift; sourceTree = "<group>"; };
 		7888F0C7E514D4C800665442 /* ApplyToSimilarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplyToSimilarView.swift; sourceTree = "<group>"; };
 		7C0C844E5D35AE5153E8A82B /* IngestPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestPipelineTests.swift; sourceTree = "<group>"; };
@@ -367,6 +369,7 @@
 		B4068949E82291304874EA9E /* EndToEndTests */ = {
 			isa = PBXGroup;
 			children = (
+				766DC0704044F15C95A1B59B /* DashboardSnapshotTests.swift */,
 				76945E0492AC714D84088096 /* EndToEndPDFTests.swift */,
 				A4A44210612FDD708268A9C6 /* OpenbankMultiAccountTests.swift */,
 				911C0B681D74C9CCC271C0CA /* StatementBalanceTests.swift */,
@@ -722,6 +725,7 @@
 				97D1DF44D2A183EF1CD7D0D4 /* CategoryCorrectionTests.swift in Sources */,
 				4D4E4CE44F17087F401CCE2E /* CategoryRuleSourceTrackingTests.swift in Sources */,
 				66B3D86239B373D1126F9E10 /* ColumnDetectorTests.swift in Sources */,
+				3DE1CB18E921445F47570CF4 /* DashboardSnapshotTests.swift in Sources */,
 				84C26FBE7AA03147CD3EE328 /* DeduplicatorTests.swift in Sources */,
 				C80B8FA576C355F255DC67C0 /* EndToEndPDFTests.swift in Sources */,
 				D4A27D48A989F8E35061F16C /* IngestPipelineTests.swift in Sources */,
