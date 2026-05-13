@@ -85,3 +85,27 @@
 - `LearningHooks.recordCategorization` writes a `CategoryRule(source: "user_correction", priority: 90)` whenever the user assigns a category, idempotent on `(pattern, category)`.
 - `LearningHooks.recordSignRecovery` writes a `SignRecoveryHint(source: "user_correction")` whenever a resolved `PendingImport`'s raw text lacked an explicit `+/-` glyph. The parser consults these hints on the next paste import.
 **Consequence:** The same merchant or sign-quirk never needs to be fixed twice. Rules and hints accumulate; their `createdFrom` keeps provenance.
+
+## AD-015: Soft-delete via `Transaction.deletedAt`; permanent deletion is the backup retention's job
+**Date:** 2026-05-13
+**Context:** Users delete transactions by accident. Permanent deletion (`context.delete`) is irreversible.
+**Decision:** Add `Transaction.deletedAt: Date?` (default nil). All `FetchDescriptor<Transaction>` queries filter `deletedAt == nil` by default. The "Recently Deleted" chip surfaces soft-deleted rows with a Restore action. Actual data removal happens via backup retention pruning.
+**Consequence:** Two recovery paths: in-app trash for short-term mistakes, `.ftbackup` archives for everything older.
+
+## AD-016: Local `.ftbackup` folder bundle is the primary durability story; CloudKit sync deferred to backlog
+**Date:** 2026-05-13
+**Context:** SwiftData's default container at `~/Library/Application Support/` has no export, backup, or sync. A single container corruption loses everything.
+**Decision:** Implement a local backup pipeline: `BackupArchive` exports to a `.ftbackup` folder bundle (JSON snapshots + manifest + statement file copies). `BackupScheduler` writes a snapshot every 24h on launch with 7/4/12 daily/weekly/monthly retention. CloudKit sync requires entitlements and the InstallmentPlan inverse-relationship loosening — both deferred per stakeholder.
+**Consequence:** Durable, vendor-neutral, point-in-time archives that survive any Apple-ID / schema / SwiftData incident. `lastModifiedAt` on every model (added in the same stage) provides the merge conflict signal for when CloudKit eventually ships.
+
+## AD-017: `findOrCreateAccount` never falls back to `(institution, type)` when a `sectionNumber` is supplied
+**Date:** 2026-05-13
+**Context:** Two HSBC 2Now accounts (different physical card numbers) were being merged into one Account because `findOrCreateAccount` fell back to `(institution, type)` matching when the second account's number didn't match the first.
+**Decision:** When the parser supplies a `sectionNumber` and no existing Account matches, always create a new Account. The `(institution, type)` fallback only fires when `sectionNumber` is nil (legacy `ParsedSection.single` path).
+**Consequence:** Distinct card accounts stay distinct. The HSBC parser now uses the titular card's `last4` as `accountNumber` for all sections (titular + adicional), so both card types share one Account per physical card.
+
+## AD-018: Deduplicator never silently suppresses or re-imports against a soft-deleted row
+**Date:** 2026-05-13
+**Context:** When re-importing a statement after the user deleted some transactions, the Deduplicator would either silently suppress (treating deleted rows as duplicates) or silently re-import (ignoring the deletion).
+**Decision:** The Deduplicator's `Result` includes a `matchedDeleted` list. For each match, the IngestPipeline creates a `PendingImport` with the reason "Matches a deleted transaction" and the deleted row's UUID. The user sees Restore / Keep Deleted actions in the review card.
+**Consequence:** Honors the user's deletion intent without making a silent wrong choice. Aligns with AD-009 (manual-review-first).
