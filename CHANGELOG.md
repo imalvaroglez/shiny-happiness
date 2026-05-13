@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Per-account dashboards + interactive charts + drill-downs (Stage 3)**
+- New `DashboardScope` (`.consolidated | .account(UUID)`) and `DashboardSnapshot` union (`.consolidated | .asset | .liability | .empty`); the dashboard view dispatches on the snapshot so consolidated, asset, and liability cases get purpose-built presentations
+- Sidebar now lists every `Account` with a type-appropriate icon under an `Accounts` section; selecting one drives the scope
+- New `LiabilityAccountDashboard` for credit-card accounts: `UtilizationCard` (gauge + limit + % indicator), `PaymentDueCard` (date + days-until + minimum / no-interest), `ChargesVsPaymentsChart`, `InstallmentsCard` with per-plan progress, `InterestAndFeesCard` (hidden when both zero), spending donut, recent transactions
+- New `AssetAccountDashboard` mirrors the consolidated layout scoped to one checking/savings account
+- Interactive charts: every time-series chart now has hover tooltips via `chartXSelection`; the consolidated cash-flow chart has an Income/Expenses series filter
+- New `BreakdownSheet` drills into every aggregate. Summary tiles, cash-flow bars, net-worth points, and donut sectors all open a sheet listing the rows that produced the headline number, with a Total at the bottom
+- `DashboardViewModel` correctly excludes `.creditCardPayment` and synthesized MSI parent-purchase rows from cash-flow aggregates (closes the AD-C5 + AD-C3 gaps)
+- New `DECISIONS.md` entries AD-009..AD-014 documenting the manual-review-first parser, signed liability balances, the supplementary-card model, MSI handling, credit-card payment classification, and the learning hooks
+
+**Bug fixes (post-smoke-test, pre-Stage 3)**
+- `CategoryPickerView` now shows subcategories. The previous code iterated `cat.subcategories` which isn't reliably materialized; switched to filtering the existing `@Query<Category>` for children. Manual category triage now writes proper subcategory rules.
+- Import sheet opened from the Dashboard floating button gained a Done button; previously it had no dismiss affordance.
+
 **Learning hooks: merchant→category + description→sign-recovery (Stage 4)**
 - New `SignRecoveryHint` `@Model`: pattern + implicitSign (+1 / -1) + source + createdFrom; registered in `AppContainer` and every in-memory test container
 - New `LearningHooks` namespace with two idempotent helpers: `recordCategorization(...)` and `recordSignRecovery(...)`. Both skip when an equivalent rule already exists; sign-recovery only fires when the raw line truly lacks a sign glyph
