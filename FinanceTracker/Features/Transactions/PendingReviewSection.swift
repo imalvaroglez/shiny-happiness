@@ -13,21 +13,22 @@ struct PendingReviewSection: View {
     @State private var expanded = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            if expanded {
-                Divider()
-                ForEach(pendings) { pending in
-                    PendingReviewRow(pending: pending, onResolved: onResolved)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                    if pending != pendings.last {
-                        Divider().padding(.leading, 12)
+        GlassCard(role: .card, interactive: true) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                if expanded {
+                    Divider()
+                    ForEach(pendings) { pending in
+                        PendingReviewRow(pending: pending, onResolved: onResolved)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                        if pending != pendings.last {
+                            Divider().padding(.leading, 12)
+                        }
                     }
                 }
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 10))
         .padding(.horizontal, 12)
         .padding(.top, 8)
     }
