@@ -93,7 +93,7 @@ struct BreakdownSheet: View {
             ForEach(summaries) { s in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(s.nickname)
+                        Text(s.displayName)
                         Text(s.institution).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -138,7 +138,7 @@ struct BreakdownSheet: View {
                                 if let cat = tx.category {
                                     Text(cat.name).font(.caption2).foregroundStyle(.tertiary)
                                 }
-                                if let nick = tx.account?.nickname {
+                                if let nick = tx.account?.displayName {
                                     Text(nick).font(.caption2).foregroundStyle(.tertiary)
                                 }
                             }

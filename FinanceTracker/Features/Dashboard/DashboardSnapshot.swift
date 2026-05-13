@@ -17,10 +17,10 @@ struct EmptySnapshot {
 
 // MARK: - Consolidated
 
-struct AccountSummary: Identifiable, Hashable {
-    let id: UUID
-    let nickname: String
-    let institution: String
+ struct AccountSummary: Identifiable, Hashable {
+     let id: UUID
+     let displayName: String
+     let institution: String
     let type: AccountType
     let currency: String
     /// Signed: positive = asset balance, negative = liability balance.

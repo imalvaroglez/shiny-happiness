@@ -45,4 +45,10 @@ final class Account {
         self.paymentDayOfMonth = paymentDayOfMonth
         self.tintHex = tintHex
     }
+
+    var displayName: String {
+        if nickname != institution { return nickname }
+        if let last4 = accountNumber { return "\(institution) ····\(last4)" }
+        return institution
+    }
 }

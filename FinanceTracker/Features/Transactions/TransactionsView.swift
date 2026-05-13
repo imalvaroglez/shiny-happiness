@@ -131,7 +131,7 @@ struct TransactionsView: View {
             Picker(selection: $accountFilter) {
                 Text("All Accounts").tag(nil as Account?)
                 ForEach(accounts) { account in
-                    Text(account.nickname).tag(account as Account?)
+                    Text(account.displayName).tag(account as Account?)
                 }
             } label: { EmptyView() }
             .frame(width: 200)
@@ -179,7 +179,7 @@ struct TransactionsView: View {
                         tx.merchantNormalized = newText
                         try? modelContext.save()
                     }
-                    if let nickname = tx.account?.nickname {
+                    if let nickname = tx.account?.displayName {
                         Text(nickname)
                             .font(.caption2)
                             .foregroundStyle(.tertiary)

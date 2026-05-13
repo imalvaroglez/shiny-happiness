@@ -250,7 +250,7 @@ struct ConsolidatedDashboard: View {
             ForEach(snapshot.accountSummaries) { summary in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(summary.nickname).font(.body)
+                        Text(summary.displayName).font(.body)
                         Text(summary.institution).font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()

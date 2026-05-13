@@ -189,9 +189,9 @@ struct DashboardView: View {
         case .consolidated:
             return "Overview"
         case .asset(let snap):
-            return snap.account.nickname
+            return snap.account.displayName
         case .liability(let snap):
-            return snap.account.nickname
+            return snap.account.displayName
         case .empty:
             return "Dashboard"
         }
@@ -295,7 +295,7 @@ private struct AccountSidebarRow: View {
             iconForType
                 .foregroundStyle(AccountIdentity.color(for: account))
             VStack(alignment: .leading, spacing: 2) {
-                Text(account.nickname)
+                Text(account.displayName)
                     .font(.body)
                     .lineLimit(1)
                 Text(account.institution)
