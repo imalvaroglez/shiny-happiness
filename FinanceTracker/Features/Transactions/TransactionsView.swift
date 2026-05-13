@@ -29,6 +29,8 @@ struct TransactionsView: View {
     @State private var categoryFilter: CategoryFilter = .all
     @State private var sortOrder = [KeyPathComparator(\Transaction.postedAt, order: .reverse)]
     @State private var showingRecentlyDeleted = false
+    @State private var displayTransactions: [Transaction] = []
+    @State private var lastTxCount: Int = 0
 
     private var parentCategories: [Category] {
         var seen = Set<String>()
@@ -44,8 +46,9 @@ struct TransactionsView: View {
             .sorted { $0.name < $1.name }
     }
 
-    private var filteredTransactions: [Transaction] {
-        var result = showingRecentlyDeleted ? deletedTransactions : allTransactions
+    private func recomputeDisplay() {
+        let active = showingRecentlyDeleted ? deletedTransactions : allTransactions
+        var result = active
 
         if let filter = accountFilter {
             result = result.filter { $0.account?.id == filter.id }
@@ -73,11 +76,8 @@ struct TransactionsView: View {
             }
         }
 
-        return result
-    }
-
-    private var sortedTransactions: [Transaction] {
-        filteredTransactions.sorted(using: sortOrder)
+        displayTransactions = result.sorted(using: sortOrder)
+        lastTxCount = active.count
     }
 
     var body: some View {
@@ -104,6 +104,7 @@ struct TransactionsView: View {
                         in: modelContext
                     )
                     try? modelContext.save()
+                    recomputeDisplay()
                     pendingCategory = category
                     pendingKeyword = keyword
                 }
@@ -129,6 +130,20 @@ struct TransactionsView: View {
                 pendingKeyword = nil
             }
         }
+        .onChange(of: accountFilter) { recomputeDisplay() }
+        .onChange(of: categoryFilter) { recomputeDisplay() }
+        .onChange(of: searchText) { recomputeDisplay() }
+        .onChange(of: sortOrder) { recomputeDisplay() }
+        .onChange(of: showingRecentlyDeleted) { recomputeDisplay() }
+        .onChange(of: allTransactions.count) { _, new in
+            guard new != lastTxCount else { return }
+            recomputeDisplay()
+        }
+        .onChange(of: deletedTransactions.count) { _, new in
+            guard new != lastTxCount else { return }
+            recomputeDisplay()
+        }
+        .onAppear { recomputeDisplay() }
     }
 
     private var filterBar: some View {
@@ -168,7 +183,7 @@ struct TransactionsView: View {
                 .tint(showingRecentlyDeleted ? .red : .secondary)
             }
 
-            Text("\(filteredTransactions.count) transactions")
+            Text("\(displayTransactions.count) transactions")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -177,7 +192,7 @@ struct TransactionsView: View {
     }
 
     private var tableContent: some View {
-        Table(sortedTransactions, sortOrder: $sortOrder) {
+        Table(displayTransactions, sortOrder: $sortOrder) {
             TableColumn("Date", value: \.postedAt) { tx in
                 EditableDateCell(date: tx.postedAt) { newDate in
                     tx.postedAt = newDate
