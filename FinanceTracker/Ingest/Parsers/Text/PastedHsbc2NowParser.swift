@@ -58,6 +58,10 @@ struct PastedHsbc2NowParser {
             ?? cardTransactions.first?.cardLast4
             ?? "7827"
 
+        let titularAccountNumber = cardTransactions.first { $0.cardLast4 == titularCard }?.cardLast4
+            ?? cardTransactions.first?.cardLast4
+            ?? "7827"
+
         var sections: [ParsedSection] = []
         for (idx, card) in cardTransactions.enumerated() {
             let isPrimary = card.cardLast4 == titularCard
@@ -75,7 +79,7 @@ struct PastedHsbc2NowParser {
             let section = ParsedSection(
                 accountHint: "HSBC 2Now",
                 accountType: .creditCard,
-                accountNumber: card.cardLast4,
+                accountNumber: titularAccountNumber,
                 nickname: isPrimary ? "HSBC 2Now Oro" : "HSBC 2Now Oro (Adicional)",
                 openingBalance: isPrimary ? header.previousBalance.map { -$0 } : nil,
                 closingBalance: isPrimary ? header.totalBalance.map { -$0 } : nil,

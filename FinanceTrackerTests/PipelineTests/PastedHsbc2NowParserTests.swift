@@ -58,12 +58,13 @@ struct PastedHsbc2NowParserTests {
         let result = parser.parse(text)
 
         #expect(result.sections.count == 2)
-        let titular = result.sections.first { $0.accountNumber == "7827" }
-        let suppl = result.sections.first { $0.accountNumber == "7801" }
+        let titular = result.sections.first { $0.nickname == "HSBC 2Now Oro" }
+        let suppl = result.sections.first { $0.nickname == "HSBC 2Now Oro (Adicional)" }
         #expect(titular != nil)
         #expect(suppl != nil)
-        // The supplementary card in this fixture has exactly 8 transactions.
         #expect((suppl?.transactions.count ?? 0) == 8)
+        #expect(titular?.accountNumber == suppl?.accountNumber,
+                "Both sections should share the titular's accountNumber")
     }
 
     @Test("Combined card totals reconcile to documented summary")

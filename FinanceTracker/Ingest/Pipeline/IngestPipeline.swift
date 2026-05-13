@@ -116,7 +116,10 @@ final class IngestPipeline {
             linkInstallmentPlans(account: account, section: section, transactions: dedup.unique + dedup.duplicates)
 
             // Persist any pending rows for this card under the same statement.
-            for p in result.pendings where p.cardLast4 == section.accountNumber {
+            // Match by the cardLast4 values present in this section's transactions,
+            // not by section.accountNumber (which may be the titular's number for all sections).
+            let sectionCards = Set(section.transactions.compactMap(\.cardLast4))
+            for p in result.pendings where p.cardLast4.flatMap({ sectionCards.contains($0) }) ?? false {
                 let pending = PendingImport(
                     account: account,
                     statement: statement,
@@ -424,6 +427,13 @@ final class IngestPipeline {
                 if let cl = creditLimit, existing.creditLimit == nil { existing.creditLimit = cl }
                 return existing
             }
+            return createNewAccount(
+                institution: institutionName,
+                type: sectionType,
+                nickname: sectionNickname,
+                number: number,
+                creditLimit: creditLimit
+            )
         }
 
         let institutionDescriptor = FetchDescriptor<Account>(
@@ -434,14 +444,30 @@ final class IngestPipeline {
             return existing
         }
 
-        let displayName = sectionNickname ?? institutionName
-        Logger.pipeline.info("Auto-creating account for \(displayName) (\(sectionNumber ?? "no number"))")
-        let account = Account(
+        return createNewAccount(
             institution: institutionName,
             type: sectionType,
-            currency: "MXN",
             nickname: sectionNickname,
-            accountNumber: sectionNumber,
+            number: nil,
+            creditLimit: creditLimit
+        )
+    }
+
+    private func createNewAccount(
+        institution: String,
+        type: AccountType,
+        nickname: String?,
+        number: String?,
+        creditLimit: Decimal?
+    ) -> Account {
+        let displayName = nickname ?? institution
+        Logger.pipeline.info("Auto-creating account for \(displayName) (\(number ?? "no number"))")
+        let account = Account(
+            institution: institution,
+            type: type,
+            currency: "MXN",
+            nickname: nickname,
+            accountNumber: number,
             creditLimit: creditLimit
         )
         context.insert(account)
