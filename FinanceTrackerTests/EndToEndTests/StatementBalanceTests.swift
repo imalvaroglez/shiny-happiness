@@ -138,18 +138,23 @@ struct StatementBalancePersistenceTests {
         let viewModel = DashboardViewModel()
         viewModel.configure(context: context)
 
-        #expect(viewModel.currentNetWorth == 49_371.09, "Current net worth should be $49,371.09 (March Débito $0 + Apartado $49,371.09)")
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot, got \(viewModel.snapshot)")
+            return
+        }
 
-        #expect(!viewModel.netWorthOverTime.isEmpty, "Should have net worth data points")
+        #expect(snap.netWorth == 49_371.09, "Current net worth should be $49,371.09 (March Débito $0 + Apartado $49,371.09)")
 
-        if let jan = viewModel.netWorthOverTime.first {
+        #expect(!snap.netWorthOverTime.isEmpty, "Should have net worth data points")
+
+        if let jan = snap.netWorthOverTime.first {
             let calendar = Calendar(identifier: .gregorian)
             let month = calendar.component(.month, from: jan.month)
             #expect(month == 1, "First point should be January")
             #expect(jan.balance == 462_480.49, "January net worth should be $462,480.49")
         }
 
-        if let mar = viewModel.netWorthOverTime.last {
+        if let mar = snap.netWorthOverTime.last {
             #expect(mar.balance == 49_371.09, "March net worth should be $49,371.09")
         }
     }
