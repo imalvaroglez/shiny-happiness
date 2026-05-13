@@ -111,8 +111,15 @@ struct DashboardView: View {
             .padding(20)
         }
         .sheet(isPresented: $showingImport) {
-            ImportView(modelContext: modelContext)
-                .frame(minWidth: 600, minHeight: 500)
+            NavigationStack {
+                ImportView(modelContext: modelContext)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingImport = false }
+                        }
+                    }
+            }
+            .frame(minWidth: 600, minHeight: 500)
         }
     }
 

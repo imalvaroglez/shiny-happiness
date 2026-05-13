@@ -38,7 +38,12 @@ struct CategoryPickerView: View {
 
                         ForEach(group.categories) { cat in
                             categoryRow(cat)
-                            let subs = cat.subcategories.sorted { $0.name < $1.name }
+                            // The SwiftData inverse `cat.subcategories` isn't reliably
+                            // materialized for fetched parents, so query the children
+                            // explicitly from the @Query result.
+                            let subs = categories
+                                .filter { $0.parent?.id == cat.id }
+                                .sorted { $0.name < $1.name }
                             if !subs.isEmpty {
                                 ForEach(subs) { sub in
                                     categoryRow(sub, depth: 1)
