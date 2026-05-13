@@ -361,7 +361,7 @@ final class DashboardViewModel {
             }
             return AccountSummary(
                 id: account.id,
-                nickname: account.nickname,
+                displayName: account.displayName,
                 institution: account.institution,
                 type: account.type,
                 currency: account.currency,
