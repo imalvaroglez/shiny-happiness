@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+**Learning hooks: merchant→category + description→sign-recovery (Stage 4)**
+- New `SignRecoveryHint` `@Model`: pattern + implicitSign (+1 / -1) + source + createdFrom; registered in `AppContainer` and every in-memory test container
+- New `LearningHooks` namespace with two idempotent helpers: `recordCategorization(...)` and `recordSignRecovery(...)`. Both skip when an equivalent rule already exists; sign-recovery only fires when the raw line truly lacks a sign glyph
+- `TransactionsView` calls `recordCategorization` in the `CategoryPicker` callback so every manual assignment promotes to a `CategoryRule` with `source = "user_correction"` (priority 90)
+- `PendingReviewSection.resolve()` calls `recordSignRecovery` after creating the Transaction so future paste imports get the sign right automatically
+- `PastedHsbc2NowParser` gains a `SignHint` init param: strict pattern still requires a sign glyph but a matched hint can override HSBC's `+/-` convention; loose pattern (no sign glyph) is accepted only when a hint matches the description
+- `IngestPipeline.ingestPastedText` fetches live `SignRecoveryHint`s and passes them to the parser
+
 **Editable Transactions view + inline pending-import review (Stage 2)**
 - `TransactionsView` rows are now editable in place: tap any of Date / Description / Amount to open a popover and commit a change; the existing Category column is unchanged
 - New `EditableCells.swift` with `EditableTextCell`, `EditableDateCell`, and `EditableAmountCell` — tap-to-edit popovers that mutate the bound `@Model` object and let the caller persist
