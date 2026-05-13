@@ -74,6 +74,7 @@ struct DashboardView: View {
         .task {
             SeedDataLoader.bootstrapIfNeeded(context: modelContext)
             viewModel.configure(context: modelContext)
+            await BackupScheduler.runIfNeeded(context: modelContext)
         }
         .onAppear {
             viewModel.refresh()
