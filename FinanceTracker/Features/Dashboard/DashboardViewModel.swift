@@ -60,7 +60,7 @@ final class DashboardViewModel {
         let end = dateRange.end
         let descriptor = FetchDescriptor<Transaction>(
             predicate: #Predicate<Transaction> { tx in
-                tx.postedAt >= start && tx.postedAt <= end
+                tx.postedAt >= start && tx.postedAt <= end && tx.deletedAt == nil
             },
             sortBy: [SortDescriptor(\.postedAt, order: .reverse)]
         )

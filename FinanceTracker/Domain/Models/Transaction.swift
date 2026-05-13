@@ -18,6 +18,7 @@ final class Transaction: LastModifiedTracking {
     var cardLast4: String?
     @Relationship(deleteRule: .nullify, inverse: \InstallmentPlan.installments) var installmentPlan: InstallmentPlan?
     var lastModifiedAt: Date = Date.now
+    var deletedAt: Date? = nil
 
     init(
         id: UUID = UUID(),

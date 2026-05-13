@@ -522,7 +522,7 @@ final class IngestPipeline {
     private func fetchExistingTransactions(for account: Account) -> [Transaction] {
         let accountId = account.id
         let descriptor = FetchDescriptor<Transaction>(
-            predicate: #Predicate<Transaction> { $0.account?.id == accountId }
+            predicate: #Predicate<Transaction> { $0.account?.id == accountId && $0.deletedAt == nil }
         )
         return (try? context.fetch(descriptor)) ?? []
     }
