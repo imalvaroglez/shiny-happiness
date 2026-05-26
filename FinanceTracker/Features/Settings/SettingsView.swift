@@ -2,33 +2,116 @@ import SwiftUI
 import SwiftData
 
 struct SettingsView: View {
+    var onAccountDeleted: (UUID) -> Void = { _ in }
+
     @Environment(\.modelContext) private var modelContext
     @Query private var accounts: [Account]
     @Query private var transactions: [Transaction]
+    @Query(filter: #Predicate<Category> { $0.deletedAt == nil }) private var categories: [Category]
+
     @State private var showDeleteConfirmation = false
-    @State private var showRestoreConfirmation = false
     @State private var isExporting = false
     @State private var isRestoring = false
     @State private var backupStatus = ""
 
+    @State private var accountToDelete: Account?
+    @State private var deletionPreview: AccountDeletionService.DeletionPreview?
+
+    @State private var showingNewCategory = false
+    @State private var newCategoryName = ""
+    @State private var newCategoryKind: CategoryKind = .expense
+    @State private var subcategoryParent: Category?
+    @State private var newSubcategoryName = ""
+
+    private var transactionCountsByAccountID: [UUID: Int] {
+        var counts: [UUID: Int] = [:]
+        for tx in transactions {
+            if let id = tx.account?.id {
+                counts[id, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
     var body: some View {
-        Form {
-            accountsSection
-            backupSection
-            dataSection
-            aboutSection
+        ScrollView {
+            LazyVStack(spacing: 16) {
+                accountsSection
+                categoriesSection
+                adaptiveGridRow
+                aboutSection
+            }
+            .frame(maxWidth: 1180)
+            .frame(maxWidth: .infinity)
+            .padding()
         }
         .navigationTitle("Settings")
+        .alert("Delete Account?", isPresented: Binding(
+            get: { accountToDelete != nil },
+            set: { if !$0 { accountToDelete = nil; deletionPreview = nil } }
+        )) {
+            Button("Cancel", role: .cancel) {
+                accountToDelete = nil
+                deletionPreview = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let account = accountToDelete {
+                    do {
+                        try AccountDeletionService.delete(account: account, context: modelContext)
+                        onAccountDeleted(account.id)
+                    } catch {
+                        NSLog("Failed to delete account: %@", error.localizedDescription)
+                    }
+                    accountToDelete = nil
+                    deletionPreview = nil
+                }
+            }
+        } message: {
+            if let account = accountToDelete, let preview = deletionPreview {
+                Text("Permanently delete \"\(account.displayName)\"? This will remove \(preview.statementCount) statement(s), \(preview.transactionCount) transaction(s), \(preview.pendingImportCount) pending import(s), and \(preview.installmentPlanCount) installment plan(s). This cannot be undone.")
+            } else {
+                Text("Are you sure?")
+            }
+        }
+        .sheet(isPresented: $showingNewCategory) {
+            newCategorySheet
+        }
+        .sheet(item: $subcategoryParent) { _ in
+            newSubcategorySheet
+        }
+    }
+
+    @ViewBuilder
+    private var adaptiveGridRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                backupSection
+                    .frame(maxWidth: .infinity)
+                dataSection
+                    .frame(maxWidth: .infinity)
+            }
+            VStack(spacing: 16) {
+                backupSection
+                dataSection
+            }
+        }
     }
 
     private var accountsSection: some View {
-        Section("Accounts") {
+        SectionCard(title: "Accounts") {
             if accounts.isEmpty {
                 Text("No accounts imported yet")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
+                    .padding(16)
             } else {
-                ForEach(accounts) { account in
-                    accountEditorRow(for: account)
+                VStack(spacing: 0) {
+                    ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
+                        accountEditorRow(for: account)
+                        if index < accounts.count - 1 {
+                            Divider().padding(.leading, 16)
+                        }
+                    }
                 }
             }
         }
@@ -36,77 +119,355 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func accountEditorRow(for account: Account) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        let txCount = transactionCountsByAccountID[account.id] ?? 0
+
+        HStack(alignment: .top, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(account.displayName)
-                    .font(.headline)
-                Spacer()
+                    .font(.callout.weight(.medium))
                 Text("\(account.type.rawValue) · \(account.currency)")
-                    .font(.caption)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text("\(txCount) transactions")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            .frame(width: 180, alignment: .topLeading)
 
-            TextField("Nickname", text: Binding(
-                get: { account.nickname },
-                set: { account.nickname = $0 }
-            ))
-            .textFieldStyle(.roundedBorder)
-
-            HStack {
-                ColorPicker("Identity color", selection: Binding(
-                    get: { account.tintHex.flatMap { Color(hex: $0) } ?? AccountIdentity.color(for: account) },
-                    set: { account.tintHex = $0.hexString }
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Nickname", text: Binding(
+                    get: { account.nickname },
+                    set: { account.nickname = $0 }
                 ))
-            }
-
-            if account.type == .creditCard {
-                TextField("Credit limit", value: Binding(
-                    get: { account.creditLimit ?? 0 },
-                    set: { account.creditLimit = $0 }
-                ), format: .currency(code: account.currency))
                 .textFieldStyle(.roundedBorder)
-            }
 
-            let txCount = transactions.filter { $0.account?.id == account.id }.count
-            Text("\(txCount) transactions")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                HStack {
+                    ColorPicker("Identity color", selection: Binding(
+                        get: { account.tintHex.flatMap { Color(hex: $0) } ?? AccountIdentity.color(for: account) },
+                        set: { account.tintHex = $0.hexString }
+                    ))
+                }
+
+                if account.type == .creditCard {
+                    TextField("Credit limit", value: Binding(
+                        get: { account.creditLimit ?? 0 },
+                        set: { account.creditLimit = $0 }
+                    ), format: .currency(code: account.currency))
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                Button(role: .destructive) {
+                    deletionPreview = AccountDeletionService.preview(account: account, context: modelContext)
+                    accountToDelete = account
+                } label: {
+                    Label("Delete Account", systemImage: "trash")
+                        .font(.caption)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var categoriesSection: some View {
+        SectionCard(title: "Categories") {
+            VStack(spacing: 0) {
+                let parents = categories.filter { $0.parent == nil }
+                let kinds: [CategoryKind] = [.expense, .income, .transfer, .investment, .creditCardPayment]
+                let grouped = kinds.compactMap { kind -> (CategoryKind, [Category])? in
+                    let cats = parents.filter { $0.kind == kind }.sorted { $0.name < $1.name }
+                    return cats.isEmpty ? nil : (kind, cats)
+                }
+
+                if grouped.isEmpty {
+                    Text("No categories yet")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(16)
+                } else {
+                    ForEach(grouped, id: \.0) { kind, parentsInSection in
+                        Text(kind.rawValue.capitalized)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 10)
+                            .padding(.bottom, 4)
+
+                        ForEach(parentsInSection) { parent in
+                            categoryParentRow(parent)
+                            let subs = categories
+                                .filter { $0.parent?.id == parent.id }
+                                .sorted { $0.name < $1.name }
+                            ForEach(subs) { sub in
+                                categorySubcategoryRow(sub, parent: parent)
+                            }
+                        }
+                    }
+                }
+
+                Divider()
+                    .padding(.leading, 16)
+
+                Button {
+                    showingNewCategory = true
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Add Category")
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func categoryParentRow(_ parent: Category) -> some View {
+        let activeChildren = categories.filter { $0.parent?.id == parent.id }
+        let canDelete = activeChildren.isEmpty
+
+        return HStack {
+            Text(parent.name)
+                .font(.callout.weight(.medium))
+            Spacer()
+            Button {
+                newSubcategoryName = ""
+                subcategoryParent = parent
+            } label: {
+                Image(systemName: "plus.circle")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .help("Add subcategory")
+
+            Button(role: .destructive) {
+                do {
+                    try CategoryManagementActions.deleteParent(parent, context: modelContext)
+                } catch {
+                    NSLog("Failed to delete parent category: %@", error.localizedDescription)
+                }
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption)
+                    .foregroundStyle(canDelete ? .red : .secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canDelete)
+            .help(canDelete ? "Delete category" : "Delete subcategories first")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+
+    private func categorySubcategoryRow(_ sub: Category, parent: Category) -> some View {
+        HStack {
+            Spacer().frame(width: 20)
+            Text(sub.name)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button(role: .destructive) {
+                do {
+                    try CategoryManagementActions.deleteSubcategory(sub, context: modelContext)
+                } catch {
+                    NSLog("Failed to delete subcategory: %@", error.localizedDescription)
+                }
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
         .padding(.vertical, 4)
     }
 
-    private var backupSection: some View {
-        Section("Backup & Restore") {
-            if !backupStatus.isEmpty {
-                Text(backupStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+    private var newCategorySheet: some View {
+        VStack(spacing: 16) {
+            Text("New Category")
+                .font(.headline)
 
-            HStack {
-                if let lastSnapshot = lastBackupDate {
-                    LabeledContent("Last snapshot", value: lastSnapshot)
-                } else {
-                    Text("No snapshots yet")
-                        .foregroundStyle(.secondary)
+            TextField("Category name", text: $newCategoryName)
+                .textFieldStyle(.roundedBorder)
+
+            Picker("Kind", selection: $newCategoryKind) {
+                ForEach(CategoryKind.allCases, id: \.self) { kind in
+                    Text(kind.rawValue.capitalized).tag(kind)
                 }
             }
+            .pickerStyle(.segmented)
 
-            LabeledContent("Snapshots on disk", value: "\(snapshotCount)")
+            let trimmed = newCategoryName.trimmingCharacters(in: .whitespaces)
+            let isDuplicate = CategoryManagementActions.isDuplicate(
+                name: trimmed, kind: newCategoryKind, parent: nil, context: modelContext
+            )
 
-            HStack(spacing: 12) {
-                Button("Export backup…") { exportBackup() }
-                    .disabled(isExporting)
-                Button("Restore from backup…") { restoreBackup() }
-                    .disabled(isRestoring)
-                Button("Reveal in Finder") { revealBackupsFolder() }
+            HStack {
+                Button("Cancel") { showingNewCategory = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Create") {
+                    guard !trimmed.isEmpty else { return }
+                    do {
+                        _ = try CategoryManagementActions.createParent(
+                            name: newCategoryName, kind: newCategoryKind, context: modelContext
+                        )
+                    } catch {
+                        NSLog("Failed to create category: %@", error.localizedDescription)
+                    }
+                    newCategoryName = ""
+                    showingNewCategory = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.glassProminent)
+                .disabled(trimmed.isEmpty || isDuplicate)
             }
+        }
+        .padding(24)
+        .frame(width: 380)
+    }
 
-            Text("Backups include items in Recently Deleted.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+    private var newSubcategorySheet: some View {
+        VStack(spacing: 16) {
+            if let parent = subcategoryParent {
+                Text("New Subcategory under \(parent.name)")
+                    .font(.headline)
+
+                TextField("Subcategory name", text: $newSubcategoryName)
+                    .textFieldStyle(.roundedBorder)
+
+                let trimmed = newSubcategoryName.trimmingCharacters(in: .whitespaces)
+                let isDuplicate = CategoryManagementActions.isDuplicate(
+                    name: trimmed, kind: parent.kind, parent: parent, context: modelContext
+                )
+
+                HStack {
+                    Button("Cancel") { subcategoryParent = nil }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Create") {
+                        guard !trimmed.isEmpty else { return }
+                        do {
+                            _ = try CategoryManagementActions.createSubcategory(
+                                parent: parent, name: newSubcategoryName, context: modelContext
+                            )
+                        } catch {
+                            NSLog("Failed to create subcategory: %@", error.localizedDescription)
+                        }
+                        newSubcategoryName = ""
+                        subcategoryParent = nil
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.glassProminent)
+                    .disabled(trimmed.isEmpty || isDuplicate)
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 380)
+    }
+
+    private var backupSection: some View {
+        SectionCard(title: "Backup & Restore") {
+            VStack(alignment: .leading, spacing: 10) {
+                if !backupStatus.isEmpty {
+                    Text(backupStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 24) {
+                    if let lastSnapshot = lastBackupDate {
+                        MetricChip(label: "Last snapshot", value: lastSnapshot)
+                    } else {
+                        Text("No snapshots yet")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    MetricChip(label: "On disk", value: "\(snapshotCount)")
+                }
+
+                HStack(spacing: 12) {
+                    Button("Export backup…") { exportBackup() }
+                        .disabled(isExporting)
+                    Button("Restore from backup…") { restoreBackup() }
+                        .disabled(isRestoring)
+                    Button("Reveal in Finder") { revealBackupsFolder() }
+                }
+
+                Text("Backups include items in Recently Deleted.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
         }
     }
+
+    private var dataSection: some View {
+        SectionCard(title: "Data") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 24) {
+                    MetricChip(label: "Accounts", value: "\(accounts.count)")
+                    MetricChip(label: "Transactions", value: "\(transactions.count)")
+                }
+
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Text("Delete All Data")
+                }
+            }
+            .padding(16)
+        }
+        .alert("Delete All Data?", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                deleteAllData()
+            }
+        } message: {
+            Text("This will permanently delete all accounts, transactions, and categories. This cannot be undone.")
+        }
+    }
+
+    private var aboutSection: some View {
+        SectionCard(title: "About") {
+            VStack(alignment: .leading, spacing: 12) {
+                if !Self.latestReleaseHighlights.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("What's New")
+                            .font(.subheadline.weight(.semibold))
+                        ForEach(Self.latestReleaseHighlights, id: \.self) { bullet in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text("•")
+                                Text(bullet)
+                            }
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Divider()
+                }
+
+                HStack {
+                    LabeledContent("App", value: "FinanceTracker")
+                    Spacer()
+                    LabeledContent("Version", value: appVersion)
+                }
+            }
+            .padding(16)
+        }
+    }
+
+    private static let latestReleaseHighlights: [String] = [
+        "Credit-card dashboards now show all payments and credits accurately.",
+        "Source statements section shows which files contributed to each account.",
+        "Payment-due card distinguishes missing metadata from missing statements.",
+        "Amex Gold Elite due dates and minimum payments now parse correctly.",
+    ]
 
     private var lastBackupDate: String? {
         let fm = FileManager.default
@@ -180,34 +541,6 @@ struct SettingsView: View {
         let dir = backupsDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: dir.path)
-    }
-
-    private var dataSection: some View {
-        Section("Data") {
-            LabeledContent("Accounts", value: "\(accounts.count)")
-            LabeledContent("Transactions", value: "\(transactions.count)")
-
-            Button(role: .destructive) {
-                showDeleteConfirmation = true
-            } label: {
-                Text("Delete All Data")
-            }
-        }
-        .alert("Delete All Data?", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                deleteAllData()
-            }
-        } message: {
-            Text("This will permanently delete all accounts, transactions, and categories. This cannot be undone.")
-        }
-    }
-
-    private var aboutSection: some View {
-        Section("About") {
-            LabeledContent("App", value: "FinanceTracker")
-            LabeledContent("Version", value: appVersion)
-        }
     }
 
     private var appVersion: String {
