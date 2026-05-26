@@ -131,6 +131,11 @@ struct StatementSourceSummary: Identifiable {
     var displayName: String {
         sourceFileName ?? String(sourceFileHash.prefix(8))
     }
+
+    var archiveStatus: String {
+        if sourceFileName != nil { return "In archive" }
+        return "Source file not found in archive"
+    }
 }
 
 enum PaymentDueDisplayState {

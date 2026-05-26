@@ -20,6 +20,9 @@ struct LiabilityAccountDashboard: View {
             if !snapshot.spendingByCategory.isEmpty {
                 spendingDonut
             }
+            if !snapshot.sourceStatements.isEmpty {
+                sourceStatementsCard
+            }
             recentList
         }
         .sheet(item: $breakdown) { req in
@@ -259,6 +262,39 @@ struct LiabilityAccountDashboard: View {
                     }
                 }
                 .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var sourceStatementsCard: some View {
+        DashboardListCard(title: "Source Statements") {
+            ForEach(snapshot.sourceStatements) { src in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(src.displayName)
+                            .font(.caption)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(src.metadataStatus)
+                            .font(.caption2)
+                            .foregroundStyle(src.metadataStatus == "Complete" ? .green : .orange)
+                    }
+                    HStack {
+                        Text(src.periodStart, format: .dateTime.month(.abbreviated).day().year())
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text("–")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text(src.periodEnd, format: .dateTime.month(.abbreviated).day().year())
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Spacer()
+                        Text("Imported \(src.importedAt, format: .dateTime.month(.abbreviated).day())")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.vertical, 4)
+                if src.id != snapshot.sourceStatements.last?.id {
+                    DashboardSeparator()
+                }
             }
         }
     }
