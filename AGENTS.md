@@ -2,17 +2,76 @@
 
 ## Project Structure & Module Organization
 
-`FinanceTracker/` contains the macOS SwiftUI application. Key areas are `App/` for app bootstrap and SwiftData container setup, `Domain/` for models, value objects, and domain extensions, `Ingest/` for statement detection, parsing, normalization, deduplication, and seed data, `Features/` for SwiftUI screens, and `Utilities/` for shared helpers. JSON resources live under `FinanceTracker/Ingest/SeedData/` and `FinanceTracker/Ingest/StructuralParser/Knowledge/`.
+`FinanceTracker/` contains the macOS SwiftUI application. Key areas:
+- `App/` — `@main` entry, SwiftData `ModelContainer` setup.
+- `Domain/` — SwiftData `@Model` classes (`Models/`), value objects (`ValueObjects/`), learning hooks (`Learning/`), and domain extensions (`Extensions/`).
+- `Ingest/` — statement detection, parsing, normalization, deduplication, categorization, seed data, and the structural parser. Parsers live in `Ingest/Parsers/` with subdirectories `CSV/`, `PDF/`, and `Text/` (paste-text parsers like `PastedHsbc2NowParser`). JSON resources: `Ingest/SeedData/` and `Ingest/StructuralParser/Knowledge/`.
+- `Features/` — SwiftUI screens: `Dashboard/`, `Statements/`, `Transactions/`, `Settings/`, `Backup/`, `Shared/`.
+- `Utilities/` — shared helpers (Logger, Decimal+Money, Date+Period).
 
-`FinanceTrackerTests/` mirrors behavior by area: parser tests in `ParserTests/`, pipeline tests in `PipelineTests/`, structural parser tests in `StructuralParserTests/`, and integration coverage in `EndToEndTests/`. Sample PDFs and paste inputs used by tests live in `samples/`. Architecture decisions are documented in `DECISIONS.md`; planned work lives in `specs/`.
+`FinanceTrackerTests/` mirrors behavior by area: `ParserTests/`, `PipelineTests/`, `StructuralParserTests/`, `EndToEndTests/`, `IngestTests/`, `AnalyticsTests/`, `KnowledgeLoaderTests/`. Sample PDFs and paste inputs used by tests live in `samples/`. Architecture decisions are documented in `DECISIONS.md`; planned work lives in `specs/`.
+
+No external dependencies — pure Apple frameworks (SwiftUI, SwiftData, Swift Charts, PDFKit).
 
 ## Build, Test, and Development Commands
 
-- `xcodegen generate` regenerates `FinanceTracker.xcodeproj` from `project.yml`; run it after adding, moving, or deleting Swift files.
+- `xcodegen generate` regenerates `FinanceTracker.xcodeproj` from `project.yml`; **run after adding, moving, or deleting any Swift file**. Never edit `.xcodeproj` directly (AD-005).
 - `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project FinanceTracker.xcodeproj -scheme FinanceTracker build` builds the app.
-- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests -destination 'platform=macOS' -parallel-testing-enabled NO` runs the full test suite serially.
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests -destination 'platform=macOS' -parallel-testing-enabled NO` runs the full test suite serially. **Always pass `-parallel-testing-enabled NO`** — Swift Testing's parallel runner intermittently hangs on macOS PDFKit/Vision teardown. Serial runs finish in ~15s and are always green.
 - `xcodebuild test ... -only-testing:FinanceTrackerTests/CategorizerTests` runs one test class.
 - `open FinanceTracker.xcodeproj` opens the generated project in Xcode.
+
+Deployment target is **macOS 26.0** (set in `project.yml`).
+
+## Architecture
+
+### Ingest pipeline — two import paths
+
+**PDF / CSV imports:**
+```
+File URL → Detector → StructuralParser (preferred, knowledge-driven)
+                      → legacy parser fallback (OpenbankMexicoParser, AmexMexicoParser)
+                      → [RawTransaction]
+                      → Normalizer → [Transaction] (linked to Account + Statement)
+                      → Deduplicator (fuzzy match against existing)
+                      → Categorizer (regex rules by priority)
+                      → ModelContext.save()
+                      → linkInstallmentPlans (MSI cuotas → InstallmentPlan)
+```
+
+`IngestPipeline.ingest(files:)` orchestrates: detect institution → try structural parse → fall back to legacy → normalize → deduplicate → categorize → persist.
+
+**Paste-text imports (HSBC 2Now):**
+```
+Pasted text → Detector → PastedHsbc2NowParser → [RawTransaction] + [PendingImport]
+```
+`IngestPipeline.ingestPastedText(_:sourceLabel:)` handles this path. Lines the parser can't confidently decode become `PendingImport` rows — the user resolves them inline. Each resolution feeds `LearningHooks`.
+
+### Key invariants
+
+- **All monetary values are `Decimal`** — never `Double` or `Float` anywhere in `Domain/` (AD-007).
+- **Parsers are account-agnostic** — `StatementParser.parse(data:)` returns `[RawTransaction]` only; account assignment happens in `Normalizer` (AD-008).
+- **Liability balances stored signed-negative** — `Statement.closingBalance < 0` for credit cards so net worth is a plain sum across accounts (AD-010).
+- **Transfers and credit-card payments excluded from cash flow** — `CategoryKind.transfer` and `.creditCardPayment` are filtered from income/expense/cash-flow totals.
+- **Synthesized MSI original-purchase rows excluded from cash flow** — the cash impact lives in the monthly cuotas (AD-012).
+- **`StructuralParser.init?()` returns `nil` if knowledge JSONs are missing** — always handle this nil case.
+- **Statement dedup via SHA-256 hash** of source file bytes or pasted text, checked before any parsing.
+
+### Concurrency
+
+Swift 6 strict concurrency (`SWIFT_STRICT_CONCURRENCY = complete`). All ViewModels are `@MainActor`. `IngestPipeline` is `@MainActor` (uses `ModelContext`). Parsers are `Sendable` structs with `async` methods. **Never pass `@Model` objects into parsers** — cross actor boundaries with `Sendable` value types only.
+
+### Backup
+
+`.ftbackup` folder bundles under `~/Library/Application Support/FinanceTracker/Backups/`. `BackupScheduler` writes snapshots if >24h old, prunes to 7 daily / 4 weekly / 12 monthly. Two restore strategies: `replaceAll` and `mergeKeepingNewer`. Soft-delete via `Transaction.deletedAt`; deduplicator surfaces soft-deleted matches as `PendingImport` for manual review (AD-018).
+
+## Adding a New Parser
+
+1. Create parser in `FinanceTracker/Ingest/Parsers/CSV/` (or `PDF/`/`Text/`), conform to `StatementParser`.
+2. Add detection keywords in `Detector.swift`.
+3. Register in `IngestPipeline.resolveLegacyParser(for:)`.
+4. Add sample file to `samples/` and tests under `FinanceTrackerTests/ParserTests/`.
+5. Run `xcodegen generate`.
 
 ## Coding Style & Naming Conventions
 
