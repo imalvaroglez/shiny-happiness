@@ -37,6 +37,11 @@ struct StructuralParser: StatementParser {
             throw ParserError.invalidData("Could not create PDF document from data")
         }
 
+        let documentText = extractDocumentText(from: document)
+        if let banamex = parseBanamexSections(from: documentText), !banamex.isEmpty {
+            return banamex
+        }
+
         var sections: [ParsedSection] = []
         var currentSectionTransactions: [RawTransaction] = []
         var currentSectionHint: String?
@@ -46,10 +51,12 @@ struct StructuralParser: StatementParser {
         var currentContext: StatementContext?
         var currentOpeningBalance: Decimal?
         var currentClosingBalance: Decimal?
+        var amexMetadata = StatementMetadata()
 
         for pageIndex in 0..<document.pageCount {
             guard let page = document.page(at: pageIndex) else { continue }
             let fullText = page.string ?? ""
+            amexMetadata.merge(extractAmexMetadata(from: fullText))
 
             let (accountHint, accountNumber, accountType, nickname) = detectAccountSection(in: fullText)
 
@@ -64,7 +71,14 @@ struct StructuralParser: StatementParser {
                         nickname: currentSectionNickname,
                         openingBalance: currentOpeningBalance,
                         closingBalance: currentClosingBalance,
-                        transactions: currentSectionTransactions
+                        transactions: currentSectionTransactions,
+                        creditLimit: nil,
+                        minimumPayment: nil,
+                        paymentForNoInterest: nil,
+                        paymentDueDate: nil,
+                        interestCharged: nil,
+                        feesCharged: nil,
+                        ivaCharged: nil
                     ))
                 }
                 currentSectionTransactions = []
@@ -108,18 +122,561 @@ struct StructuralParser: StatementParser {
         }
 
         if !currentSectionTransactions.isEmpty || currentClosingBalance != nil {
+            let isAmex = amexMetadata.hasValues
             sections.append(ParsedSection(
-                accountHint: currentSectionHint,
-                accountType: currentSectionType,
-                accountNumber: currentSectionNumber,
-                nickname: currentSectionNickname,
+                accountHint: currentSectionHint ?? (isAmex ? "American Express Mexico" : nil),
+                accountType: currentSectionType ?? (isAmex ? .creditCard : nil),
+                accountNumber: currentSectionNumber ?? amexMetadata.accountNumber,
+                nickname: currentSectionNickname ?? (isAmex ? "American Express Mexico" : nil),
                 openingBalance: currentOpeningBalance,
-                closingBalance: currentClosingBalance,
-                transactions: currentSectionTransactions
+                closingBalance: currentClosingBalance ?? amexMetadata.closingBalance,
+                transactions: currentSectionTransactions,
+                creditLimit: amexMetadata.creditLimit,
+                minimumPayment: amexMetadata.minimumPayment,
+                paymentForNoInterest: amexMetadata.paymentForNoInterest,
+                paymentDueDate: amexMetadata.paymentDueDate,
+                interestCharged: amexMetadata.interestCharged,
+                feesCharged: amexMetadata.feesCharged,
+                ivaCharged: amexMetadata.ivaCharged
             ))
         }
 
         return sections
+    }
+
+    func parseSectionsFromText(_ text: String) -> [ParsedSection] {
+        let meta = extractAmexMetadata(from: text)
+        return [ParsedSection(
+            accountHint: meta.accountNumber,
+            accountType: nil,
+            accountNumber: meta.accountNumber,
+            nickname: nil,
+            openingBalance: nil,
+            closingBalance: meta.closingBalance,
+            transactions: [],
+            creditLimit: meta.creditLimit,
+            minimumPayment: meta.minimumPayment,
+            paymentForNoInterest: meta.paymentForNoInterest,
+            paymentDueDate: meta.paymentDueDate,
+            interestCharged: meta.interestCharged,
+            feesCharged: meta.feesCharged,
+            ivaCharged: meta.ivaCharged
+        )]
+    }
+
+    private struct StatementMetadata {
+        var accountNumber: String?
+        var closingBalance: Decimal?
+        var creditLimit: Decimal?
+        var minimumPayment: Decimal?
+        var paymentForNoInterest: Decimal?
+        var paymentDueDate: Date?
+        var interestCharged: Decimal?
+        var feesCharged: Decimal?
+        var ivaCharged: Decimal?
+
+        var hasValues: Bool {
+            accountNumber != nil
+                || closingBalance != nil
+                || creditLimit != nil
+                || minimumPayment != nil
+                || paymentForNoInterest != nil
+                || paymentDueDate != nil
+                || interestCharged != nil
+                || feesCharged != nil
+                || ivaCharged != nil
+        }
+
+        mutating func merge(_ other: StatementMetadata) {
+            accountNumber = accountNumber ?? other.accountNumber
+            closingBalance = closingBalance ?? other.closingBalance
+            creditLimit = creditLimit ?? other.creditLimit
+            minimumPayment = minimumPayment ?? other.minimumPayment
+            paymentForNoInterest = paymentForNoInterest ?? other.paymentForNoInterest
+            paymentDueDate = paymentDueDate ?? other.paymentDueDate
+            interestCharged = interestCharged ?? other.interestCharged
+            feesCharged = feesCharged ?? other.feesCharged
+            ivaCharged = ivaCharged ?? other.ivaCharged
+        }
+    }
+
+    private func extractAmexMetadata(from text: String) -> StatementMetadata {
+        guard text.range(of: "American Express", options: .caseInsensitive) != nil else {
+            return StatementMetadata()
+        }
+
+        let accountNumber = firstRegexCapture(
+            in: text,
+            pattern: #"(?:N[uú]mero\s+de\s+Cuenta|Cuenta)\s*:?\s*(?:\*+\s*)?([0-9][0-9\s-]{4,})"#
+        ).map { value in
+            let digits = value.filter(\.isNumber)
+            return String(digits.suffix(10))
+        }
+
+        let closing = amountNearAnyLabel(in: text, labels: [
+            "Nuevo Saldo",
+            "Saldo Nuevo",
+            "Saldo Total",
+            "Total a Pagar",
+            "Saldo al Corte",
+            "Saldo Actual"
+        ]).map { -abs($0) }
+
+        let creditLimit = amountNearAnyLabel(in: text, labels: [
+            "Límite de Crédito",
+            "Limite de Credito",
+            "Línea de Crédito",
+            "Linea de Credito"
+        ])
+
+        let minimumPayment = exactColonAmount(in: text, label: "Pago Mínimo")
+            ?? exactColonAmount(in: text, label: "Pago Minimo")
+            ?? amountNearAnyLabel(in: text, labels: [
+                "Pago mínimo requerido",
+                "Pago minimo requerido"
+            ])
+
+        let noInterest = exactColonAmount(in: text, label: "Pago para no generar intereses")
+            ?? exactColonAmount(in: text, label: "Pago Para No Generar Intereses")
+            ?? amountNearAnyLabel(in: text, labels: [
+                "Pago para no generar interés",
+                "Pago para no generar interes"
+            ])
+
+        let dueDate = exactColonDate(in: text, label: "Fecha Límite de Pago")
+            ?? exactColonDate(in: text, label: "Fecha Limite de Pago")
+            ?? dateNearAnyLabel(in: text, labels: [
+                "Fecha Límite de Pago",
+                "Fecha Limite de Pago",
+                "Fecha límite para pago",
+                "Fecha limite para pago"
+            ])
+
+        let interest = amountNearAnyLabel(in: text, labels: [
+            "Monto de Intereses",
+            "Intereses del periodo",
+            "Cargos por intereses",
+            "Intereses cargados"
+        ])
+
+        let fees = amountNearAnyLabel(in: text, labels: [
+            "Comisiones",
+            "Cuotas",
+            "Anualidad"
+        ])
+
+        let iva = amountNearAnyLabel(in: text, labels: [
+            "IVA",
+            "I.V.A."
+        ])
+
+        return StatementMetadata(
+            accountNumber: accountNumber,
+            closingBalance: closing,
+            creditLimit: creditLimit,
+            minimumPayment: minimumPayment,
+            paymentForNoInterest: noInterest,
+            paymentDueDate: dueDate,
+            interestCharged: interest,
+            feesCharged: fees,
+            ivaCharged: iva
+        )
+    }
+
+    private func amountNearAnyLabel(in text: String, labels: [String]) -> Decimal? {
+        for label in labels {
+            if let amount = amountNearLabel(in: text, label: label) {
+                return amount
+            }
+        }
+        return nil
+    }
+
+    private func amountNearLabel(in text: String, label: String) -> Decimal? {
+        let escaped = NSRegularExpression.escapedPattern(for: label)
+        let pattern = #"(?is)"# + escaped + #".{0,120}?\$?\s*(-?[\d,]+\.\d{2})"#
+        guard let value = firstRegexCapture(in: text, pattern: pattern) else { return nil }
+        return Decimal(string: value.replacingOccurrences(of: ",", with: ""))
+    }
+
+    private func extractDocumentText(from document: PDFDocument) -> String {
+        var text = ""
+        for pageIndex in 0..<document.pageCount {
+            guard let page = document.page(at: pageIndex) else { continue }
+            text += page.string ?? ""
+            text += "\n"
+        }
+        return text
+    }
+
+    private func parseBanamexSections(from text: String) -> [ParsedSection]? {
+        if text.localizedCaseInsensitiveContains("EXPLORA BANAMEX") {
+            return [parseBanamexExploraSection(from: text)]
+        }
+        if text.localizedCaseInsensitiveContains("Cuenta Priority") {
+            return [parseBanamexPrioritySection(from: text)]
+        }
+        return nil
+    }
+
+    private func parseBanamexPrioritySection(from text: String) -> ParsedSection {
+        let transactions = parseBanamexPriorityTransactions(from: text)
+        let accountNumber = firstRegexCapture(
+            in: text,
+            pattern: #"N[uú]mero\s+de\s+cuenta\s+de\s+cheques\s+([0-9]{6,})"#
+        ).map { String($0.filter(\.isNumber).suffix(10)) }
+
+        return ParsedSection(
+            accountHint: "Cuenta Priority",
+            accountType: .checking,
+            accountNumber: accountNumber,
+            nickname: "Banamex Priority",
+            openingBalance: exactLineAmount(in: text, label: "Saldo anterior"),
+            closingBalance: exactLineAmount(in: text, label: "Saldo al corte"),
+            transactions: transactions
+        )
+    }
+
+    private func parseBanamexPriorityTransactions(from text: String) -> [RawTransaction] {
+        let year = statementYear(from: text) ?? Calendar(identifier: .gregorian).component(.year, from: .now)
+        let opening = exactLineAmount(in: text, label: "Saldo anterior") ?? 0
+        var runningBalance = opening
+        var transactions: [RawTransaction] = []
+        var inOperations = false
+        var currentLines: [String] = []
+
+        func flush() {
+            guard !currentLines.isEmpty else { return }
+            defer { currentLines = [] }
+
+            let entry = currentLines.joined(separator: " ")
+            guard let date = banamexPriorityDate(from: entry, year: year) else { return }
+            let amounts = decimalMatches(in: entry)
+            guard let newBalance = amounts.last else { return }
+
+            let amount = newBalance - runningBalance
+            runningBalance = newBalance
+            guard amount != 0 else { return }
+
+            let description = cleanBanamexPriorityDescription(entry)
+            transactions.append(RawTransaction(
+                postedAt: date,
+                amount: amount,
+                currency: "MXN",
+                descriptionRaw: normalizer.normalizeDescription(description),
+                merchantNormalized: extractMerchant(from: description),
+                fxRateToBase: 1,
+                isTransfer: false
+            ))
+        }
+
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+
+            if line.localizedCaseInsensitiveContains("Domiciliación Banamex")
+                || line.localizedCaseInsensitiveContains("Aclaraciones")
+                || line.localizedCaseInsensitiveContains("Centro de Atención") {
+                flush()
+                inOperations = false
+            }
+
+            if line.localizedCaseInsensitiveContains("FECHA CONCEPTO RETIROS DEPÓSITOS SALDO") {
+                flush()
+                inOperations = true
+                continue
+            }
+
+            guard inOperations else { continue }
+            if line.localizedCaseInsensitiveContains("SALDO ANTERIOR") { continue }
+
+            if isBanamexPriorityTransactionStart(line) {
+                flush()
+                currentLines = [line]
+            } else if !currentLines.isEmpty {
+                currentLines.append(line)
+            }
+        }
+
+        flush()
+        return transactions
+    }
+
+    private func parseBanamexExploraSection(from text: String) -> ParsedSection {
+        let transactions = parseBanamexExploraTransactions(from: text)
+        let accountNumber = firstRegexCapture(
+            in: text,
+            pattern: #"N[uú]mero\s+de\s+tarjeta:?\s*([0-9\s]{12,})"#
+        ).map { String($0.filter(\.isNumber).suffix(10)) }
+
+        return ParsedSection(
+            accountHint: "EXPLORA BANAMEX",
+            accountType: .creditCard,
+            accountNumber: accountNumber,
+            nickname: "Banamex Explora",
+            openingBalance: amountAfterLabel(in: text, label: "Adeudo del periodo anterior").map { -abs($0) },
+            closingBalance: amountAfterLabel(in: text, label: "Saldo deudor total").map { -abs($0) },
+            transactions: transactions,
+            creditLimit: amountAfterLabel(in: text, label: "Límite de crédito"),
+            minimumPayment: exactColonAmount(in: text, label: "Pago mínimo"),
+            paymentForNoInterest: amountAfterLabel(in: text, label: "Pago para no generar intereses"),
+            paymentDueDate: dateNearAnyLabel(in: text, labels: ["Fecha límite de pago", "Fecha limite de pago"]),
+            interestCharged: amountAfterLabel(in: text, label: "Monto de Intereses"),
+            feesCharged: amountAfterLabel(in: text, label: "Monto de comisiones"),
+            ivaCharged: amountAfterLabel(in: text, label: "IVA de Intereses y comisiones")
+        )
+    }
+
+    private func parseBanamexExploraTransactions(from text: String) -> [RawTransaction] {
+        var transactions: [RawTransaction] = []
+        var inMovements = false
+        var currentCardLast4: String?
+        var currentLines: [String] = []
+
+        func flush() {
+            guard !currentLines.isEmpty else { return }
+            defer { currentLines = [] }
+
+            let entry = currentLines.joined(separator: " ")
+            guard let parsed = parseBanamexExploraEntry(entry, cardLast4: currentCardLast4) else { return }
+            transactions.append(parsed)
+        }
+
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+
+            if line.localizedCaseInsensitiveContains("DESGLOSE DE MOVIMIENTOS") {
+                inMovements = true
+                continue
+            }
+
+            guard inMovements else { continue }
+
+            if line.localizedCaseInsensitiveContains("Total cargos Total abonos")
+                || line.localizedCaseInsensitiveContains("ATENCIÓN DE QUEJAS") {
+                flush()
+                inMovements = false
+                continue
+            }
+
+            if line.localizedCaseInsensitiveContains("CARGOS, ABONOS Y COMPRAS") {
+                flush()
+                continue
+            }
+
+            if let last4 = banamexCardLast4(from: line) {
+                flush()
+                currentCardLast4 = last4
+                continue
+            }
+
+            if line.localizedCaseInsensitiveContains("Fecha de la")
+                || line.localizedCaseInsensitiveContains("Descripción del movimiento")
+                || line.localizedCaseInsensitiveContains("Monto")
+                || line == "Fecha" {
+                continue
+            }
+
+            if isBanamexExploraTransactionStart(line) {
+                flush()
+                currentLines = [line]
+            } else if !currentLines.isEmpty {
+                currentLines.append(line)
+            }
+        }
+
+        flush()
+        return transactions
+    }
+
+    private func parseBanamexExploraEntry(_ entry: String, cardLast4: String?) -> RawTransaction? {
+        guard let dateMatch = firstRegexCapture(
+            in: entry,
+            pattern: #"^(\d{1,2}-[A-Za-zÁÉÍÓÚáéíóú]{3,4}-\d{4})"#
+        ),
+        let postedAt = parseStatementDate(dateMatch) else { return nil }
+
+        let signedAmountPattern = #"([+-])\s*\$\s*([\d,]+\.\d{2})"#
+        guard let regex = try? NSRegularExpression(pattern: signedAmountPattern) else { return nil }
+        let range = NSRange(entry.startIndex..., in: entry)
+        guard let match = regex.matches(in: entry, range: range).last,
+              let signRange = Range(match.range(at: 1), in: entry),
+              let amountRange = Range(match.range(at: 2), in: entry),
+              let value = Decimal(string: String(entry[amountRange]).replacingOccurrences(of: ",", with: "")) else { return nil }
+
+        let sign = String(entry[signRange])
+        let amount = sign == "-" ? abs(value) : -abs(value)
+        let description = cleanBanamexExploraDescription(entry)
+
+        return RawTransaction(
+            postedAt: postedAt,
+            amount: amount,
+            currency: "MXN",
+            descriptionRaw: normalizer.normalizeDescription(description),
+            merchantNormalized: extractMerchant(from: description),
+            fxRateToBase: 1,
+            isTransfer: false,
+            cardLast4: cardLast4
+        )
+    }
+
+    private func statementYear(from text: String) -> Int? {
+        firstRegexCapture(in: text, pattern: #"(?:Fecha de corte|Periodo|Per[ií]odo).{0,80}?(\d{4})"#)
+            .flatMap(Int.init)
+    }
+
+    private func exactLineAmount(in text: String, label: String) -> Decimal? {
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.localizedCaseInsensitiveContains(label) else { continue }
+            if let amount = decimalMatches(in: line).last {
+                return amount
+            }
+        }
+        return nil
+    }
+
+    private func exactColonAmount(in text: String, label: String) -> Decimal? {
+        let escaped = NSRegularExpression.escapedPattern(for: label)
+        let pattern = #"(?im)^\s*"# + escaped + #"\s*:\s*\d*[^\n$]*\$?\s*([\d,]+\.\d{2})"#
+        guard let value = firstRegexCapture(in: text, pattern: pattern) else { return nil }
+        return Decimal(string: value.replacingOccurrences(of: ",", with: ""))
+    }
+
+    private func exactColonDate(in text: String, label: String) -> Date? {
+        let escaped = NSRegularExpression.escapedPattern(for: label)
+        let pattern = #"(?im)^\s*"# + escaped + #"\s*:\s*(.+)$"#
+        guard let value = firstRegexCapture(in: text, pattern: pattern) else { return nil }
+        return parseStatementDate(value.trimmingCharacters(in: .whitespaces))
+    }
+
+    private func amountAfterLabel(in text: String, label: String) -> Decimal? {
+        let escaped = NSRegularExpression.escapedPattern(for: label)
+        let pattern = #"(?is)"# + escaped + #".{0,80}?\$?\s*([\d,]+\.\d{2})"#
+        guard let value = firstRegexCapture(in: text, pattern: pattern) else { return nil }
+        return Decimal(string: value.replacingOccurrences(of: ",", with: ""))
+    }
+
+    private func decimalMatches(in text: String) -> [Decimal] {
+        let pattern = #"\$?\s*([\d,]+\.\d{2})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard let amountRange = Range(match.range(at: 1), in: text) else { return nil }
+            return Decimal(string: String(text[amountRange]).replacingOccurrences(of: ",", with: ""))
+        }
+    }
+
+    private func banamexPriorityDate(from text: String, year: Int) -> Date? {
+        guard let dateText = firstRegexCapture(in: text, pattern: #"^(\d{1,2}\s+[A-ZÁÉÍÓÚ]{3})\b"#) else {
+            return nil
+        }
+        let parts = dateText.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        guard parts.count == 2, let day = Int(parts[0]), let month = spanishShortMonth(parts[1]) else {
+            return nil
+        }
+        return Calendar(identifier: .gregorian).date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    private func isBanamexPriorityTransactionStart(_ line: String) -> Bool {
+        line.range(of: #"^\d{1,2}\s+[A-ZÁÉÍÓÚ]{3}\b"#, options: .regularExpression) != nil
+    }
+
+    private func isBanamexExploraTransactionStart(_ line: String) -> Bool {
+        line.range(of: #"^\d{1,2}-[A-Za-zÁÉÍÓÚáéíóú]{3,4}-\d{4}\b"#, options: .regularExpression) != nil
+    }
+
+    private func banamexCardLast4(from line: String) -> String? {
+        guard line.localizedCaseInsensitiveContains("Tarjeta titular")
+                || line.localizedCaseInsensitiveContains("Tarjeta digital") else { return nil }
+        return firstRegexCapture(in: line, pattern: #"Tarjeta\s+(?:titular|digital):\s*([0-9\s]{12,})"#)
+            .map { String($0.filter(\.isNumber).suffix(4)) }
+    }
+
+    private func cleanBanamexPriorityDescription(_ entry: String) -> String {
+        entry
+            .replacingOccurrences(of: #"^\d{1,2}\s+[A-ZÁÉÍÓÚ]{3}\s+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?:\s+\$?\s*[\d,]+\.\d{2})+\s*$"#, with: "", options: .regularExpression)
+    }
+
+    private func cleanBanamexExploraDescription(_ entry: String) -> String {
+        entry
+            .replacingOccurrences(of: #"^\d{1,2}-[A-Za-zÁÉÍÓÚáéíóú]{3,4}-\d{4}\s+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^\d{1,2}-[A-Za-zÁÉÍÓÚáéíóú]{3,4}-\d{4}\s+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+[+-]\s*\$\s*[\d,]+\.\d{2}\s*$"#, with: "", options: .regularExpression)
+    }
+
+    private func spanishShortMonth(_ value: String) -> Int? {
+        switch value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "es_MX")).uppercased() {
+        case "ENE": return 1
+        case "FEB": return 2
+        case "MAR": return 3
+        case "ABR": return 4
+        case "MAY": return 5
+        case "JUN": return 6
+        case "JUL": return 7
+        case "AGO": return 8
+        case "SEP", "SEPT": return 9
+        case "OCT": return 10
+        case "NOV": return 11
+        case "DIC": return 12
+        default: return nil
+        }
+    }
+
+    private func dateNearAnyLabel(in text: String, labels: [String]) -> Date? {
+        for label in labels {
+            if let date = dateNearLabel(in: text, label: label) {
+                return date
+            }
+        }
+        return nil
+    }
+
+    private func dateNearLabel(in text: String, label: String) -> Date? {
+        let escaped = NSRegularExpression.escapedPattern(for: label)
+        let datePattern = #"(\d{1,2}[-/]\w{3,4}[-/]\d{4}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}\s+de\s+\w+\s+de\s+\d{4}|\d{1,2}\s+de\s+\w+\s+\d{4})"#
+        let pattern = #"(?is)"# + escaped + #".{0,120}?"# + datePattern
+        guard let value = firstRegexCapture(in: text, pattern: pattern) else { return nil }
+        return parseStatementDate(value)
+    }
+
+    private func parseStatementDate(_ value: String) -> Date? {
+        let formats = [
+            ("dd-MMM-yyyy", "es_MX"),
+            ("dd/MMM/yyyy", "es_MX"),
+            ("dd/MM/yyyy", "es_MX"),
+            ("dd/MM/yy", "es_MX"),
+            ("dd 'de' MMMM yyyy", "es_MX"),
+            ("dd 'de' MMMM 'de' yyyy", "es_MX"),
+            ("dd-MMM-yyyy", "en_US_POSIX"),
+            ("dd/MMM/yyyy", "en_US_POSIX")
+        ]
+
+        for (format, locale) in formats {
+            let formatter = DateFormatter()
+            formatter.dateFormat = format
+            formatter.locale = Locale(identifier: locale)
+            formatter.timeZone = TimeZone(identifier: "America/Mexico_City")
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+        return nil
+    }
+
+    private func firstRegexCapture(in text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              match.numberOfRanges > 1,
+              let captureRange = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+        return String(text[captureRange]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func detectAccountSection(in text: String) -> (hint: String?, number: String?, type: AccountType?, nickname: String?) {
