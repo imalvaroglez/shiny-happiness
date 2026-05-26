@@ -174,11 +174,22 @@ struct LiabilityAccountDashboard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
                         Text("Charges: \(MoneyFormat.string(code: snapshot.currencyCode,entry.charges))").font(.caption2).foregroundStyle(.red)
-                        Text("Payments: \(MoneyFormat.string(code: snapshot.currencyCode,entry.payments))").font(.caption2).foregroundStyle(.green)
+                        Text("Payments & Credits: \(MoneyFormat.string(code: snapshot.currencyCode,entry.payments))").font(.caption2).foregroundStyle(.green)
                     }
                     .padding(8)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
                     .position(x: xPos, y: 24)
+                }
+            }
+
+            HStack(spacing: 16) {
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 2).fill(.red).frame(width: 10, height: 10)
+                    Text("Charges").font(.caption2).foregroundStyle(.secondary)
+                }
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 2).fill(.green).frame(width: 10, height: 10)
+                    Text("Payments & Credits").font(.caption2).foregroundStyle(.secondary)
                 }
             }
 
