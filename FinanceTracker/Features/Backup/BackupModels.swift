@@ -51,6 +51,8 @@ struct StatementSnapshot: Codable {
     var periodStart: Date
     var periodEnd: Date
     var sourceFileHash: String
+    var sourceFileName: String?
+    var sourceArchivedPath: String?
     var importedAt: Date
     var ocrUsed: Bool
     var openingBalance: Decimal?
@@ -69,6 +71,7 @@ struct CategorySnapshot: Codable {
     var name: String
     var parentId: UUID?
     var kind: String
+    var deletedAt: Date?
     var lastModifiedAt: Date
 }
 

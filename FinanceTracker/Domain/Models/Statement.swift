@@ -8,6 +8,8 @@ final class Statement: LastModifiedTracking {
     var periodStart: Date
     var periodEnd: Date
     var sourceFileHash: String
+    var sourceFileName: String?
+    var sourceArchivedPath: String?
     var importedAt: Date
     var ocrUsed: Bool
     var openingBalance: Decimal?
@@ -27,6 +29,8 @@ final class Statement: LastModifiedTracking {
         periodStart: Date,
         periodEnd: Date,
         sourceFileHash: String,
+        sourceFileName: String? = nil,
+        sourceArchivedPath: String? = nil,
         importedAt: Date = .now,
         ocrUsed: Bool = false,
         openingBalance: Decimal? = nil,
@@ -43,6 +47,8 @@ final class Statement: LastModifiedTracking {
         self.periodStart = periodStart
         self.periodEnd = periodEnd
         self.sourceFileHash = sourceFileHash
+        self.sourceFileName = sourceFileName
+        self.sourceArchivedPath = sourceArchivedPath
         self.importedAt = importedAt
         self.ocrUsed = ocrUsed
         self.openingBalance = openingBalance

@@ -416,6 +416,8 @@ extension Statement {
             periodStart: snap.periodStart,
             periodEnd: snap.periodEnd,
             sourceFileHash: snap.sourceFileHash,
+            sourceFileName: snap.sourceFileName,
+            sourceArchivedPath: snap.sourceArchivedPath,
             importedAt: snap.importedAt,
             ocrUsed: snap.ocrUsed,
             openingBalance: snap.openingBalance,
@@ -433,6 +435,8 @@ extension Statement {
         periodStart = snap.periodStart
         periodEnd = snap.periodEnd
         sourceFileHash = snap.sourceFileHash
+        sourceFileName = snap.sourceFileName
+        sourceArchivedPath = snap.sourceArchivedPath
         importedAt = snap.importedAt
         ocrUsed = snap.ocrUsed
         openingBalance = snap.openingBalance
@@ -455,6 +459,8 @@ extension StatementSnapshot {
             periodStart: statement.periodStart,
             periodEnd: statement.periodEnd,
             sourceFileHash: statement.sourceFileHash,
+            sourceFileName: statement.sourceFileName,
+            sourceArchivedPath: statement.sourceArchivedPath,
             importedAt: statement.importedAt,
             ocrUsed: statement.ocrUsed,
             openingBalance: statement.openingBalance,
@@ -537,6 +543,7 @@ extension Category {
     func apply(_ snap: CategorySnapshot) {
         name = snap.name
         kind = CategoryKind(rawValue: snap.kind) ?? .expense
+        deletedAt = snap.deletedAt
         lastModifiedAt = snap.lastModifiedAt
     }
 }
@@ -548,6 +555,7 @@ extension CategorySnapshot {
             name: category.name,
             parentId: category.parent?.id,
             kind: category.kind.rawValue,
+            deletedAt: category.deletedAt,
             lastModifiedAt: category.lastModifiedAt
         )
     }
