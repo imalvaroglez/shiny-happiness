@@ -2,9 +2,8 @@ import SwiftUI
 import Charts
 
 /// Per-account dashboard for credit-card accounts. Shows utilization, payment
-/// due info, charges-vs-payments chart, active MSI installment plans, and a
-/// recent-transactions list. Spending donut + interest/fees card appear when
-/// relevant.
+/// due info, charges-vs-payments chart, active MSI installment plans, a
+/// spending donut, and recent transactions.
 struct LiabilityAccountDashboard: View {
     let snapshot: LiabilityAccountSnapshot
 
@@ -17,9 +16,6 @@ struct LiabilityAccountDashboard: View {
             chargesVsPaymentsChart
             if !snapshot.activeInstallmentPlans.isEmpty {
                 installmentsCard
-            }
-            if snapshot.interestCharged > 0 || snapshot.feesCharged > 0 {
-                interestFeesCard
             }
             if !snapshot.spendingByCategory.isEmpty {
                 spendingDonut
@@ -66,45 +62,75 @@ struct LiabilityAccountDashboard: View {
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var paymentDueCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Payment Due").font(.caption).foregroundStyle(.secondary)
-            if let stmt = snapshot.latestStatement,
-               let due = stmt.paymentDueDate {
-                Text(due, format: .dateTime.day().month(.wide).year())
-                    .font(.title3.bold())
-                if let days = snapshot.daysUntilDue {
-                    Text(daysCopy(days))
-                        .font(.caption)
-                        .foregroundStyle(days <= 7 ? .red : (days <= 14 ? .orange : .secondary))
-                }
-                Divider()
-                if let min = stmt.minimumPayment {
-                    HStack {
-                        Text("Minimum").font(.caption2).foregroundStyle(.secondary)
-                        Spacer()
-                        Text(MoneyFormat.string(code: snapshot.currencyCode,min)).font(.caption.monospacedDigit())
-                    }
-                }
-                if let no = stmt.paymentForNoInterest {
-                    HStack {
-                        Text("No Interest").font(.caption2).foregroundStyle(.secondary)
-                        Spacer()
-                        Text(MoneyFormat.string(code: snapshot.currencyCode,no)).font(.caption.monospacedDigit())
-                    }
-                }
-            } else {
+            let state = PaymentDueDisplayState.from(
+                latestStatement: snapshot.latestStatement,
+                daysUntilDue: snapshot.daysUntilDue
+            )
+            switch state {
+            case .noStatement:
                 Text("No statement yet")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            case .statementNoDueDate:
+                Text("Statement imported")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Due date unavailable")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            case .dueDateOnly(let due, let days):
+                dueDateContent(due: due, days: days)
+                Divider()
+                unavailableRow("Minimum")
+                unavailableRow("No Interest")
+            case .full(let due, let days, let minimum, let noInterest):
+                dueDateContent(due: due, days: days)
+                Divider()
+                amountRow(label: "Minimum", value: minimum)
+                amountRow(label: "No Interest", value: noInterest)
             }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func dueDateContent(due: Date, days: Int?) -> some View {
+        Group {
+            Text(due, format: .dateTime.day().month(.wide).year())
+                .font(.title3.bold())
+            if let days {
+                Text(daysCopy(days))
+                    .font(.caption)
+                    .foregroundStyle(days <= 7 ? .red : (days <= 14 ? .orange : .secondary))
+            }
+        }
+    }
+
+    private func amountRow(label: String, value: Decimal?) -> some View {
+        HStack {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Spacer()
+            if let value {
+                Text(MoneyFormat.string(code: snapshot.currencyCode, value)).font(.caption.monospacedDigit())
+            } else {
+                Text("Unavailable").font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func unavailableRow(_ label: String) -> some View {
+        HStack {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Spacer()
+            Text("Unavailable").font(.caption2).foregroundStyle(.tertiary)
+        }
     }
 
     private func daysCopy(_ days: Int) -> String {
@@ -198,28 +224,6 @@ struct LiabilityAccountDashboard: View {
         }
     }
 
-    // MARK: - Interest / fees
-
-    private var interestFeesCard: some View {
-        ChartCard(title: "Interest & Fees") {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Interest").font(.caption).foregroundStyle(.secondary)
-                    Text(MoneyFormat.string(code: snapshot.currencyCode,snapshot.interestCharged))
-                        .font(.title3.bold())
-                        .foregroundStyle(snapshot.interestCharged > 0 ? .red : .secondary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("Fees").font(.caption).foregroundStyle(.secondary)
-                    Text(MoneyFormat.string(code: snapshot.currencyCode,snapshot.feesCharged))
-                        .font(.title3.bold())
-                        .foregroundStyle(snapshot.feesCharged > 0 ? .red : .secondary)
-                }
-            }
-        }
-    }
-
     private var spendingDonut: some View {
         let top = Array(snapshot.spendingByCategory.prefix(8))
         let total = top.reduce(Decimal.zero) { $0 + $1.amount }
@@ -260,11 +264,11 @@ struct LiabilityAccountDashboard: View {
     }
 
     private var recentList: some View {
-        ChartCard(title: "Recent Transactions") {
+        DashboardListCard(title: "Recent Transactions") {
             ForEach(snapshot.recentTransactions.prefix(10)) { tx in
                 DashboardTransactionRow(transaction: tx)
                 if tx.id != snapshot.recentTransactions.prefix(10).last?.id {
-                    Divider()
+                    DashboardSeparator()
                 }
             }
         }
