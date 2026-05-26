@@ -107,3 +107,23 @@ struct MonthlyChargesPayments: Identifiable {
     let payments: Decimal      // positive magnitude
     var id: Date { month }
 }
+
+enum PaymentDueDisplayState {
+    case noStatement
+    case statementNoDueDate
+    case dueDateOnly(due: Date, daysUntilDue: Int?)
+    case full(due: Date, daysUntilDue: Int?, minimum: Decimal?, noInterest: Decimal?)
+
+    static func from(latestStatement: Statement?, daysUntilDue: Int?) -> PaymentDueDisplayState {
+        guard let stmt = latestStatement else {
+            return .noStatement
+        }
+        guard let due = stmt.paymentDueDate else {
+            return .statementNoDueDate
+        }
+        if stmt.minimumPayment != nil || stmt.paymentForNoInterest != nil {
+            return .full(due: due, daysUntilDue: daysUntilDue, minimum: stmt.minimumPayment, noInterest: stmt.paymentForNoInterest)
+        }
+        return .dueDateOnly(due: due, daysUntilDue: daysUntilDue)
+    }
+}
