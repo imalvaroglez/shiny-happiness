@@ -4,13 +4,9 @@ import SwiftData
 struct CategoryPickerView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Query private var categories: [Category]
+    @Query(filter: #Predicate<Category> { $0.deletedAt == nil }) private var categories: [Category]
     let transaction: Transaction
     let onCategorySelected: (Category, String?) -> Void
-
-    @State private var showingNewCategory = false
-    @State private var newCategoryName = ""
-    @State private var newCategoryKind: CategoryKind = .expense
 
     private var groupedCategories: [(kind: CategoryKind, categories: [Category])] {
         let parents = categories.filter { $0.parent == nil }
@@ -38,9 +34,6 @@ struct CategoryPickerView: View {
 
                         ForEach(group.categories) { cat in
                             categoryRow(cat)
-                            // The SwiftData inverse `cat.subcategories` isn't reliably
-                            // materialized for fetched parents, so query the children
-                            // explicitly from the @Query result.
                             let subs = categories
                                 .filter { $0.parent?.id == cat.id }
                                 .sorted { $0.name < $1.name }
@@ -52,68 +45,14 @@ struct CategoryPickerView: View {
                         }
                     }
                 }
-
-                Button {
-                    showingNewCategory = true
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.circle.fill")
-                        Text("New Category")
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(.blue)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                }
-                .buttonStyle(.plain)
             }
 
-            .sheet(isPresented: $showingNewCategory) {
-                newCategoryForm
-            }
+            Text("Manage categories in Settings.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.bottom, 12)
         }
         .frame(minWidth: 300, minHeight: 400)
-    }
-
-    private var newCategoryForm: some View {
-        VStack(spacing: 16) {
-            Text("New Category")
-                .font(.headline)
-
-            TextField("Category name", text: $newCategoryName)
-                .textFieldStyle(.roundedBorder)
-
-            Picker("Kind", selection: $newCategoryKind) {
-                Text("Expense").tag(CategoryKind.expense)
-                Text("Income").tag(CategoryKind.income)
-                Text("Transfer").tag(CategoryKind.transfer)
-            }
-            .pickerStyle(.segmented)
-
-            HStack {
-                Button("Cancel") {
-                    showingNewCategory = false
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Create & Apply") {
-                    guard !newCategoryName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                    let category = Category(name: newCategoryName.trimmingCharacters(in: .whitespaces), kind: newCategoryKind)
-                    modelContext.insert(category)
-                    try? modelContext.save()
-
-                    let keyword = MerchantExtractor.extractMerchant(from: transaction.descriptionRaw)
-                    onCategorySelected(category, keyword)
-                    showingNewCategory = false
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.glassProminent)
-                .disabled(newCategoryName.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding(24)
-        .frame(width: 320)
     }
 
     private func categoryRow(_ category: Category, depth: Int = 0) -> some View {

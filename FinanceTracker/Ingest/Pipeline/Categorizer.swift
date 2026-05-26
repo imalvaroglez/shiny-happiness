@@ -11,7 +11,10 @@ struct Categorizer {
         transactions: [Transaction],
         rules: [CategoryRule]
     ) -> Result {
-        let sortedRules = rules.sorted { $0.priority > $1.priority }
+        let sortedRules = rules.filter { rule in
+            guard let category = rule.category else { return false }
+            return category.deletedAt == nil
+        }.sorted { $0.priority > $1.priority }
 
         var categorized = 0
         var uncategorized = 0

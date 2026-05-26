@@ -4,6 +4,8 @@ import PDFKit
 enum DetectedIssuer: String, Sendable {
     case openbankMexico = "Openbank Mexico"
     case amexMexico = "American Express Mexico"
+    case banamexPriority = "Banamex Priority"
+    case banamexExplora = "Banamex Explora"
     case banortePORti = "Banorte POR Ti"
     case mercadoPago = "Mercado Pago"
     case didiCuenta = "DiDi Cuenta"
@@ -60,6 +62,28 @@ struct Detector: Sendable {
                 format: .pdf,
                 confidence: 0.95,
                 suggestedAccountType: .creditCard
+            )
+        }
+
+        if sampleText.localizedCaseInsensitiveContains("EXPLORA BANAMEX")
+            || (sampleText.localizedCaseInsensitiveContains("Tarjeta de Crédito")
+                && sampleText.localizedCaseInsensitiveContains("Banco Nacional de México")) {
+            return DetectionResult(
+                issuer: .banamexExplora,
+                format: .pdf,
+                confidence: 0.95,
+                suggestedAccountType: .creditCard
+            )
+        }
+
+        if sampleText.localizedCaseInsensitiveContains("Cuenta Priority")
+            || (sampleText.localizedCaseInsensitiveContains("Cuenta de cheques")
+                && sampleText.localizedCaseInsensitiveContains("Banco Nacional de México")) {
+            return DetectionResult(
+                issuer: .banamexPriority,
+                format: .pdf,
+                confidence: 0.95,
+                suggestedAccountType: .checking
             )
         }
 

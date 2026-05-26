@@ -16,16 +16,10 @@ struct ApplyToSimilarView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if keyword != nil && !matchingTransactions.isEmpty {
-                transactionList
-            } else if keyword == nil {
-                noKeywordMessage
-            } else {
-                noMatchesMessage
-            }
+            contentArea
             footer
         }
-        .frame(width: 480, height: 520)
+        .frame(minWidth: 560, minHeight: 520)
         .onAppear {
             loadMatches()
         }
@@ -33,11 +27,11 @@ struct ApplyToSimilarView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            Text("Apply to Similar?")
+            Text("Apply \"\(category.name)\" to similar transactions?")
                 .font(.headline)
 
             if let keyword {
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     Text("Pattern:")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -45,72 +39,80 @@ struct ApplyToSimilarView: View {
                         .font(.system(.caption, design: .monospaced))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 6))
+                        .background(
+                            Capsule().fill(Color.primary.opacity(0.06))
+                        )
                 }
             }
         }
+        .padding(.horizontal, 20)
         .padding(.top, 20)
         .padding(.bottom, 12)
     }
 
-    private var transactionList: some View {
-        List(matchingTransactions, selection: Binding<Set<UUID>>(
-            get: { selectedIDs },
-            set: { selectedIDs = $0 }
-        )) { tx in
-            HStack(spacing: 10) {
-                Toggle("", isOn: Binding<Bool>(
-                    get: { selectedIDs.contains(tx.id) },
-                    set: { isChecked in
-                        if isChecked {
-                            selectedIDs.insert(tx.id)
-                        } else {
-                            selectedIDs.remove(tx.id)
-                        }
+    @ViewBuilder
+    private var contentArea: some View {
+        if keyword != nil && !matchingTransactions.isEmpty {
+            matchList
+        } else if keyword == nil {
+            centeredMessage("No extractable merchant keyword found.")
+        } else {
+            centeredMessage("No other matching transactions found.")
+        }
+    }
+
+    private var matchList: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(Array(matchingTransactions.enumerated()), id: \.element.id) { index, tx in
+                    HStack(spacing: 12) {
+                        Toggle("", isOn: Binding<Bool>(
+                            get: { selectedIDs.contains(tx.id) },
+                            set: { isChecked in
+                                if isChecked {
+                                    selectedIDs.insert(tx.id)
+                                } else {
+                                    selectedIDs.remove(tx.id)
+                                }
+                            }
+                        ))
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+
+                        Text(tx.postedAt, format: .dateTime.day().month(.abbreviated).year())
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(width: 80, alignment: .leading)
+
+                        Text(String(tx.descriptionRaw.prefix(80)))
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text(formatMoney(tx.amount))
+                            .font(.system(.caption, design: .monospaced).bold())
+                            .foregroundStyle(tx.amount >= 0 ? .green : .red)
+                            .frame(width: 90, alignment: .trailing)
                     }
-                ))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
-
-                Text(tx.postedAt, format: .dateTime.day().month(.abbreviated).year())
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(width: 80, alignment: .leading)
-
-                Text(String(tx.descriptionRaw.prefix(80)))
-                    .font(.caption)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(formatMoney(tx.amount))
-                    .font(.system(.caption, design: .monospaced).bold())
-                    .foregroundStyle(tx.amount >= 0 ? .green : .red)
-                    .frame(width: 90, alignment: .trailing)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    if index < matchingTransactions.count - 1 {
+                        Divider().padding(.leading, 16)
+                    }
+                }
             }
-            .padding(.vertical, 2)
-            .tag(tx.id)
         }
-        .listStyle(.inset)
     }
 
-    private var noKeywordMessage: some View {
+    private func centeredMessage(_ text: String) -> some View {
         VStack(spacing: 8) {
             Spacer()
-            Text("No extractable merchant keyword found.")
+            Text(text)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer()
         }
-    }
-
-    private var noMatchesMessage: some View {
-        VStack(spacing: 8) {
-            Spacer()
-            Text("No other matching transactions found.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
+        .frame(maxWidth: .infinity)
     }
 
     private var footer: some View {

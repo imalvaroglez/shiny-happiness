@@ -8,6 +8,7 @@ final class Category: LastModifiedTracking {
     @Relationship(deleteRule: .nullify) var parent: Category?
     var kind: CategoryKind
     @Relationship(deleteRule: .cascade) var subcategories: [Category] = []
+    var deletedAt: Date? = nil
     var lastModifiedAt: Date = Date.now
 
     init(

@@ -41,7 +41,7 @@ struct GlassCard<Content: View>: View {
 
     var body: some View {
         content()
-            .glassEffect(.regular, in: .rect(cornerRadius: radius))
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .stroke(
@@ -78,7 +78,7 @@ struct GlassChip<Content: View>: View {
 
     var body: some View {
         content()
-            .glassEffect(.regular, in: .capsule)
+            .background(.thinMaterial, in: Capsule())
             .overlay(
                 Capsule()
                     .stroke(scopedTint.opacity(0.15), lineWidth: 0.5)

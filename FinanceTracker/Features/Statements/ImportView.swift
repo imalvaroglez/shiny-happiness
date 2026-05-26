@@ -17,8 +17,9 @@ struct ImportView: View {
                 .padding()
 
             if !viewModel.reports.isEmpty {
-                Divider()
-                reportsList
+                reportsSection
+                    .padding(.horizontal)
+                    .padding(.bottom)
             }
         }
         .navigationTitle("Import Statements")
@@ -61,9 +62,9 @@ struct ImportView: View {
 
             if !viewModel.reports.isEmpty {
                 HStack(spacing: 24) {
-                    StatBadge(label: "New", value: viewModel.totalNewTransactions, color: .green)
-                    StatBadge(label: "Duplicates", value: viewModel.totalDuplicates, color: .orange)
-                    StatBadge(label: "Errors", value: viewModel.totalErrors, color: .red)
+                    MetricChip(label: "New", value: "\(viewModel.totalNewTransactions)", tint: .green)
+                    MetricChip(label: "Duplicates", value: "\(viewModel.totalDuplicates)", tint: .orange)
+                    MetricChip(label: "Errors", value: "\(viewModel.totalErrors)", tint: .red)
                 }
 
                 Button("Clear History") {
@@ -75,10 +76,22 @@ struct ImportView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(32)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: GlassRadius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(viewModel.dragTargeted ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: viewModel.dragTargeted ? 2 : 1)
+            RoundedRectangle(cornerRadius: GlassRadius.card, style: .continuous)
+                .stroke(
+                    viewModel.dragTargeted ? Color.accentColor : Color.primary.opacity(0.08),
+                    lineWidth: viewModel.dragTargeted ? 2 : 0.5
+                )
+        )
+        .overlay(
+            Group {
+                if !viewModel.dragTargeted && !viewModel.isImporting {
+                    RoundedRectangle(cornerRadius: GlassRadius.card, style: .continuous)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [8, 4]))
+                        .foregroundStyle(.tertiary)
+                }
+            }
         )
         .onDrop(of: [.fileURL], isTargeted: $viewModel.dragTargeted) { providers in
             handleDrop(providers)
@@ -86,12 +99,17 @@ struct ImportView: View {
         }
     }
 
-    private var reportsList: some View {
-        List(viewModel.reports) { report in
-            ReportRow(report: report)
+    private var reportsSection: some View {
+        SectionCard(title: "Import History") {
+            VStack(spacing: 0) {
+                ForEach(Array(viewModel.reports.enumerated()), id: \.element.fileName) { index, report in
+                    ReportRow(report: report)
+                    if index < viewModel.reports.count - 1 {
+                        Divider().padding(.leading, 12)
+                    }
+                }
+            }
         }
-        .listStyle(.inset)
-        .frame(minHeight: 200)
     }
 
     private final class URLBag: @unchecked Sendable {
@@ -141,67 +159,43 @@ private struct ReportRow: View {
     let report: IngestReport
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Image(systemName: report.errorCount > 0 ? "exclamationmark.triangle" : "checkmark.circle")
-                    .foregroundStyle(report.errorCount > 0 ? .red : .green)
+        HStack(spacing: 12) {
+            Image(systemName: report.errorCount > 0 ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(report.errorCount > 0 ? .red : .green)
+                .font(.title3)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(report.fileName)
-                        .font(.headline)
-                    Text(report.summary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                if report.newTransactions > 0 {
-                    Text("\(report.newTransactions) new")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .glassEffect(.regular, in: .capsule)
-                }
-
-                if report.duplicateTransactions > 0 {
-                    Text("\(report.duplicateTransactions) dup")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .glassEffect(.regular, in: .capsule)
-                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(report.fileName)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                Text(report.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
-            if !report.errors.isEmpty {
-                ForEach(report.errors, id: \.message) { error in
-                    Text(error.message)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 24)
-                }
+            Spacer()
+
+            if report.newTransactions > 0 {
+                Text("\(report.newTransactions) new")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.green.opacity(0.12)))
+            }
+
+            if report.duplicateTransactions > 0 {
+                Text("\(report.duplicateTransactions) dup")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.orange.opacity(0.12)))
             }
         }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct StatBadge: View {
-    let label: String
-    let value: Int
-    let color: Color
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Text("\(value)")
-                .font(.title2.bold())
-                .foregroundStyle(color)
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 }
 
