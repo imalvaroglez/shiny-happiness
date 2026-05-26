@@ -204,6 +204,7 @@ final class DashboardViewModel {
         }
 
         let plans = fetchActiveInstallmentPlans(context: context, accountId: account.id)
+        let sourceStatements = fetchSourceStatements(context: context, accountId: account.id)
 
         return LiabilityAccountSnapshot(
             account: account,
@@ -218,6 +219,7 @@ final class DashboardViewModel {
             interestCharged: interestCharged,
             feesCharged: feesCharged,
             activeInstallmentPlans: plans,
+            sourceStatements: sourceStatements,
             recentTransactions: transactions,
             totalTransactions: transactions.count
         )
@@ -433,5 +435,26 @@ final class DashboardViewModel {
         )
         let all = (try? context.fetch(descriptor)) ?? []
         return all.filter { $0.currentMonth < $0.totalMonths }
+    }
+
+    private func fetchSourceStatements(context: ModelContext, accountId: UUID) -> [StatementSourceSummary] {
+        let descriptor = FetchDescriptor<Statement>(
+            predicate: #Predicate<Statement> { $0.account?.id == accountId },
+            sortBy: [SortDescriptor(\.periodEnd, order: .reverse)]
+        )
+        let statements = (try? context.fetch(descriptor)) ?? []
+        return statements.map { stmt in
+            StatementSourceSummary(
+                id: stmt.id,
+                sourceFileName: stmt.sourceFileName,
+                sourceFileHash: stmt.sourceFileHash,
+                periodStart: stmt.periodStart,
+                periodEnd: stmt.periodEnd,
+                importedAt: stmt.importedAt,
+                hasDueDate: stmt.paymentDueDate != nil,
+                hasMinimumPayment: stmt.minimumPayment != nil,
+                hasNoInterestPayment: stmt.paymentForNoInterest != nil
+            )
+        }
     }
 }

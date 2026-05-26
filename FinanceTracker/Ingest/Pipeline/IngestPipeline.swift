@@ -4,6 +4,12 @@ import PDFKit
 import CryptoKit
 import os
 
+struct IngestFileInput: Sendable {
+    let url: URL
+    let originalFileName: String
+    let archivedRelativePath: String?
+}
+
 @MainActor
 final class IngestPipeline {
     private let context: ModelContext
@@ -13,9 +19,14 @@ final class IngestPipeline {
     }
 
     func ingest(files: [URL]) async -> [IngestReport] {
+        let inputs = files.map { IngestFileInput(url: $0, originalFileName: $0.lastPathComponent, archivedRelativePath: nil) }
+        return await ingest(inputs: inputs)
+    }
+
+    func ingest(inputs: [IngestFileInput]) async -> [IngestReport] {
         var reports: [IngestReport] = []
-        for file in files {
-            let report = await ingestFile(file)
+        for input in inputs {
+            let report = await ingestFile(input.url, sourceFileName: input.originalFileName, sourceArchivedPath: input.archivedRelativePath)
             reports.append(report)
         }
         return reports
@@ -89,6 +100,8 @@ final class IngestPipeline {
                 account: account,
                 rawTransactions: section.transactions,
                 hash: hash,
+                sourceFileName: sourceLabel,
+                sourceArchivedPath: nil,
                 openingBalance: section.openingBalance,
                 closingBalance: section.closingBalance,
                 minimumPayment: section.minimumPayment,
@@ -208,7 +221,7 @@ final class IngestPipeline {
         return digest.compactMap { String(format: "%02x", $0) }.joined()
     }
 
-    private func ingestFile(_ url: URL) async -> IngestReport {
+    private func ingestFile(_ url: URL, sourceFileName: String? = nil, sourceArchivedPath: String? = nil) async -> IngestReport {
         let fileName = url.lastPathComponent
         Logger.pipeline.info("Starting ingest for \(fileName)")
 
@@ -248,16 +261,6 @@ final class IngestPipeline {
             }
         }
 
-        let hash = computeHash(data)
-        if let existingStatement = findStatement(byHash: hash) {
-            Logger.pipeline.info("Statement already imported: \(fileName)")
-            return IngestReport(
-                fileName: fileName,
-                duplicateTransactions: existingStatement.transactions.count,
-                errors: [IngestError(message: "Statement already imported")]
-            )
-        }
-
         let detection = Detector.detect(data: data, fileExtension: ext)
         guard detection.issuer != .unknown else {
             Logger.pipeline.warning("Unknown issuer: \(fileName)")
@@ -265,6 +268,25 @@ final class IngestPipeline {
                 fileName: fileName,
                 errorCount: 1,
                 errors: [IngestError(message: "Could not identify financial institution. If this is a valid bank statement, please file a support request")]
+            )
+        }
+
+        let hash = computeHash(data)
+        if let existingStatement = findStatement(byHash: hash) {
+            Logger.pipeline.info("Statement already imported: \(fileName)")
+            let sections = await parseSectionsWithFallback(data: data, fileName: fileName, detection: detection)
+            if let section = sections.first {
+                mergeStatementMetadata(existingStatement, with: section)
+                if let account = existingStatement.account, let limit = section.creditLimit, account.creditLimit == nil {
+                    account.creditLimit = limit
+                    account.touch()
+                }
+                try? context.save()
+            }
+            return IngestReport(
+                fileName: fileName,
+                duplicateTransactions: existingStatement.transactions.count,
+                errors: [IngestError(message: "Statement already imported")]
             )
         }
 
@@ -300,6 +322,8 @@ final class IngestPipeline {
                 account: account,
                 rawTransactions: section.transactions,
                 hash: hash,
+                sourceFileName: sourceFileName,
+                sourceArchivedPath: sourceArchivedPath,
                 openingBalance: section.openingBalance,
                 closingBalance: section.closingBalance,
                 minimumPayment: section.minimumPayment,
@@ -521,6 +545,8 @@ final class IngestPipeline {
         account: Account,
         rawTransactions: [RawTransaction],
         hash: String,
+        sourceFileName: String? = nil,
+        sourceArchivedPath: String? = nil,
         openingBalance: Decimal? = nil,
         closingBalance: Decimal? = nil,
         minimumPayment: Decimal? = nil,
@@ -539,6 +565,8 @@ final class IngestPipeline {
             periodStart: periodStart,
             periodEnd: periodEnd,
             sourceFileHash: hash,
+            sourceFileName: sourceFileName,
+            sourceArchivedPath: sourceArchivedPath,
             openingBalance: openingBalance,
             closingBalance: closingBalance,
             minimumPayment: minimumPayment,
@@ -549,6 +577,47 @@ final class IngestPipeline {
             ivaCharged: ivaCharged
         )
         return statement
+    }
+
+    private func mergeStatementMetadata(_ statement: Statement, with section: ParsedSection) {
+        var changed = false
+
+        if statement.openingBalance == nil, let value = section.openingBalance {
+            statement.openingBalance = value
+            changed = true
+        }
+        if statement.closingBalance == nil, let value = section.closingBalance {
+            statement.closingBalance = value
+            changed = true
+        }
+        if statement.minimumPayment == nil, let value = section.minimumPayment {
+            statement.minimumPayment = value
+            changed = true
+        }
+        if statement.paymentForNoInterest == nil, let value = section.paymentForNoInterest {
+            statement.paymentForNoInterest = value
+            changed = true
+        }
+        if statement.paymentDueDate == nil, let value = section.paymentDueDate {
+            statement.paymentDueDate = value
+            changed = true
+        }
+        if statement.interestCharged == nil, let value = section.interestCharged {
+            statement.interestCharged = value
+            changed = true
+        }
+        if statement.feesCharged == nil, let value = section.feesCharged {
+            statement.feesCharged = value
+            changed = true
+        }
+        if statement.ivaCharged == nil, let value = section.ivaCharged {
+            statement.ivaCharged = value
+            changed = true
+        }
+
+        if changed {
+            statement.touch()
+        }
     }
 
     private func fetchExistingTransactions(for account: Account) -> [Transaction] {
@@ -569,7 +638,11 @@ final class IngestPipeline {
 
     private func fetchCategoryRules() -> [CategoryRule] {
         let descriptor = FetchDescriptor<CategoryRule>()
-        return (try? context.fetch(descriptor)) ?? []
+        let rules = (try? context.fetch(descriptor)) ?? []
+        return rules.filter { rule in
+            guard let category = rule.category else { return false }
+            return category.deletedAt == nil
+        }
     }
 
     private func persist(account: Account, statement: Statement, transactions: [Transaction]) {

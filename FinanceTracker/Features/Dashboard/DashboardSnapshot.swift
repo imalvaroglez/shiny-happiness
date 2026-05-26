@@ -88,6 +88,7 @@ struct LiabilityAccountSnapshot {
     let interestCharged: Decimal
     let feesCharged: Decimal
     let activeInstallmentPlans: [InstallmentPlan]
+    let sourceStatements: [StatementSourceSummary]
     let recentTransactions: [Transaction]
     let totalTransactions: Int
 
@@ -106,6 +107,30 @@ struct MonthlyChargesPayments: Identifiable {
     let charges: Decimal       // positive magnitude
     let payments: Decimal      // positive magnitude
     var id: Date { month }
+}
+
+struct StatementSourceSummary: Identifiable {
+    let id: UUID
+    let sourceFileName: String?
+    let sourceFileHash: String
+    let periodStart: Date
+    let periodEnd: Date
+    let importedAt: Date
+    let hasDueDate: Bool
+    let hasMinimumPayment: Bool
+    let hasNoInterestPayment: Bool
+
+    var metadataStatus: String {
+        if hasDueDate && hasMinimumPayment && hasNoInterestPayment { return "Complete" }
+        var missing: [String] = []
+        if !hasDueDate { missing.append("due date") }
+        if !hasMinimumPayment { missing.append("payment amount") }
+        return "Missing \(missing.joined(separator: " and "))"
+    }
+
+    var displayName: String {
+        sourceFileName ?? String(sourceFileHash.prefix(8))
+    }
 }
 
 enum PaymentDueDisplayState {
