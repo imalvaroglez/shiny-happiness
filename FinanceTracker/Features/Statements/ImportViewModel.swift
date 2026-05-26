@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import CryptoKit
 
 @MainActor
 @Observable
@@ -39,8 +40,8 @@ final class ImportViewModel {
         }
 
         if !pdfCsvURLs.isEmpty {
-            let storedURLs = copyToStorage(pdfCsvURLs)
-            let newReports = await pipeline.ingest(files: storedURLs)
+            let inputs = copyToStorage(pdfCsvURLs)
+            let newReports = await pipeline.ingest(inputs: inputs)
             reports.append(contentsOf: newReports)
         }
 
@@ -105,29 +106,40 @@ final class ImportViewModel {
         reports.reduce(0) { $0 + $1.errorCount }
     }
 
-    private func copyToStorage(_ urls: [URL]) -> [URL] {
-        guard let statementsDirectory else { return urls }
-        let fm = FileManager.default
+    private func copyToStorage(_ urls: [URL]) -> [IngestFileInput] {
+        guard let statementsDirectory else {
+            return urls.map { IngestFileInput(url: $0, originalFileName: $0.lastPathComponent, archivedRelativePath: nil) }
+        }
+        let fm = FileManager()
 
         return urls.map { url in
-            let destination = statementsDirectory.appendingPathComponent(url.lastPathComponent)
-
-            if fm.fileExists(atPath: destination.path) {
-                try? fm.removeItem(at: destination)
-            }
-
             let accessing = url.startAccessingSecurityScopedResource()
             defer {
                 if accessing { url.stopAccessingSecurityScopedResource() }
             }
 
-            do {
-                try fm.copyItem(at: url, to: destination)
-                return destination
-            } catch {
-                return url
+            guard let data = try? Data(contentsOf: url) else {
+                return IngestFileInput(url: url, originalFileName: url.lastPathComponent, archivedRelativePath: nil)
             }
+
+            let hash = Self.computeHashPrefix(data)
+            let sanitizedName = url.lastPathComponent
+            let archiveName = "\(hash)_\(sanitizedName)"
+            let destination = statementsDirectory.appendingPathComponent(archiveName)
+
+            if !fm.fileExists(atPath: destination.path) {
+                try? fm.createDirectory(at: statementsDirectory, withIntermediateDirectories: true)
+                try? fm.copyItem(at: url, to: destination)
+            }
+
+            let relativePath = "FinanceTracker/Statements/\(archiveName)"
+            return IngestFileInput(url: destination, originalFileName: url.lastPathComponent, archivedRelativePath: relativePath)
         }
+    }
+
+    private static func computeHashPrefix(_ data: Data) -> String {
+        let digest = SHA256.hash(data: data)
+        return digest.compactMap { String(format: "%02x", $0) }.prefix(8).joined()
     }
 
     private static func createStatementsDirectory() -> URL? {
