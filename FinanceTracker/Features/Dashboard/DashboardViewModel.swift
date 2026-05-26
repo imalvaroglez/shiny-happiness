@@ -78,6 +78,10 @@ final class DashboardViewModel {
         if tx.isDuplicate { return true }
         if tx.category?.kind == .transfer { return true }
         if tx.category?.kind == .creditCardPayment { return true }
+        return isSynthesizedMSIPurchase(tx)
+    }
+
+    private func isSynthesizedMSIPurchase(_ tx: Transaction) -> Bool {
         if let plan = tx.installmentPlan, abs(tx.amount) == abs(plan.originalAmount) {
             return true
         }
@@ -182,10 +186,10 @@ final class DashboardViewModel {
         let spending = computeSpendingByCategory(transactions, kindFilter: nil)
 
         let totalCharges = transactions
-            .filter { !$0.isDuplicate && $0.amount < 0 && $0.installmentPlan == nil && $0.category?.kind != .transfer && $0.category?.kind != .creditCardPayment }
+            .filter { !$0.isDuplicate && $0.amount < 0 && !isSynthesizedMSIPurchase($0) }
             .reduce(Decimal(0)) { $0 + abs($1.amount) }
         let totalPayments = transactions
-            .filter { !$0.isDuplicate && $0.amount > 0 && $0.category?.kind != .transfer }
+            .filter { !$0.isDuplicate && $0.amount > 0 }
             .reduce(Decimal(0)) { $0 + $1.amount }
         let interestCharged = latestStatement?.interestCharged ?? 0
         let feesCharged = (latestStatement?.feesCharged ?? 0) + (latestStatement?.ivaCharged ?? 0)
@@ -245,14 +249,7 @@ final class DashboardViewModel {
         var grouped: [Date: (charges: Decimal, payments: Decimal)] = [:]
         for tx in transactions {
             if tx.isDuplicate { continue }
-            // For liabilities we DO want credit-card payments (they reduce debt) but NOT
-            // generic transfers.
-            if tx.category?.kind == .transfer { continue }
-            // Skip the synthesized original MSI purchase; its monthly installments
-            // already appear individually.
-            if let plan = tx.installmentPlan, abs(tx.amount) == abs(plan.originalAmount) {
-                continue
-            }
+            if isSynthesizedMSIPurchase(tx) { continue }
             let month = calendar.date(from: calendar.dateComponents([.year, .month], from: tx.postedAt))!
             let existing = grouped[month] ?? (0, 0)
             if tx.amount < 0 {
@@ -277,7 +274,7 @@ final class DashboardViewModel {
             if excludedFromCashFlow(tx) { continue }
             guard tx.amount < 0 else { continue }
             let key: ObjectIdentifier
-            if let cat = tx.category {
+            if let cat = tx.category, cat.deletedAt == nil {
                 key = ObjectIdentifier(cat)
                 categoryMap[key] = cat
             } else {
