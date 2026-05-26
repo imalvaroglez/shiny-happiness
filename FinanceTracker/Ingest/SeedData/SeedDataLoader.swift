@@ -27,6 +27,7 @@ struct SeedDataLoader {
     static func bootstrapIfNeeded(context: ModelContext) {
         var categoriesByName = buildExistingMap(context: context)
         loadCategoriesIfNeeded(context: context, categoriesByName: &categoriesByName)
+        repairStaleCategoryKinds(context: context, categoriesByName: &categoriesByName)
         syncRules(context: context, categoriesByName: categoriesByName)
         try? context.save()
     }
@@ -89,6 +90,67 @@ struct SeedDataLoader {
         }
     }
 
+    private static func repairStaleCategoryKinds(context: ModelContext, categoriesByName: inout [String: Category]) {
+        let allCategories = (try? context.fetch(FetchDescriptor<Category>())) ?? []
+        let ccPaymentsMatches = allCategories.filter { $0.name == "Credit Card Payments" && $0.deletedAt == nil }
+
+        guard !ccPaymentsMatches.isEmpty else { return }
+
+        let canonical: Category
+        let duplicates: [Category]
+
+        if let preferred = ccPaymentsMatches.first(where: { $0.kind == .creditCardPayment && $0.parent == nil }) {
+            canonical = preferred
+            duplicates = ccPaymentsMatches.filter { $0.id != preferred.id }
+        } else {
+            canonical = ccPaymentsMatches[0]
+            duplicates = Array(ccPaymentsMatches.dropFirst())
+        }
+
+        if canonical.kind != .creditCardPayment {
+            canonical.kind = .creditCardPayment
+            canonical.touch()
+        }
+        if canonical.parent != nil {
+            canonical.parent = nil
+            canonical.touch()
+        }
+
+        let requiredSubs = ["Card Payment Received", "Card Payment Sent"]
+        let existingSubNames = Set(allCategories.filter { $0.parent?.id == canonical.id }.map(\.name))
+        for subName in requiredSubs where !existingSubNames.contains(subName) {
+            let sub = Category(name: subName, parent: canonical, kind: .creditCardPayment)
+            context.insert(sub)
+            categoriesByName["Credit Card Payments.\(subName)"] = sub
+        }
+
+        guard !duplicates.isEmpty else {
+            categoriesByName["Credit Card Payments"] = canonical
+            return
+        }
+
+        let allTransactions = (try? context.fetch(FetchDescriptor<Transaction>())) ?? []
+        let allRules = (try? context.fetch(FetchDescriptor<CategoryRule>())) ?? []
+
+        for dupe in duplicates {
+            for tx in allTransactions where tx.category?.id == dupe.id {
+                tx.category = canonical
+            }
+            for rule in allRules where rule.category?.id == dupe.id {
+                rule.category = canonical
+            }
+            for sub in dupe.subcategories {
+                sub.parent = canonical
+                sub.touch()
+            }
+            dupe.deletedAt = .now
+            dupe.touch()
+        }
+
+        categoriesByName["Credit Card Payments"] = canonical
+        Logger.app.info("Category repair: canonicalized Credit Card Payments (kind=\(canonical.kind.rawValue)), soft-deleted \(duplicates.count) duplicate(s)")
+    }
+
     private static func syncRules(context: ModelContext, categoriesByName: [String: Category]) {
         guard let url = Bundle.main.url(forResource: "category_rules", withExtension: "json") else {
             Logger.app.error("Could not find category_rules.json in bundle")
@@ -106,6 +168,7 @@ struct SeedDataLoader {
             for ruleJSON in seed.rules {
                 guard !existingPatterns.contains(ruleJSON.pattern) else { continue }
                 let category = categoriesByName[ruleJSON.category]
+                guard let category, category.deletedAt == nil else { continue }
                 let rule = CategoryRule(
                     patternRegex: ruleJSON.pattern,
                     merchantMatch: ruleJSON.merchant,
