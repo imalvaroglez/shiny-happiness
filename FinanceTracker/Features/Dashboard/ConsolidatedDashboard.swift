@@ -33,20 +33,18 @@ struct ConsolidatedDashboard: View {
     // MARK: - Summary tiles
 
     private var summaryCards: some View {
-        GlassEffectContainer {
-            HStack(spacing: 16) {
-                SummaryCard(title: "Net Worth", amount: snapshot.netWorth, currencyCode: snapshot.currencyCode) {
-                    breakdown = .netWorth(snapshot.accountSummaries)
-                }
-                SummaryCard(title: "Income", amount: snapshot.totalIncome, currencyCode: snapshot.currencyCode, tint: .green) {
-                    breakdown = .income(transactions: snapshot.recentTransactions, total: snapshot.totalIncome)
-                }
-                SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), currencyCode: snapshot.currencyCode, tint: .red) {
-                    breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses)
-                }
-                SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, currencyCode: snapshot.currencyCode, tint: .mint) {
-                    breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
-                }
+        HStack(spacing: 16) {
+            SummaryCard(title: "Net Worth", amount: snapshot.netWorth, currencyCode: snapshot.currencyCode) {
+                breakdown = .netWorth(snapshot.accountSummaries)
+            }
+            SummaryCard(title: "Income", amount: snapshot.totalIncome, currencyCode: snapshot.currencyCode, tint: .green) {
+                breakdown = .income(transactions: snapshot.recentTransactions, total: snapshot.totalIncome)
+            }
+            SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), currencyCode: snapshot.currencyCode, tint: .red) {
+                breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses)
+            }
+            SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, currencyCode: snapshot.currencyCode, tint: .mint) {
+                breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
             }
         }
     }
@@ -246,43 +244,68 @@ struct ConsolidatedDashboard: View {
     // MARK: - Accounts list
 
     private var accountsList: some View {
-        ChartCard(title: "Accounts") {
+        DashboardListCard(title: "Accounts") {
             ForEach(snapshot.accountSummaries) { summary in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(summary.displayName).font(.body)
-                        Text(summary.institution).font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    accountIcon(for: summary)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(summary.displayName)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                        Text(summary.institution)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
+
                     Spacer()
+
                     if let util = summary.utilizationPercent {
                         Text(String(format: "%.0f%%", util * 100))
-                            .font(.caption.monospacedDigit())
+                            .font(.caption2.monospacedDigit())
                             .foregroundStyle(util > 0.7 ? .red : (util > 0.3 ? .orange : .secondary))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .glassEffect(.regular, in: .capsule)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.tertiary.opacity(0.10), in: Capsule())
                     }
+
                     Text(MoneyFormat.string(code: snapshot.currencyCode,summary.latestBalance))
-                        .font(.body.bold())
+                        .font(.callout.weight(.semibold))
+                        .monospacedDigit()
                         .foregroundStyle(summary.latestBalance >= 0 ? .green : .red)
                 }
-                .padding(.vertical, 4)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+
                 if summary.id != snapshot.accountSummaries.last?.id {
-                    Divider()
+                    DashboardSeparator()
                 }
             }
         }
     }
 
     private var recentTransactionsList: some View {
-        ChartCard(title: "Recent Transactions") {
+        DashboardListCard(title: "Recent Transactions") {
             ForEach(snapshot.recentTransactions.prefix(10)) { tx in
                 DashboardTransactionRow(transaction: tx)
                 if tx.id != snapshot.recentTransactions.prefix(10).last?.id {
-                    Divider()
+                    DashboardSeparator()
                 }
             }
         }
+    }
+
+    private func accountIcon(for summary: AccountSummary) -> some View {
+        let color = AccountIdentity.defaultMap[summary.institution] ?? .accentColor
+        return RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(color.opacity(0.14))
+            .overlay {
+                Image(systemName: summary.type == .creditCard ? "creditcard" : "banknote")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(color)
+            }
+            .frame(width: 28, height: 28)
     }
 
     private var emptyState: some View {
@@ -300,4 +323,3 @@ struct ConsolidatedDashboard: View {
         .padding(40)
     }
 }
-

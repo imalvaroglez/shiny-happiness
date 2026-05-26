@@ -1,36 +1,23 @@
 import SwiftUI
 
-/// The single backdrop the whole app renders over. A static 3x3 MeshGradient
-/// with cool deep blue in the top half and warm soft amber in the bottom,
-/// adapted for light/dark via `Color(light:dark:)`. Glass surfaces refract
-/// this scene; without it the existing `.glassEffect` renders as flat
-/// translucent gray.
+/// The single backdrop the whole app renders over. Keep this cheap: it sits
+/// behind every scrollable screen and participates in every frame.
 ///
 /// Tone is tuned to NOT compete with the category colors used in the spending
 /// donut — saturation is intentionally low. Light mode is paler; dark mode is
 /// deeper.
 struct AppBackdrop: View {
     var body: some View {
-        MeshGradient(
-            width: 3,
-            height: 3,
-            points: [
-                .init(0.0, 0.0), .init(0.5, 0.0), .init(1.0, 0.0),
-                .init(0.0, 0.5), .init(0.5, 0.5), .init(1.0, 0.5),
-                .init(0.0, 1.0), .init(0.5, 1.0), .init(1.0, 1.0),
-            ],
-            colors: [
-                Self.coolDeep, Self.coolMid, Self.coolDeep,
-                Self.coolMid, Self.midNeutral, Self.warmMid,
-                Self.warmMid, Self.warmDeep, Self.warmMid,
-            ]
+        LinearGradient(
+            colors: [Self.coolMid, Self.midNeutral, Self.warmMid],
+            startPoint: .top,
+            endPoint: .bottom
         )
         .ignoresSafeArea()
     }
 
-    // Palette tuned for both color schemes. Hex values come from the design
-    // proposal: cool ~ evening sky blue, warm ~ soft amber. Both modes stay
-    // low-saturation so the glass refraction stays subtle.
+    // Palette tuned for both color schemes. Both modes stay low-saturation so
+    // charts and category colors remain readable.
     private static var coolDeep: Color {
         Color(light: Color(hex: "C7D5EC") ?? .blue,
               dark:  Color(hex: "1A2D4A") ?? .blue)

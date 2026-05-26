@@ -1,10 +1,6 @@
 import SwiftUI
 import SwiftData
 
-/// Inline review panel for unresolved `PendingImport` rows. The user fills in the
-/// missing pieces (date, amount, description) and clicks Resolve, which creates a
-/// real `Transaction`, links the pending row to it, and runs through the existing
-/// dedup/categorize/save path on the model context.
 struct PendingReviewSection: View {
     @Environment(\.modelContext) private var modelContext
     let pendings: [PendingImport]
@@ -13,16 +9,16 @@ struct PendingReviewSection: View {
     @State private var expanded = true
 
     var body: some View {
-        GlassCard(role: .card, interactive: true) {
+        SectionCard {
             VStack(alignment: .leading, spacing: 0) {
                 header
                 if expanded {
                     Divider()
-                    ForEach(pendings) { pending in
+                    ForEach(Array(pendings.enumerated()), id: \.element.id) { index, pending in
                         PendingReviewRow(pending: pending, onResolved: onResolved)
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                        if pending != pendings.last {
+                            .padding(.vertical, 8)
+                        if index < pendings.count - 1 {
                             Divider().padding(.leading, 12)
                         }
                     }
@@ -38,17 +34,20 @@ struct PendingReviewSection: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
             Text("\(pendings.count) row\(pendings.count == 1 ? "" : "s") need review")
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
             Spacer()
             Button {
-                expanded.toggle()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    expanded.toggle()
+                }
             } label: {
                 Image(systemName: expanded ? "chevron.down" : "chevron.right")
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
         }
-        .padding(12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 }
 

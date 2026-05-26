@@ -24,18 +24,16 @@ struct AssetAccountDashboard: View {
     }
 
     private var summaryCards: some View {
-        GlassEffectContainer {
-            HStack(spacing: 16) {
-                SummaryCard(title: "Balance", amount: snapshot.currentBalance, currencyCode: snapshot.currencyCode)
-                SummaryCard(title: "Income", amount: snapshot.totalIncome, currencyCode: snapshot.currencyCode, tint: .green) {
-                    breakdown = .income(transactions: snapshot.recentTransactions, total: snapshot.totalIncome)
-                }
-                SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), currencyCode: snapshot.currencyCode, tint: .red) {
-                    breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses)
-                }
-                SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, currencyCode: snapshot.currencyCode, tint: .mint) {
-                    breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
-                }
+        HStack(spacing: 16) {
+            SummaryCard(title: "Balance", amount: snapshot.currentBalance, currencyCode: snapshot.currencyCode)
+            SummaryCard(title: "Income", amount: snapshot.totalIncome, currencyCode: snapshot.currencyCode, tint: .green) {
+                breakdown = .income(transactions: snapshot.recentTransactions, total: snapshot.totalIncome)
+            }
+            SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), currencyCode: snapshot.currencyCode, tint: .red) {
+                breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses)
+            }
+            SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, currencyCode: snapshot.currencyCode, tint: .mint) {
+                breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
             }
         }
     }
@@ -155,11 +153,11 @@ struct AssetAccountDashboard: View {
     }
 
     private var recentList: some View {
-        ChartCard(title: "Recent Transactions") {
+        DashboardListCard(title: "Recent Transactions") {
             ForEach(snapshot.recentTransactions.prefix(10)) { tx in
                 DashboardTransactionRow(transaction: tx)
                 if tx.id != snapshot.recentTransactions.prefix(10).last?.id {
-                    Divider()
+                    DashboardSeparator()
                 }
             }
         }

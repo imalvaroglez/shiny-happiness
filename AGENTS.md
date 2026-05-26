@@ -29,3 +29,11 @@ Git history uses conventional commit prefixes such as `feat:`, `fix:`, `test:`, 
 ## Security & Configuration Tips
 
 This is a private finance app. Do not commit personal statements, generated stores, secrets, or unredacted financial data. Keep entitlements and sandbox settings aligned with `project.yml`, especially user-selected file access for imports and backups.
+
+## Release Notes & About Updates
+
+- For every release-visible change, update `CHANGELOG.md` under `[Unreleased]`.
+- When preparing a new version, update the `latestReleaseHighlights` array in `SettingsView` with 3–5 short user-facing bullets for that version.
+- `CHANGELOG.md` is the detailed technical record for contributors. The About "What's New" copy is product-focused and non-technical.
+- Internal-only, test-only, or refactor-only changes belong in `CHANGELOG.md` but not in About unless users will notice them.
+- Do not ship a version bump unless both `CHANGELOG.md` and the About highlights have been reviewed.

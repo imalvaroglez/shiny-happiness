@@ -148,13 +148,19 @@ struct DashboardView: View {
         case .importStatements:
             ImportView(modelContext: modelContext)
         case .settings:
-            SettingsView()
+            SettingsView(onAccountDeleted: { id in
+                if case .account(let selectedID) = sidebarSelection, selectedID == id {
+                    sidebarSelection = .overview
+                    viewModel.scope = .consolidated
+                }
+                viewModel.refresh()
+            })
         }
     }
 
     private var dashboardDetail: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            LazyVStack(spacing: 20) {
                 timeRangePicker
                 snapshotContent
             }

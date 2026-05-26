@@ -80,22 +80,47 @@ struct DashboardTransactionRow: View {
     let transaction: Transaction
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(categoryColor.opacity(0.18))
+                .overlay {
+                    Circle()
+                        .fill(categoryColor)
+                        .frame(width: 7, height: 7)
+                }
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
                 Text(transaction.merchantNormalized.isEmpty ? transaction.descriptionRaw : transaction.merchantNormalized)
-                    .font(.body)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(transaction.postedAt.formatted(date: .abbreviated, time: .omitted))
-                    .font(.caption)
+                HStack(spacing: 6) {
+                    Text(transaction.postedAt.formatted(date: .abbreviated, time: .omitted))
+                    if let account = transaction.account?.displayName {
+                        Text("•")
+                        Text(account)
+                            .lineLimit(1)
+                    }
+                }
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             Text(MoneyFormat.string(transaction.amount, code: transaction.currency))
-                .font(.body.bold())
+                .font(.callout.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(transaction.amount >= 0 ? .green : .primary)
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+    }
+
+    private var categoryColor: Color {
+        if let category = transaction.category {
+            return CategoryPalette.color(for: category.name)
+        }
+        return .secondary
     }
 }
 
@@ -156,31 +181,32 @@ enum CategoryPalette {
         }
     }
 
+    private static let rolesByName: [String: PaletteRole] = [
+        "Food & Drink": .food, "Groceries": .food, "Coffee": .food,
+        "Restaurants": .food, "Fast Food": .food, "Bars & Nightlife": .food,
+        "Transport": .transport, "Rideshare": .transport, "Gas": .transport,
+        "Parking": .transport, "Public Transit": .transport, "Toll": .transport,
+        "Shopping": .shopping, "General Merchandise": .shopping,
+        "Clothing": .shopping, "Electronics": .shopping, "Department Store": .shopping,
+        "Entertainment": .entertainment, "Streaming": .entertainment,
+        "Movies": .entertainment, "Games": .entertainment, "Music": .entertainment,
+        "Events": .entertainment,
+        "Bills & Utilities": .bills, "Bank Fees": .bills, "Insurance": .bills,
+        "Health": .health, "Pharmacy": .health, "Doctor": .health,
+        "Gym": .health, "Wellness": .health,
+        "Home": .home, "Rent": .home,
+        "Travel": .travel, "Flights": .travel, "Hotels": .travel,
+        "Transfers": .transfers, "Internal Transfer": .transfers,
+        "To Own Accounts": .transfers, "Credit Card Payments": .transfers,
+        "Card Payment Received": .transfers, "Card Payment Sent": .transfers,
+        "Taxes": .taxes, "ISR Retenido": .taxes,
+        "Income": .income, "Interest": .income, "Salary": .income,
+        "Subscriptions": .subscriptions, "Software": .subscriptions,
+        "Fees & Charges": .fees, "Interest Charges": .fees, "Commissions": .fees,
+    ]
+
     private static func role(forName name: String) -> PaletteRole? {
-        let map: [String: PaletteRole] = [
-            "Food & Drink": .food, "Groceries": .food, "Coffee": .food,
-            "Restaurants": .food, "Fast Food": .food, "Bars & Nightlife": .food,
-            "Transport": .transport, "Rideshare": .transport, "Gas": .transport,
-            "Parking": .transport, "Public Transit": .transport, "Toll": .transport,
-            "Shopping": .shopping, "General Merchandise": .shopping,
-            "Clothing": .shopping, "Electronics": .shopping, "Department Store": .shopping,
-            "Entertainment": .entertainment, "Streaming": .entertainment,
-            "Movies": .entertainment, "Games": .entertainment, "Music": .entertainment,
-            "Events": .entertainment,
-            "Bills & Utilities": .bills, "Bank Fees": .bills, "Insurance": .bills,
-            "Health": .health, "Pharmacy": .health, "Doctor": .health,
-            "Gym": .health, "Wellness": .health,
-            "Home": .home, "Rent": .home,
-            "Travel": .travel, "Flights": .travel, "Hotels": .travel,
-            "Transfers": .transfers, "Internal Transfer": .transfers,
-            "To Own Accounts": .transfers, "Credit Card Payments": .transfers,
-            "Card Payment Received": .transfers, "Card Payment Sent": .transfers,
-            "Taxes": .taxes, "ISR Retenido": .taxes,
-            "Income": .income, "Interest": .income, "Salary": .income,
-            "Subscriptions": .subscriptions, "Software": .subscriptions,
-            "Fees & Charges": .fees, "Interest Charges": .fees, "Commissions": .fees,
-        ]
-        return map[name]
+        rolesByName[name]
     }
 }
 
@@ -193,7 +219,7 @@ struct ChartCard<Content: View>: View {
     @Environment(\.scopedTint) private var scopedTint
 
     var body: some View {
-        GlassCard(role: .card, interactive: true) {
+        GlassCard(role: .card, interactive: false) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(title).font(.headline)
                 content()
@@ -206,5 +232,34 @@ struct ChartCard<Content: View>: View {
             }
             .padding()
         }
+    }
+}
+
+struct DashboardListCard<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        GlassCard(role: .card, interactive: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title).font(.headline)
+                VStack(spacing: 0) {
+                    content()
+                }
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
+            }
+            .padding()
+        }
+    }
+}
+
+struct DashboardSeparator: View {
+    var body: some View {
+        Divider()
+            .padding(.leading, 52)
     }
 }

@@ -1,6 +1,13 @@
 import SwiftUI
 import SwiftData
 
+struct PendingApplyToSimilar: Identifiable {
+    let id = UUID()
+    let transaction: Transaction
+    let category: Category
+    let keyword: String?
+}
+
 enum CategoryFilter: Hashable {
     case all
     case uncategorized
@@ -15,22 +22,23 @@ struct TransactionsView: View {
     @Query(filter: #Predicate<Transaction> { $0.deletedAt != nil },
            sort: \Transaction.postedAt, order: .reverse) private var deletedTransactions: [Transaction]
     @Query private var accounts: [Account]
-    @Query private var categories: [Category]
+    @Query(filter: #Predicate<Category> { $0.deletedAt == nil }) private var categories: [Category]
     @Query(filter: #Predicate<PendingImport> { $0.resolvedTransaction == nil },
            sort: \PendingImport.createdAt, order: .reverse)
     private var pendingImports: [PendingImport]
+
     @State private var searchText = ""
-    @State private var selectedTransaction: Transaction?
-    @State private var showingCategoryPicker = false
-    @State private var showingApplyToSimilar = false
-    @State private var pendingCategory: Category?
-    @State private var pendingKeyword: String?
-    @State private var accountFilter: Account?
+    @State private var accountFilterID: UUID?
     @State private var categoryFilter: CategoryFilter = .all
-    @State private var sortOrder = [KeyPathComparator(\Transaction.postedAt, order: .reverse)]
+    @State private var sortMode: TransactionSortMode = .dateDesc
     @State private var showingRecentlyDeleted = false
-    @State private var displayTransactions: [Transaction] = []
+
+    @State private var dayGroups: [TransactionDayGroup] = []
     @State private var lastTxCount: Int = 0
+
+    @State private var editingTransaction: Transaction?
+    @State private var pendingApplyToSimilar: PendingApplyToSimilar?
+    @State private var pendingApplyCandidate: PendingApplyToSimilar?
 
     private var parentCategories: [Category] {
         var seen = Set<String>()
@@ -48,10 +56,10 @@ struct TransactionsView: View {
 
     private func recomputeDisplay() {
         let active = showingRecentlyDeleted ? deletedTransactions : allTransactions
-        var result = active
+        var result = Array(active)
 
-        if let filter = accountFilter {
-            result = result.filter { $0.account?.id == filter.id }
+        if let filterID = accountFilterID {
+            result = result.filter { $0.account?.id == filterID }
         }
 
         switch categoryFilter {
@@ -76,64 +84,72 @@ struct TransactionsView: View {
             }
         }
 
-        displayTransactions = result.sorted(using: sortOrder)
+        var groups = TransactionDayGroup.group(result)
+        groups = groups.map { group in
+            TransactionDayGroup(
+                date: group.date,
+                transactions: group.transactions.sorted(by: sortMode.rowSort)
+            )
+        }
+        if sortMode.groupsReversed {
+            groups.reverse()
+        }
+
+        dayGroups = groups
         lastTxCount = active.count
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            filterBar
+            TransactionFilterBar(
+                accountFilterID: $accountFilterID,
+                categoryFilter: $categoryFilter,
+                sortMode: $sortMode,
+                showingRecentlyDeleted: $showingRecentlyDeleted,
+                deletedCount: deletedTransactions.count,
+                visibleCount: dayGroups.reduce(0) { $0 + $1.count },
+                accounts: accounts,
+                parentCategories: parentCategories,
+                childrenOf: children(of:)
+            )
             if !pendingImports.isEmpty {
                 PendingReviewSection(pendings: pendingImports) { _ in
                     try? modelContext.save()
                 }
             }
-            tableContent
+            groupedLedger
         }
         .searchable(text: $searchText, prompt: "Search transactions")
         .navigationTitle("Transactions")
-        .sheet(isPresented: $showingCategoryPicker) {
-            if let tx = selectedTransaction {
-                CategoryPickerView(transaction: tx) { category, keyword in
-                    tx.category = category
-                    tx.touch()
-                    LearningHooks.recordCategorization(
-                        keyword: keyword,
-                        category: category,
-                        sourceDescription: tx.descriptionRaw,
-                        in: modelContext
-                    )
-                    try? modelContext.save()
-                    recomputeDisplay()
-                    pendingCategory = category
-                    pendingKeyword = keyword
-                }
-            }
-        }
-        .onChange(of: showingCategoryPicker) {
-            if !showingCategoryPicker, pendingCategory != nil, pendingKeyword != nil {
-                showingApplyToSimilar = true
-            }
-        }
-        .sheet(isPresented: $showingApplyToSimilar) {
-            if let tx = selectedTransaction, let cat = pendingCategory {
-                ApplyToSimilarView(
-                    transaction: tx,
-                    category: cat,
-                    keyword: pendingKeyword
+        .sheet(item: $editingTransaction) { tx in
+            TransactionDetailSheet(transaction: tx) { change in
+                pendingApplyCandidate = PendingApplyToSimilar(
+                    transaction: change.transaction,
+                    category: change.category,
+                    keyword: change.keyword
                 )
             }
         }
-        .onChange(of: showingApplyToSimilar) {
-            if !showingApplyToSimilar {
-                pendingCategory = nil
-                pendingKeyword = nil
+        .sheet(item: $pendingApplyToSimilar) { pending in
+            ApplyToSimilarView(
+                transaction: pending.transaction,
+                category: pending.category,
+                keyword: pending.keyword
+            )
+        }
+        .onChange(of: editingTransaction) {
+            if editingTransaction == nil, let candidate = pendingApplyCandidate {
+                let resolved = candidate
+                pendingApplyCandidate = nil
+                DispatchQueue.main.async {
+                    pendingApplyToSimilar = resolved
+                }
             }
         }
-        .onChange(of: accountFilter) { recomputeDisplay() }
+        .onChange(of: accountFilterID) { recomputeDisplay() }
         .onChange(of: categoryFilter) { recomputeDisplay() }
         .onChange(of: searchText) { recomputeDisplay() }
-        .onChange(of: sortOrder) { recomputeDisplay() }
+        .onChange(of: sortMode) { recomputeDisplay() }
         .onChange(of: showingRecentlyDeleted) { recomputeDisplay() }
         .onChange(of: allTransactions.count) { _, new in
             guard new != lastTxCount else { return }
@@ -146,144 +162,66 @@ struct TransactionsView: View {
         .onAppear { recomputeDisplay() }
     }
 
-    private var filterBar: some View {
-        HStack {
-            Picker(selection: $accountFilter) {
-                Text("All Accounts").tag(nil as Account?)
-                ForEach(accounts) { account in
-                    Text(account.displayName).tag(account as Account?)
-                }
-            } label: { EmptyView() }
-            .frame(width: 200)
-
-            Picker(selection: $categoryFilter) {
-                Text("All Categories").tag(CategoryFilter.all)
-                Text("Uncategorized").tag(CategoryFilter.uncategorized)
-                Divider()
-                ForEach(parentCategories) { parent in
-                    Section(parent.name) {
-                        Text("All \(parent.name)")
-                            .tag(CategoryFilter.parent(parent))
-                        ForEach(children(of: parent)) { sub in
-                            Text(sub.name).tag(CategoryFilter.specific(sub))
-                        }
-                    }
-                }
-            } label: { EmptyView() }
-            .frame(width: 240)
-
-            Spacer()
-
-            if !deletedTransactions.isEmpty {
-                Toggle(isOn: $showingRecentlyDeleted) {
-                    Text("Recently Deleted (\(deletedTransactions.count))")
-                        .font(.caption)
-                }
-                .toggleStyle(.button)
-                .tint(showingRecentlyDeleted ? .red : .secondary)
-            }
-
-            Text("\(displayTransactions.count) transactions")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-    }
-
-    private var tableContent: some View {
-        Table(displayTransactions, sortOrder: $sortOrder) {
-            TableColumn("Date", value: \.postedAt) { tx in
-                EditableDateCell(date: tx.postedAt) { newDate in
-                    tx.postedAt = newDate
-                    tx.touch()
-                    try? modelContext.save()
-                }
-            }
-            .width(min: 110, ideal: 120)
-
-            TableColumn("Description", value: \.descriptionRaw) { tx in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        EditableTextCell(initialText: tx.descriptionRaw, placeholder: "Description") { newText in
-                            tx.descriptionRaw = newText
-                            tx.merchantNormalized = newText
-                            tx.touch()
-                            try? modelContext.save()
-                        }
-                        if let nickname = tx.account?.displayName {
-                            Text(nickname)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    Spacer()
-                    Menu {
-                        if showingRecentlyDeleted {
-                            Button("Restore") {
-                                tx.deletedAt = nil
-                                tx.touch()
-                                try? modelContext.save()
-                            }
-                        } else {
-                            Button("Delete", role: .destructive) {
-                                tx.deletedAt = Date.now
-                                tx.touch()
-                                try? modelContext.save()
+    private var groupedLedger: some View {
+        Group {
+            if dayGroups.isEmpty {
+                EmptyStateView(
+                    icon: "list.bullet.rectangle",
+                    title: showingRecentlyDeleted ? "No deleted transactions" : "No transactions",
+                    subtitle: showingRecentlyDeleted ? nil : "Import a statement to get started"
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
+                        ForEach(dayGroups) { group in
+                            Section {
+                                ForEach(Array(group.transactions.enumerated()), id: \.element.id) { index, tx in
+                                    TransactionLedgerRow(
+                                        transaction: tx,
+                                        isDeletedMode: showingRecentlyDeleted,
+                                        onOpenDetail: { editingTransaction = tx },
+                                        onOpenCategoryPicker: {
+                                            editingTransaction = tx
+                                        },
+                                        onDelete: { softDelete(tx) },
+                                        onRestore: { restore(tx) },
+                                        onApplyToSimilar: { beginApplyToSimilar(tx) }
+                                    )
+                                    if index < group.transactions.count - 1 {
+                                        DashboardSeparator()
+                                    }
+                                }
+                            } header: {
+                                TransactionDateGroupHeader(group: group)
                             }
                         }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .foregroundStyle(.tertiary)
                     }
-                    .menuStyle(.borderlessButton)
+                    .padding(.horizontal, 12)
                 }
             }
-            .width(min: 200, ideal: 350)
-
-            TableColumn("Amount", value: \.amount) { tx in
-                EditableAmountCell(amount: tx.amount, currencyCode: tx.currency) { newAmount in
-                    tx.amount = newAmount
-                    tx.touch()
-                    try? modelContext.save()
-                }
-            }
-            .width(min: 110, ideal: 130)
-
-            TableColumn("Category", value: \.categoryName) { tx in
-                Button {
-                    selectedTransaction = tx
-                    showingCategoryPicker = true
-                } label: {
-                    categoryBadge(for: tx)
-                }
-                .buttonStyle(.plain)
-            }
-            .width(min: 130, ideal: 160)
         }
     }
 
-    @ViewBuilder
-    private func categoryBadge(for tx: Transaction) -> some View {
-        let label = tx.category?.name ?? "Uncategorized"
-        let color: Color = tx.category.map { CategoryPalette.color(for: $0.name) } ?? .secondary
-        Text(label)
-            .font(.caption)
-            .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(color.opacity(0.12)))
-            .overlay(Capsule().stroke(color.opacity(0.25), lineWidth: 0.5))
+    private func softDelete(_ tx: Transaction) {
+        tx.deletedAt = Date.now
+        tx.touch()
+        try? modelContext.save()
     }
 
-    private static let _mxnFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .currency
-        f.currencyCode = "MXN"
-        return f
-    }()
+    private func restore(_ tx: Transaction) {
+        tx.deletedAt = nil
+        tx.touch()
+        try? modelContext.save()
+    }
 
-    private func formatMoney(_ amount: Decimal) -> String {
-        Self._mxnFormatter.string(from: amount as NSDecimalNumber) ?? "$0.00"
+    private func beginApplyToSimilar(_ tx: Transaction) {
+        guard let category = tx.category else { return }
+        let keyword = MerchantExtractor.extractMerchant(from: tx.descriptionRaw)
+        pendingApplyToSimilar = PendingApplyToSimilar(
+            transaction: tx,
+            category: category,
+            keyword: keyword
+        )
     }
 }
+
