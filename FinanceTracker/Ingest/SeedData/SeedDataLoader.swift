@@ -38,11 +38,6 @@ struct SeedDataLoader {
         for cat in existing {
             map[cat.name] = cat
         }
-        for cat in existing {
-            if let parent = cat.parent {
-                map["\(parent.name).\(cat.name)"] = cat
-            }
-        }
         return map
     }
 
@@ -74,10 +69,14 @@ struct SeedDataLoader {
                 for subName in catJSON.subcategories {
                     let key = "\(catJSON.name).\(subName)"
                     if categoriesByName[key] == nil {
-                        let sub = Category(name: subName, parent: parent, kind: kind)
-                        context.insert(sub)
-                        categoriesByName[key] = sub
-                        subsAdded += 1
+                        if let existingSubcategory = categoriesByName[subName] {
+                            categoriesByName[key] = existingSubcategory
+                        } else {
+                            let sub = Category(name: subName, parent: parent, kind: kind)
+                            context.insert(sub)
+                            categoriesByName[key] = sub
+                            subsAdded += 1
+                        }
                     }
                 }
             }

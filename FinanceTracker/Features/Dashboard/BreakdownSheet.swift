@@ -138,8 +138,8 @@ struct BreakdownSheet: View {
                                 if let cat = tx.category {
                                     Text(cat.name).font(.caption2).foregroundStyle(.tertiary)
                                 }
-                                if let nick = tx.account?.displayName {
-                                    Text(nick).font(.caption2).foregroundStyle(.tertiary)
+                                if let card = tx.cardLast4 {
+                                    Text("••••\(card)").font(.caption2).foregroundStyle(.tertiary)
                                 }
                             }
                         }

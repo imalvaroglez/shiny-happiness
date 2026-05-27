@@ -26,10 +26,15 @@ struct ManualTransactionSheet: View {
     @State private var description = ""
     @State private var amount: Decimal = 0
     @State private var categoryID: UUID?
+    @State private var showingCategoryPicker = false
     @State private var errorMessage: String?
 
     private var selectedAccount: Account? {
         accounts.first { $0.id == accountID }
+    }
+
+    private var selectedCategory: Category? {
+        categoryID.flatMap { id in categories.first { $0.id == id } }
     }
 
     private var availableKinds: [ManualTransactionKind] {
@@ -37,6 +42,17 @@ struct ManualTransactionSheet: View {
             return [.income, .expense, .transfer]
         }
         return ManualTransactionKind.availableKinds(for: account.type)
+    }
+
+    private var allowedCategoryKinds: Set<CategoryKind> {
+        switch kind {
+        case .income:
+            return [.income]
+        case .expense, .charge:
+            return [.expense]
+        case .payment, .transfer:
+            return []
+        }
     }
 
     var body: some View {
@@ -78,20 +94,24 @@ struct ManualTransactionSheet: View {
         .frame(width: 560)
         .onAppear {
             accountID = defaultAccountID ?? lockedAccountID ?? accounts.first?.id
-            if let acct = selectedAccount {
-                if !availableKinds.contains(kind) {
-                    kind = availableKinds.first ?? .income
-                }
-            }
+            normalizeKindAndCategory()
             updateCounterparty()
         }
         .onChange(of: accountID) {
-            if let acct = selectedAccount {
-                if !ManualTransactionKind.availableKinds(for: acct.type).contains(kind) {
-                    kind = ManualTransactionKind.availableKinds(for: acct.type).first ?? .income
-                }
-            }
+            normalizeKindAndCategory()
             updateCounterparty()
+        }
+        .onChange(of: kind) {
+            normalizeKindAndCategory()
+            updateCounterparty()
+        }
+        .sheet(isPresented: $showingCategoryPicker) {
+            CategoryPickerView(
+                selectedCategoryID: categoryID,
+                allowedKinds: allowedCategoryKinds
+            ) { category in
+                categoryID = category.id
+            }
         }
     }
 
@@ -191,14 +211,20 @@ struct ManualTransactionSheet: View {
 
     private var categoryPickerRow: some View {
         row("Category") {
-            Picker("Category", selection: $categoryID) {
-                Text("Uncategorized").tag(UUID?.none)
-                ForEach(categories.filter { $0.parent != nil || $0.kind != .transfer }) { category in
-                    Text(category.name).tag(UUID?.some(category.id))
+            Button {
+                showingCategoryPicker = true
+            } label: {
+                HStack(spacing: 8) {
+                    Text(selectedCategory?.name ?? "Uncategorized")
+                        .foregroundStyle(selectedCategory == nil ? .secondary : .primary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .labelsHidden()
-            .frame(width: 220)
+            .buttonStyle(.plain)
         }
     }
 
@@ -235,6 +261,19 @@ struct ManualTransactionSheet: View {
         }
     }
 
+    private func normalizeKindAndCategory() {
+        if let account = selectedAccount {
+            let kinds = ManualTransactionKind.availableKinds(for: account.type)
+            if !kinds.contains(kind) {
+                kind = kinds.first ?? .income
+            }
+        }
+
+        if let category = selectedCategory, !allowedCategoryKinds.contains(category.kind) {
+            categoryID = nil
+        }
+    }
+
     private func save() {
         do {
             switch kind {
@@ -245,7 +284,7 @@ struct ManualTransactionSheet: View {
                     date: date,
                     description: description,
                     signedAmount: abs(amount),
-                    category: categoryID.flatMap { id in categories.first { $0.id == id } },
+                    category: selectedCategory,
                     context: modelContext
                 )
             case .expense, .charge:
@@ -255,7 +294,7 @@ struct ManualTransactionSheet: View {
                     date: date,
                     description: description,
                     signedAmount: -abs(amount),
-                    category: categoryID.flatMap { id in categories.first { $0.id == id } },
+                    category: selectedCategory,
                     context: modelContext
                 )
             case .payment:

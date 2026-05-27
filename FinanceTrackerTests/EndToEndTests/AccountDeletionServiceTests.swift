@@ -241,4 +241,33 @@ struct AccountDeletionServiceTests {
         #expect(try context.fetch(FetchDescriptor<Statement>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
     }
+
+    @Test("Deletion callbacks can use captured account identity after delete")
+    func testCapturedIdentitySurvivesDeletion() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let account = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Captured")
+        context.insert(account)
+        let snapshot = AccountBalanceSnapshot(account: account, date: .now, amount: 500, kind: .manualOpening)
+        context.insert(snapshot)
+        let tx = Transaction(account: account, postedAt: .now, amount: -50, descriptionRaw: "Coffee")
+        context.insert(tx)
+        try context.save()
+
+        let capturedID = account.id
+        let capturedDisplayName = account.displayName
+        let preview = AccountDeletionService.preview(account: account, context: context)
+
+        try AccountDeletionService.delete(account: account, context: context)
+
+        var callbackID: UUID?
+        callbackID = capturedID
+
+        #expect(callbackID == capturedID)
+        #expect(capturedDisplayName == "Captured")
+        #expect(preview.transactionCount == 1)
+        #expect(preview.balanceSnapshotCount == 1)
+        #expect(try context.fetch(FetchDescriptor<Account>()).isEmpty)
+    }
 }

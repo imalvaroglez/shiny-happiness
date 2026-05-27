@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Delete All Data crash.** "Delete All Data" now removes all 9 model types in dependency-safe order (previously missed `PendingImport`, `InstallmentPlan`, and `SignRecoveryHint`), re-bootstraps seed categories and rules, and resets all UI state (sidebar, filters, sheets). `AppDataResetService` owns the deletion order as a single source of truth, used by both Settings and backup restore. Transaction category filters are now ID-based to avoid stale model references.
+- **Fresh-start reset repair.** Startup repair now detects and cleans the "zero accounts but financial rows remain" state left by earlier partial resets. `resetAllData` verifies all model counts reach zero before restoring seed data, and surfaces a visible error if verification fails. Dashboard and Transactions defensively skip rendering when no accounts exist, preventing stale relationship access.
+
 ### Added
 
 - **Manual accounts.** Users can now create debit, investment, credit-card, and loan accounts directly from Settings or the sidebar. Manual accounts store their creation provenance and always start with an opening balance snapshot.
@@ -38,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Manual transaction category picker.** Manual transaction creation now uses the same grouped category picker as transaction editing, filtered to income categories for income and expense categories for expenses/charges.
 - **Import account matching protects manual accounts.** Imported statements attach to manually created accounts only when account/card numbers match. Numberless imports no longer attach to manual accounts by loose institution/type matching.
 - **Liability payment computation is sign-based.** Credit-card dashboard totals and charges-vs-payments chart no longer exclude transactions by category kind. Positive amounts count as payments/credits regardless of whether categorized as transfer, credit-card payment, refund, or uncategorized. Consolidated cash flow still excludes both `.transfer` and `.creditCardPayment`.
 - **Charges vs Payments chart legend.** Added explicit color-coded legend (Charges red, Payments & Credits green). Relabeled "Payments" to "Payments & Credits" in tooltip and totals.
@@ -56,6 +62,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **SwiftData invalidated account crash.** Dashboard account snapshots and account deletion confirmation state now capture value identities instead of retaining live `Account` models after deletion. Dashboard startup also avoids stale account/category relationship reads that could trap when SwiftData invalidates backing rows.
 - **Credit-card payments hidden from liability dashboard.** Transfer-kind credit-card payments (e.g., Explora "Credit Card Payments" with kind `.transfer`) now appear in liability payment totals and charges-vs-payments chart. Root cause: category-kind filter excluded `.transfer` from liability aggregates.
 - **Amex Gold Elite utilization understated.** Gold Elite no longer treats the previous payment amount as the statement balance. Re-importing the same PDF repairs stale non-nil metadata without duplicating transactions.
 - **Amex Gold Elite due-date not parsed.** Date format `dd de MMMM yyyy` (e.g., "31 de Marzo 2026" without second "de") now parses correctly. Added regex alternative and DateFormatter entry.

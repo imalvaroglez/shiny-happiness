@@ -15,7 +15,14 @@ enum AccountIdentity {
         guard let account else { return consolidated }
         if let hex = account.tintHex, let c = Color(hex: hex) { return c }
         let base = defaultMap[account.institution] ?? .accentColor
-        return shiftedHue(of: base, by: hueOffset(for: account))
+        return shiftedHue(of: base, by: hueOffset(for: account.id))
+    }
+
+    static func color(for identity: DashboardAccountIdentity?) -> Color {
+        guard let identity else { return consolidated }
+        if let hex = identity.tintHex, let c = Color(hex: hex) { return c }
+        let base = defaultMap[identity.institution] ?? .accentColor
+        return shiftedHue(of: base, by: hueOffset(for: identity.id))
     }
 
     /// Built-in identity colors for known issuers in this repo's sample set.
@@ -33,9 +40,9 @@ enum AccountIdentity {
         "Suburbia": Color(red: 0.85, green: 0.15, blue: 0.55),
     ]
 
-    private static func hueOffset(for account: Account) -> Double {
+    private static func hueOffset(for id: UUID) -> Double {
         #if os(macOS)
-        let byte = account.id.uuid.0
+        let byte = id.uuid.0
         let scaled = (Double(byte) / 255.0) - 0.5
         return scaled * 40
         #else

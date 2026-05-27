@@ -5,12 +5,39 @@ struct CategoryPickerView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(filter: #Predicate<Category> { $0.deletedAt == nil }) private var categories: [Category]
-    let transaction: Transaction
-    let onCategorySelected: (Category, String?) -> Void
+
+    private let transaction: Transaction?
+    private let selectedCategoryID: UUID?
+    private let allowedKinds: Set<CategoryKind>?
+    private let onCategorySelected: (Category, String?) -> Void
+
+    init(
+        transaction: Transaction,
+        allowedKinds: Set<CategoryKind>? = nil,
+        onCategorySelected: @escaping (Category, String?) -> Void
+    ) {
+        self.transaction = transaction
+        self.selectedCategoryID = transaction.category?.id
+        self.allowedKinds = allowedKinds
+        self.onCategorySelected = onCategorySelected
+    }
+
+    init(
+        selectedCategoryID: UUID?,
+        allowedKinds: Set<CategoryKind>? = nil,
+        onCategorySelected: @escaping (Category) -> Void
+    ) {
+        self.transaction = nil
+        self.selectedCategoryID = selectedCategoryID
+        self.allowedKinds = allowedKinds
+        self.onCategorySelected = { category, _ in onCategorySelected(category) }
+    }
 
     private var groupedCategories: [(kind: CategoryKind, categories: [Category])] {
-        let parents = categories.filter { $0.parent == nil }
-        let kinds: [CategoryKind] = [.expense, .income, .transfer, .investment]
+        let parents = categories.filter { category in
+            category.parent == nil && (allowedKinds?.contains(category.kind) ?? true)
+        }
+        let kinds: [CategoryKind] = [.expense, .income, .transfer, .investment, .creditCardPayment]
         return kinds.compactMap { kind in
             let cats = parents.filter { $0.kind == kind }.sorted { $0.name < $1.name }
             return cats.isEmpty ? nil : (kind, cats)
@@ -57,7 +84,7 @@ struct CategoryPickerView: View {
 
     private func categoryRow(_ category: Category, depth: Int = 0) -> some View {
         Button {
-            let keyword = MerchantExtractor.extractMerchant(from: transaction.descriptionRaw)
+            let keyword = transaction.flatMap { MerchantExtractor.extractMerchant(from: $0.descriptionRaw) }
             onCategorySelected(category, keyword)
             dismiss()
         } label: {
@@ -68,7 +95,7 @@ struct CategoryPickerView: View {
                 Text(category.name)
                     .foregroundStyle(.primary)
                 Spacer()
-                if transaction.category?.id == category.id {
+                if selectedCategoryID == category.id {
                     Image(systemName: "checkmark")
                         .foregroundStyle(.blue)
                 }

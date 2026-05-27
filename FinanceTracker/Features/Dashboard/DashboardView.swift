@@ -13,6 +13,7 @@ struct DashboardView: View {
     @State private var showingAddAccount = false
     @State private var showingManualTransaction = false
     @State private var balanceSnapshotAccount: Account?
+    @State private var dataResetGeneration = 0
 
     @Query(sort: \Account.nickname) private var accounts: [Account]
 
@@ -75,6 +76,7 @@ struct DashboardView: View {
         }
         .environment(\.scopedTint, scopedTint)
         .task {
+            AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
             SeedDataLoader.bootstrapIfNeeded(context: modelContext)
             viewModel.configure(context: modelContext)
             await BackupScheduler.runIfNeeded(context: modelContext)
@@ -101,6 +103,9 @@ struct DashboardView: View {
                 viewModel.dateRange = selectedRange.dateRange
                 viewModel.refresh()
             }
+        }
+        .onChange(of: accounts.map(\.id)) {
+            validateAccountSelection()
         }
         .popover(isPresented: $showingCustomRange) {
             customDatePopover
@@ -171,17 +176,27 @@ struct DashboardView: View {
         case .overview, .account:
             dashboardDetail
         case .transactions:
-            TransactionsView()
+            TransactionsView(resetSignal: dataResetGeneration)
         case .importStatements:
             ImportView(modelContext: modelContext)
         case .settings:
             SettingsView(onAccountDeleted: { id in
+                balanceSnapshotAccount = nil
                 if case .account(let selectedID) = sidebarSelection, selectedID == id {
                     sidebarSelection = .overview
                     viewModel.scope = .consolidated
                 }
                 viewModel.refresh()
             }, onAccountCreated: { account in
+                viewModel.refresh()
+            }, onDataReset: {
+                dataResetGeneration += 1
+                sidebarSelection = .overview
+                viewModel.scope = .consolidated
+                balanceSnapshotAccount = nil
+                showingManualTransaction = false
+                showingImport = false
+                showingAddAccount = false
                 viewModel.refresh()
             })
         }
@@ -263,6 +278,17 @@ struct DashboardView: View {
     private var selectedAccount: Account? {
         guard case .account(let id) = sidebarSelection else { return nil }
         return accounts.first { $0.id == id }
+    }
+
+    private func validateAccountSelection() {
+        guard case .account(let id) = sidebarSelection else { return }
+        guard accounts.contains(where: { $0.id == id }) else {
+            balanceSnapshotAccount = nil
+            sidebarSelection = .overview
+            viewModel.scope = .consolidated
+            viewModel.refresh()
+            return
+        }
     }
 
     // MARK: - Snapshot dispatch
