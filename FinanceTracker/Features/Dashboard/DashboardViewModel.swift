@@ -77,9 +77,9 @@ final class DashboardViewModel {
             },
             sortBy: [SortDescriptor(\.postedAt, order: .reverse)]
         )
-        let fetched = (try? context.fetch(descriptor)) ?? []
         let accounts = (try? context.fetch(FetchDescriptor<Account>())) ?? []
         guard !accounts.isEmpty else { return [] }
+        let fetched = (try? context.fetch(descriptor)) ?? []
         let validIDs = Set(accounts.map(\.id))
         return fetched.filter { validIDs.contains($0.account?.id ?? UUID()) }
     }

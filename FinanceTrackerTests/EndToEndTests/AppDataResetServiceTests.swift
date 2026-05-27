@@ -172,7 +172,8 @@ struct AppDataResetServiceTests {
 
         try context.save()
 
-        AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        #expect(outcome == .repaired)
 
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 0)
@@ -186,36 +187,18 @@ struct AppDataResetServiceTests {
         #expect(categories.count == 79)
     }
 
-    @Test("Repair removes orphan transactions and installment plans with zero accounts")
-    func testRepairRemovesOrphanTransactions() async throws {
+    @Test("Repair returns noRepairNeeded when no orphans exist")
+    func testRepairNoOpWhenClean() async throws {
         let container = try makeContainer()
         let context = container.mainContext
 
-        let tx = Transaction(postedAt: .now, amount: -250, descriptionRaw: "GHOST TX")
-        context.insert(tx)
+        SeedDataLoader.bootstrapIfNeeded(context: context)
 
-        let plan = InstallmentPlan(
-            originalAmount: 500,
-            totalMonths: 5,
-            currentMonth: 2,
-            monthlyAmount: 100,
-            firstChargeDate: .now,
-            merchantDescription: "GHOST PLAN"
-        )
-        context.insert(plan)
+        let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        #expect(outcome == .noRepairNeeded)
 
-        try context.save()
-
-        #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 1)
-        #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 1)
-
-        AppDataResetService.repairIncompleteResetIfNeeded(context: context)
-
-        #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
-        #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 0)
-
-        let categories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
-        #expect(categories.count == 79)
+        let categories = try context.fetchCount(FetchDescriptor<FinanceTracker.Category>())
+        #expect(categories == 79)
     }
 
     @Test("Repair is a no-op when financial data exists")
@@ -238,26 +221,97 @@ struct AppDataResetServiceTests {
         context.insert(pending)
         try context.save()
 
-        AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        #expect(outcome == .noRepairNeeded)
 
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 1)
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 1)
         #expect(try context.fetchCount(FetchDescriptor<PendingImport>()) == 1)
     }
 
-    @Test("Repair is a no-op when store is already clean")
-    func testRepairNoOpWhenClean() async throws {
+    @Test("Repair removes orphan transactions and installment plans with zero accounts")
+    func testRepairRemovesOrphanTransactions() async throws {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        let tx = Transaction(postedAt: .now, amount: -250, descriptionRaw: "GHOST TX")
+        context.insert(tx)
 
-        let categoriesBefore = try context.fetchCount(FetchDescriptor<FinanceTracker.Category>())
+        let plan = InstallmentPlan(
+            originalAmount: 500,
+            totalMonths: 5,
+            currentMonth: 2,
+            monthlyAmount: 100,
+            firstChargeDate: .now,
+            merchantDescription: "GHOST PLAN"
+        )
+        context.insert(plan)
 
-        AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        try context.save()
 
-        let categoriesAfter = try context.fetchCount(FetchDescriptor<FinanceTracker.Category>())
-        #expect(categoriesBefore == categoriesAfter)
-        #expect(categoriesAfter == 79)
+        let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        #expect(outcome == .repaired)
+
+        #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 0)
+
+        let categories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
+        #expect(categories.count == 79)
+    }
+
+    @Test("StoreFileResetService creates flag and detects it")
+    func testStoreFileResetFlagRoundTrip() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        StoreFileResetService.appSupportOverride = tmp
+        StoreFileResetService.skipTestGuard = true
+        defer { StoreFileResetService.appSupportOverride = nil; StoreFileResetService.skipTestGuard = false }
+
+        #expect(!StoreFileResetService.isHardResetRequested)
+
+        StoreFileResetService.requestHardReset(reason: "test")
+        #expect(StoreFileResetService.isHardResetRequested)
+
+        let flagDir = tmp.appendingPathComponent("FinanceTracker", isDirectory: true)
+        #expect(FileManager.default.fileExists(atPath: flagDir.path))
+
+        StoreFileResetService.performHardResetIfNeeded()
+        #expect(!StoreFileResetService.isHardResetRequested)
+    }
+
+    @Test("StoreFileResetService quarantines store files")
+    func testStoreFileResetQuarantinesFiles() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let storeFile = tmp.appendingPathComponent("default.store")
+        let walFile = tmp.appendingPathComponent("default.store-wal")
+        try Data("fake".utf8).write(to: storeFile)
+        try Data("wal".utf8).write(to: walFile)
+
+        StoreFileResetService.appSupportOverride = tmp
+        StoreFileResetService.skipTestGuard = true
+        defer { StoreFileResetService.appSupportOverride = nil; StoreFileResetService.skipTestGuard = false }
+
+        StoreFileResetService.requestHardReset(reason: "test quarantine")
+        StoreFileResetService.performHardResetIfNeeded()
+
+        #expect(!FileManager.default.fileExists(atPath: storeFile.path))
+        #expect(!FileManager.default.fileExists(atPath: walFile.path))
+
+        let backupDir = tmp.appendingPathComponent("FinanceTracker/ResetBackups")
+        let backupContents = try FileManager.default.contentsOfDirectory(
+            at: backupDir, includingPropertiesForKeys: nil)
+        #expect(backupContents.count == 1)
+        let quarantined = backupContents[0]
+        #expect(FileManager.default.fileExists(
+            atPath: quarantined.appendingPathComponent("default.store").path))
+        #expect(FileManager.default.fileExists(
+            atPath: quarantined.appendingPathComponent("default.store-wal").path))
     }
 }
