@@ -61,8 +61,7 @@ struct CategorizerTransferTests {
     @MainActor
     func testDashboardExcludesTransfers() async throws {
         let schema = Schema([
-            Account.self,
-            Transaction.self,
+            Account.self, AccountBalanceSnapshot.self, Transaction.self,
             Statement.self,
             Category.self,
             CategoryRule.self,

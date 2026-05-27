@@ -10,6 +10,9 @@ struct DashboardView: View {
     @State private var customEnd = Date()
     @State private var showingCustomRange = false
     @State private var showingImport = false
+    @State private var showingAddAccount = false
+    @State private var showingManualTransaction = false
+    @State private var balanceSnapshotAccount: Account?
 
     @Query(sort: \Account.nickname) private var accounts: [Account]
 
@@ -102,6 +105,18 @@ struct DashboardView: View {
         .popover(isPresented: $showingCustomRange) {
             customDatePopover
         }
+        .sheet(isPresented: $showingAddAccount) {
+            ManualAccountSheet { account in
+                sidebarSelection = .account(account.id)
+                viewModel.scope = .account(account.id)
+                viewModel.refresh()
+            }
+        }
+        .sheet(item: $balanceSnapshotAccount) { account in
+            BalanceSnapshotSheet(account: account) {
+                viewModel.refresh()
+            }
+        }
     }
 
     // MARK: - Sidebar
@@ -111,7 +126,7 @@ struct DashboardView: View {
             Label("Overview", systemImage: "chart.pie")
                 .tag(SidebarSelection.overview)
 
-            Section("Accounts") {
+            Section {
                 if accounts.isEmpty {
                     Text("No accounts yet")
                         .font(.caption)
@@ -121,6 +136,18 @@ struct DashboardView: View {
                         AccountSidebarRow(account: account, scopedViewModel: viewModel)
                             .tag(SidebarSelection.account(account.id))
                     }
+                }
+            } header: {
+                HStack {
+                    Text("Accounts")
+                    Spacer()
+                    Button {
+                        showingAddAccount = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Add account")
                 }
             }
 
@@ -154,6 +181,8 @@ struct DashboardView: View {
                     viewModel.scope = .consolidated
                 }
                 viewModel.refresh()
+            }, onAccountCreated: { account in
+                viewModel.refresh()
             })
         }
     }
@@ -168,14 +197,34 @@ struct DashboardView: View {
         }
         .navigationTitle(navigationTitle)
         .overlay(alignment: .bottomTrailing) {
-            Button {
-                showingImport = true
-            } label: {
-                Label("Import Statement", systemImage: "doc.badge.plus")
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+            VStack(alignment: .trailing, spacing: 10) {
+                if let account = selectedAccount {
+                    Button {
+                        showingManualTransaction = true
+                    } label: {
+                        Label("Add Transaction", systemImage: "plus.circle")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.glass)
+                    Button {
+                        balanceSnapshotAccount = account
+                    } label: {
+                        Label("Add Balance", systemImage: "chart.line.uptrend.xyaxis")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.glass)
+                }
+                Button {
+                    showingImport = true
+                } label: {
+                    Label("Import Statement", systemImage: "doc.badge.plus")
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.glassProminent)
             }
-            .buttonStyle(.glassProminent)
             .padding(20)
         }
         .sheet(isPresented: $showingImport) {
@@ -188,6 +237,13 @@ struct DashboardView: View {
                     }
             }
             .frame(minWidth: 600, minHeight: 500)
+        }
+        .sheet(isPresented: $showingManualTransaction) {
+            ManualTransactionSheet(
+                defaultAccountID: selectedAccount?.id,
+                lockedAccountID: selectedAccount?.id,
+                onSaved: { viewModel.refresh() }
+            )
         }
     }
 
@@ -202,6 +258,11 @@ struct DashboardView: View {
         case .empty:
             return "Dashboard"
         }
+    }
+
+    private var selectedAccount: Account? {
+        guard case .account(let id) = sidebarSelection else { return nil }
+        return accounts.first { $0.id == id }
     }
 
     // MARK: - Snapshot dispatch
@@ -280,21 +341,14 @@ struct DashboardView: View {
 // MARK: - Sidebar row
 
 private struct AccountSidebarRow: View {
+    @Environment(\.modelContext) private var modelContext
+
     let account: Account
     let scopedViewModel: DashboardViewModel  // used to read the latest snapshot if needed
-
-    /// Most-recent closing balance for this account (synchronous DB lookup).
-    /// Powers the utilization bar (Item 6) for credit-card accounts.
-    @Query private var statements: [Statement]
 
     init(account: Account, scopedViewModel: DashboardViewModel) {
         self.account = account
         self.scopedViewModel = scopedViewModel
-        let id = account.id
-        _statements = Query(
-            filter: #Predicate<Statement> { $0.account?.id == id },
-            sort: [SortDescriptor(\Statement.periodEnd, order: .reverse)]
-        )
     }
 
     var body: some View {
@@ -324,9 +378,8 @@ private struct AccountSidebarRow: View {
     private var utilization: Double? {
         guard account.type == .creditCard,
               let limit = account.creditLimit,
-              limit > 0,
-              let latest = statements.first,
-              let balance = latest.closingBalance else { return nil }
+              limit > 0 else { return nil }
+        let balance = AccountBalanceResolver.currentBalance(account: account, context: modelContext)
         let owed = (abs(balance) as NSDecimalNumber).doubleValue
         let lim = (limit as NSDecimalNumber).doubleValue
         return owed / lim
@@ -340,6 +393,8 @@ private struct AccountSidebarRow: View {
             Image(systemName: "banknote")
         case .investment:
             Image(systemName: "chart.line.uptrend.xyaxis")
+        case .loan:
+            Image(systemName: "building.columns")
         case .retirement:
             Image(systemName: "calendar")
         case .wallet:

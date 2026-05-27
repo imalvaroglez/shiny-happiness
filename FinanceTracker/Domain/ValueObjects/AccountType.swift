@@ -5,6 +5,7 @@ enum AccountType: String, Codable, CaseIterable {
     case savings
     case creditCard
     case investment
+    case loan
     case wallet
     case retirement
     case other

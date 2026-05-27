@@ -261,6 +261,27 @@
       "category": "Fees & Charges.Commissions",
       "priority": 88,
       "_comment": "HSBC annual fee"
+    },
+    {
+      "pattern": "(?i)PAGO\\s+RECIBIDO\\s+DE\\s+STP\\s+POR\\s+ORDEN\\s+DE\\s+ALVARO",
+      "merchant": "",
+      "category": "Transfers.To Own Accounts",
+      "priority": 110,
+      "_comment": "Incoming own-account transfer via STP (name-anchored)"
+    },
+    {
+      "pattern": "(?i)recibida\\s+(de\\s+la\\s+)?cuenta\\s+0728\\s+BANAMEX",
+      "merchant": "",
+      "category": "Transfers.To Own Accounts",
+      "priority": 110,
+      "_comment": "Incoming from own Priority Banamex 0728 account"
+    },
+    {
+      "pattern": "(?i)PAGO\\s+INTERBANCARIO\\s+PAGO\\s+RECIBIDO\\s+DE.*STP.*ALVARO",
+      "merchant": "",
+      "category": "Credit Card Payments.Card Payment Received",
+      "priority": 110,
+      "_comment": "Credit-card payment received via STP interbank (name-anchored)"
     }
   ]
 }

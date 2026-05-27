@@ -9,8 +9,7 @@ struct CategoryRepairTests {
 
     private func makeContainer() throws -> ModelContainer {
         let schema = Schema([
-            Account.self,
-            Transaction.self,
+            Account.self, AccountBalanceSnapshot.self, Transaction.self,
             Statement.self,
             FinanceTracker.Category.self,
             CategoryRule.self,

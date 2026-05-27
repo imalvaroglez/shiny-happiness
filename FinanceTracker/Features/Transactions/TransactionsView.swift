@@ -37,6 +37,7 @@ struct TransactionsView: View {
     @State private var lastTxCount: Int = 0
 
     @State private var editingTransaction: Transaction?
+    @State private var showingManualTransaction = false
     @State private var pendingApplyToSimilar: PendingApplyToSimilar?
     @State private var pendingApplyCandidate: PendingApplyToSimilar?
 
@@ -121,6 +122,20 @@ struct TransactionsView: View {
         }
         .searchable(text: $searchText, prompt: "Search transactions")
         .navigationTitle("Transactions")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingManualTransaction = true
+                } label: {
+                    Label("Add Transaction", systemImage: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showingManualTransaction) {
+            ManualTransactionSheet(defaultAccountID: accountFilterID) {
+                recomputeDisplay()
+            }
+        }
         .sheet(item: $editingTransaction) { tx in
             TransactionDetailSheet(transaction: tx) { change in
                 pendingApplyCandidate = PendingApplyToSimilar(
@@ -224,4 +239,3 @@ struct TransactionsView: View {
         )
     }
 }
-

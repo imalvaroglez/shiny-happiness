@@ -18,8 +18,7 @@ struct DashboardSnapshotTests {
 
     private func makeContainer() throws -> ModelContainer {
         let schema = Schema([
-            Account.self,
-            Transaction.self,
+            Account.self, AccountBalanceSnapshot.self, Transaction.self,
             Statement.self,
             Category.self,
             CategoryRule.self,
@@ -258,6 +257,109 @@ struct DashboardSnapshotTests {
 
         #expect(snap.totalInterestEarned == 500,
                 "totalInterestEarned should sum the 5 interest rows ($100 each)")
+    }
+
+    @Test("Net worth series has no duplicate months after aggregation")
+    func netWorthSeriesNoDuplicateMonths() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let account = Account(institution: "Test Bank", type: .checking, currency: "MXN")
+        context.insert(account)
+
+        let stmt1 = Statement(
+            account: account,
+            periodStart: dateFromComponents(year: 2026, month: 1, day: 1),
+            periodEnd: dateFromComponents(year: 2026, month: 1, day: 31),
+            sourceFileHash: "hash-jan",
+            closingBalance: 10000
+        )
+        let stmt2 = Statement(
+            account: account,
+            periodStart: dateFromComponents(year: 2026, month: 2, day: 1),
+            periodEnd: dateFromComponents(year: 2026, month: 2, day: 15),
+            sourceFileHash: "hash-feb-early",
+            closingBalance: 12000
+        )
+        let stmt3 = Statement(
+            account: account,
+            periodStart: dateFromComponents(year: 2026, month: 2, day: 16),
+            periodEnd: dateFromComponents(year: 2026, month: 2, day: 28),
+            sourceFileHash: "hash-feb-late",
+            closingBalance: 15000
+        )
+        context.insert(stmt1)
+        context.insert(stmt2)
+        context.insert(stmt3)
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        viewModel.scope = .consolidated
+        viewModel.configure(context: context)
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+
+        let months = snap.netWorthOverTime.map { $0.month }
+        let calendar = Calendar(identifier: .gregorian)
+        let monthKeys = months.map { calendar.dateComponents([.year, .month], from: $0) }
+        let uniqueKeys = Set(monthKeys)
+        #expect(monthKeys.count == uniqueKeys.count,
+                "Net worth series should have one point per month, got \(monthKeys.count) points for \(uniqueKeys.count) unique months")
+    }
+
+    @Test("Manual balance snapshot creates step change in net worth series")
+    func manualBalanceCreatesStep() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let account = Account(institution: "Test Bank", type: .checking, currency: "MXN")
+        context.insert(account)
+
+        let stmt = Statement(
+            account: account,
+            periodStart: dateFromComponents(year: 2026, month: 3, day: 1),
+            periodEnd: dateFromComponents(year: 2026, month: 3, day: 31),
+            sourceFileHash: "hash-mar",
+            closingBalance: 10000
+        )
+        context.insert(stmt)
+
+        let snapshot = AccountBalanceSnapshot(
+            account: account,
+            date: dateFromComponents(year: 2026, month: 5, day: 1),
+            amount: 50000,
+            kind: .manualOpening
+        )
+        context.insert(snapshot)
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        viewModel.scope = .consolidated
+        viewModel.configure(context: context)
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+
+        #expect(snap.netWorthOverTime.count >= 2,
+                "Series should have at least 2 points (March statement + May snapshot), got \(snap.netWorthOverTime.count)")
+
+        let calendar = Calendar(identifier: .gregorian)
+        let mayPoint = snap.netWorthOverTime.first {
+            let comps = calendar.dateComponents([.year, .month], from: $0.month)
+            return comps.year == 2026 && comps.month == 5
+        }
+        #expect(mayPoint != nil, "Series should include a May point for the manual snapshot")
+        if let may = mayPoint {
+            #expect(may.balance == 50000,
+                    "May balance should be 50,000 from manual snapshot, got \(may.balance)")
+        }
     }
 
     private func dateFromComponents(year: Int, month: Int, day: Int) -> Date {

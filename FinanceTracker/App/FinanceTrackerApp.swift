@@ -16,6 +16,7 @@ struct FinanceTrackerApp: App {
         // to persist. Keep this list in sync with `AppContainer.swift`.
         .modelContainer(for: [
             Account.self,
+            AccountBalanceSnapshot.self,
             Transaction.self,
             Statement.self,
             Category.self,

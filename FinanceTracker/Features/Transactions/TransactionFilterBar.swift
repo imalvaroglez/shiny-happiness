@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct TransactionFilterBar: View {
+    @State private var showingFilters = false
+
     @Binding var accountFilterID: UUID?
     @Binding var categoryFilter: CategoryFilter
     @Binding var sortMode: TransactionSortMode
@@ -13,47 +15,42 @@ struct TransactionFilterBar: View {
 
     var body: some View {
         HStack {
-            Picker(selection: $accountFilterID) {
-                Text("All Accounts").tag(nil as UUID?)
-                ForEach(accounts, id: \.id) { account in
-                    Text(account.displayName).tag(account.id as UUID?)
-                }
-            } label: { EmptyView() }
-            .frame(width: 200)
+            Button {
+                showingFilters.toggle()
+            } label: {
+                Label(filterButtonTitle, systemImage: "line.3.horizontal.decrease.circle")
+                    .labelStyle(.titleAndIcon)
+            }
+            .popover(isPresented: $showingFilters, arrowEdge: .bottom) {
+                filterPopover
+                    .frame(width: 360)
+                    .padding(16)
+            }
 
-            Picker(selection: $categoryFilter) {
-                Text("All Categories").tag(CategoryFilter.all)
-                Text("Uncategorized").tag(CategoryFilter.uncategorized)
-                Divider()
-                ForEach(parentCategories, id: \.id) { parent in
-                    Section(parent.name) {
-                        Text("All \(parent.name)")
-                            .tag(CategoryFilter.parent(parent))
-                        ForEach(childrenOf(parent), id: \.id) { sub in
-                            Text(sub.name).tag(CategoryFilter.specific(sub))
-                        }
+            activeFilterChips
+
+            Menu {
+                Picker("Sort order", selection: $sortMode) {
+                    ForEach(TransactionSortMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
                     }
                 }
-            } label: { EmptyView() }
-            .frame(width: 240)
-
-            Picker("Sort", selection: $sortMode) {
-                ForEach(TransactionSortMode.allCases, id: \.self) { mode in
-                    Text(mode.rawValue).tag(mode)
-                }
+            } label: {
+                Label(sortMode.rawValue, systemImage: "arrow.up.arrow.down")
+                    .labelStyle(.titleAndIcon)
             }
-            .frame(width: 140)
+            .menuStyle(.button)
+
+            if activeFilterCount > 0 {
+                Button("Clear") {
+                    clearFilters()
+                }
+                .font(.caption)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
 
             Spacer()
-
-            if deletedCount > 0 {
-                Toggle(isOn: $showingRecentlyDeleted) {
-                    Text("Deleted (\(deletedCount))")
-                        .font(.caption)
-                }
-                .toggleStyle(.button)
-                .tint(showingRecentlyDeleted ? .red : .secondary)
-            }
 
             Text("\(visibleCount) transactions")
                 .font(.caption)
@@ -61,5 +58,121 @@ struct TransactionFilterBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    private var filterPopover: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Filters")
+                    .font(.headline)
+                Spacer()
+                if activeFilterCount > 0 {
+                    Button("Clear") {
+                        clearFilters()
+                    }
+                    .font(.caption)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Account")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("Account", selection: $accountFilterID) {
+                    Text("All Accounts").tag(nil as UUID?)
+                    ForEach(accounts, id: \.id) { account in
+                        Text(account.displayName).tag(account.id as UUID?)
+                    }
+                }
+                .labelsHidden()
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Category")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker(selection: $categoryFilter) {
+                    Text("All Categories").tag(CategoryFilter.all)
+                    Text("Uncategorized").tag(CategoryFilter.uncategorized)
+                    Divider()
+                    ForEach(parentCategories, id: \.id) { parent in
+                        Section(parent.name) {
+                            Text("All \(parent.name)")
+                                .tag(CategoryFilter.parent(parent))
+                            ForEach(childrenOf(parent), id: \.id) { sub in
+                                Text(sub.name).tag(CategoryFilter.specific(sub))
+                            }
+                        }
+                    }
+                } label: {
+                    EmptyView()
+                }
+            }
+
+            if deletedCount > 0 {
+                Toggle(isOn: $showingRecentlyDeleted) {
+                    Label("Recently Deleted (\(deletedCount))", systemImage: "trash")
+                }
+                .toggleStyle(.switch)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var activeFilterChips: some View {
+        if let selectedAccountName {
+            filterChip(selectedAccountName)
+        }
+        if let selectedCategoryName {
+            filterChip(selectedCategoryName)
+        }
+        if showingRecentlyDeleted {
+            filterChip("Deleted")
+        }
+    }
+
+    private func filterChip(_ title: String) -> some View {
+        Text(title)
+            .font(.caption)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.thinMaterial, in: Capsule())
+    }
+
+    private var activeFilterCount: Int {
+        var count = 0
+        if accountFilterID != nil { count += 1 }
+        if categoryFilter != .all { count += 1 }
+        if showingRecentlyDeleted { count += 1 }
+        return count
+    }
+
+    private var filterButtonTitle: String {
+        activeFilterCount == 0 ? "Filters" : "Filters (\(activeFilterCount))"
+    }
+
+    private var selectedAccountName: String? {
+        guard let accountFilterID else { return nil }
+        return accounts.first { $0.id == accountFilterID }?.displayName
+    }
+
+    private var selectedCategoryName: String? {
+        switch categoryFilter {
+        case .all:
+            nil
+        case .uncategorized:
+            "Uncategorized"
+        case .parent(let category):
+            "All \(category.name)"
+        case .specific(let category):
+            category.name
+        }
+    }
+
+    private func clearFilters() {
+        accountFilterID = nil
+        categoryFilter = .all
+        showingRecentlyDeleted = false
     }
 }

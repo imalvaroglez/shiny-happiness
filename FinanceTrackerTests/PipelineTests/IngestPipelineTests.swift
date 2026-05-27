@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import SwiftData
+import CryptoKit
 @testable import FinanceTracker
 
 @Suite("Ingest Pipeline")
@@ -9,8 +10,7 @@ struct IngestPipelineTests {
 
     private func makeContainer() throws -> ModelContainer {
         let schema = Schema([
-            Account.self,
-            Transaction.self,
+            Account.self, AccountBalanceSnapshot.self, Transaction.self,
             Statement.self,
             Category.self,
             CategoryRule.self,
@@ -146,5 +146,38 @@ struct IngestPipelineTests {
         #expect(accounts.count == 1)
         #expect(accounts[0].institution == "American Express Mexico")
         #expect(accounts[0].type == .creditCard)
+    }
+
+    @Test("Duplicate statement import repairs stale non-nil metadata")
+    func duplicateStatementRepairsMetadata() async throws {
+        let url = URL(fileURLWithPath: "/Users/imalvaroglez/Documents/finanzas/banca/amex/Estados de cuenta/12_abr_2026_-_11_may_2026.pdf")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+
+        let container = try makeContainer()
+        let context = container.mainContext
+        let data = try Data(contentsOf: url)
+        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+
+        let account = Account(institution: "American Express Mexico", type: .creditCard, currency: "MXN")
+        context.insert(account)
+        let wrongStatement = Statement(
+            account: account,
+            periodStart: Date(timeIntervalSince1970: 0),
+            periodEnd: Date(timeIntervalSince1970: 0),
+            sourceFileHash: hash,
+            closingBalance: -6195.33
+        )
+        context.insert(wrongStatement)
+        try context.save()
+
+        let pipeline = IngestPipeline(context: context)
+        let reports = await pipeline.ingest(files: [url])
+
+        #expect(reports[0].newTransactions == 0)
+        #expect(wrongStatement.closingBalance == -33996.87)
+        #expect(wrongStatement.paymentForNoInterest == 13802.95)
+        #expect(wrongStatement.minimumPayment == 3600.00)
+        let due = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: wrongStatement.paymentDueDate ?? .distantPast)
+        #expect(due.year == 2026 && due.month == 6 && due.day == 1)
     }
 }
