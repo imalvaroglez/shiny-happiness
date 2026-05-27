@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Delete All Data crash.** "Delete All Data" now removes all 9 model types in dependency-safe order (previously missed `PendingImport`, `InstallmentPlan`, and `SignRecoveryHint`), re-bootstraps seed categories and rules, and resets all UI state (sidebar, filters, sheets). `AppDataResetService` owns the deletion order as a single source of truth, used by both Settings and backup restore. Transaction category filters are now ID-based to avoid stale model references.
 - **Fresh-start reset repair.** Startup repair now detects and cleans the "zero accounts but financial rows remain" state left by earlier partial resets. `resetAllData` verifies all model counts reach zero before restoring seed data, and surfaces a visible error if verification fails. Dashboard and Transactions defensively skip rendering when no accounts exist, preventing stale relationship access.
+- **Hardened transaction materialization.** Transaction fetches are gated on account existence — the app never fetches `Transaction` rows when there are no accounts, preventing crashes from corrupted enum columns in orphan data. Startup uses a single repair-then-configure sequence with no eager refresh. Repair verifies deletion with fresh counts and escalates to a pre-container store-file quarantine if SwiftData cannot clean its own store. Quarantined files are moved to `Application Support/FinanceTracker/ResetBackups/` rather than deleted.
 
 ### Added
 

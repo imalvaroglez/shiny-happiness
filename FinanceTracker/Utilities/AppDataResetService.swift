@@ -2,6 +2,12 @@ import Foundation
 import SwiftData
 import os
 
+enum ResetRepairOutcome {
+    case noRepairNeeded
+    case repaired
+    case hardResetRequested
+}
+
 enum ResetError: Error, LocalizedError {
     case verificationFailed(remaining: String)
 
@@ -48,9 +54,9 @@ struct AppDataResetService {
         SeedDataLoader.bootstrapIfNeeded(context: context)
     }
 
-    static func repairIncompleteResetIfNeeded(context: ModelContext) {
+    static func repairIncompleteResetIfNeeded(context: ModelContext) -> ResetRepairOutcome {
         let accountCount = (try? context.fetchCount(FetchDescriptor<Account>())) ?? 0
-        guard accountCount == 0 else { return }
+        guard accountCount == 0 else { return .noRepairNeeded }
 
         let txCount = (try? context.fetchCount(FetchDescriptor<Transaction>())) ?? 0
         let stmtCount = (try? context.fetchCount(FetchDescriptor<Statement>())) ?? 0
@@ -60,15 +66,30 @@ struct AppDataResetService {
         let hintCount = (try? context.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
 
         let totalOrphans = txCount + stmtCount + snapCount + pendingCount + planCount + hintCount
-        guard totalOrphans > 0 else { return }
+        guard totalOrphans > 0 else { return .noRepairNeeded }
 
         logger.info("Repairing incomplete reset: \(totalOrphans) orphan rows (tx=\(txCount), stmt=\(stmtCount), snap=\(snapCount), pending=\(pendingCount), plan=\(planCount), hint=\(hintCount))")
 
         repairDeleteAll(from: context)
         try? context.save()
-        SeedDataLoader.bootstrapIfNeeded(context: context)
 
+        let remainingTx = (try? context.fetchCount(FetchDescriptor<Transaction>())) ?? 0
+        let remainingStmt = (try? context.fetchCount(FetchDescriptor<Statement>())) ?? 0
+        let remainingSnap = (try? context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>())) ?? 0
+        let remainingPending = (try? context.fetchCount(FetchDescriptor<PendingImport>())) ?? 0
+        let remainingPlan = (try? context.fetchCount(FetchDescriptor<InstallmentPlan>())) ?? 0
+        let remainingHint = (try? context.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
+        let remainingTotal = remainingTx + remainingStmt + remainingSnap + remainingPending + remainingPlan + remainingHint
+
+        if remainingTotal > 0 {
+            logger.error("Batch repair left \(remainingTotal) rows (tx=\(remainingTx), stmt=\(remainingStmt), snap=\(remainingSnap), pending=\(remainingPending), plan=\(remainingPlan), hint=\(remainingHint)) — requesting hard reset")
+            StoreFileResetService.requestHardReset(reason: "Batch repair left \(remainingTotal) rows")
+            return .hardResetRequested
+        }
+
+        SeedDataLoader.bootstrapIfNeeded(context: context)
         logger.info("Repair complete")
+        return .repaired
     }
 
     private static func repairDeleteAll(from context: ModelContext) {

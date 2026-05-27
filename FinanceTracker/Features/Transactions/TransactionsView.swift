@@ -19,16 +19,14 @@ struct TransactionsView: View {
     var resetSignal: Int = 0
 
     @Environment(\.modelContext) private var modelContext
-    @Query(filter: #Predicate<Transaction> { $0.deletedAt == nil },
-           sort: \Transaction.postedAt, order: .reverse) private var allTransactions: [Transaction]
-    @Query(filter: #Predicate<Transaction> { $0.deletedAt != nil },
-           sort: \Transaction.postedAt, order: .reverse) private var deletedTransactions: [Transaction]
     @Query private var accounts: [Account]
     @Query(filter: #Predicate<Category> { $0.deletedAt == nil }) private var categories: [Category]
     @Query(filter: #Predicate<PendingImport> { $0.resolvedTransaction == nil },
            sort: \PendingImport.createdAt, order: .reverse)
     private var pendingImports: [PendingImport]
 
+    @State private var allTransactions: [Transaction] = []
+    @State private var deletedTransactions: [Transaction] = []
     @State private var searchText = ""
     @State private var accountFilterID: UUID?
     @State private var categoryFilter: CategoryFilter = .all
@@ -55,6 +53,25 @@ struct TransactionsView: View {
         categories
             .filter { $0.parent?.id == parent.id }
             .sorted { $0.name < $1.name }
+    }
+
+    private func fetchTransactions() {
+        guard !accounts.isEmpty else {
+            allTransactions = []
+            deletedTransactions = []
+            return
+        }
+        let activeDesc = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.deletedAt == nil },
+            sortBy: [SortDescriptor(\.postedAt, order: .reverse)]
+        )
+        allTransactions = (try? modelContext.fetch(activeDesc)) ?? []
+
+        let deletedDesc = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.deletedAt != nil },
+            sortBy: [SortDescriptor(\.postedAt, order: .reverse)]
+        )
+        deletedTransactions = (try? modelContext.fetch(deletedDesc)) ?? []
     }
 
     private func recomputeDisplay() {
@@ -124,6 +141,8 @@ struct TransactionsView: View {
             if !pendingImports.isEmpty {
                 PendingReviewSection(pendings: pendingImports) { _ in
                     try? modelContext.save()
+                    fetchTransactions()
+                    recomputeDisplay()
                 }
             }
             groupedLedger
@@ -141,6 +160,7 @@ struct TransactionsView: View {
         }
         .sheet(isPresented: $showingManualTransaction) {
             ManualTransactionSheet(defaultAccountID: accountFilterID) {
+                fetchTransactions()
                 recomputeDisplay()
             }
         }
@@ -174,15 +194,14 @@ struct TransactionsView: View {
         .onChange(of: searchText) { recomputeDisplay() }
         .onChange(of: sortMode) { recomputeDisplay() }
         .onChange(of: showingRecentlyDeleted) { recomputeDisplay() }
-        .onChange(of: allTransactions.count) { _, new in
-            guard new != lastTxCount else { return }
+        .onAppear {
+            fetchTransactions()
             recomputeDisplay()
         }
-        .onChange(of: deletedTransactions.count) { _, new in
-            guard new != lastTxCount else { return }
+        .onChange(of: accounts.count) {
+            fetchTransactions()
             recomputeDisplay()
         }
-        .onAppear { recomputeDisplay() }
         .onChange(of: resetSignal) {
             accountFilterID = nil
             categoryFilter = .all
@@ -192,6 +211,7 @@ struct TransactionsView: View {
             showingManualTransaction = false
             showingRecentlyDeleted = false
             searchText = ""
+            fetchTransactions()
         }
         .onChange(of: accounts.map(\.id)) {
             let activeAccountIDs = Set(accounts.map(\.id))
@@ -256,12 +276,16 @@ struct TransactionsView: View {
         tx.deletedAt = Date.now
         tx.touch()
         try? modelContext.save()
+        fetchTransactions()
+        recomputeDisplay()
     }
 
     private func restore(_ tx: Transaction) {
         tx.deletedAt = nil
         tx.touch()
         try? modelContext.save()
+        fetchTransactions()
+        recomputeDisplay()
     }
 
     private func beginApplyToSimilar(_ tx: Transaction) {

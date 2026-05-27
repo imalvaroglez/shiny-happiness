@@ -76,13 +76,11 @@ struct DashboardView: View {
         }
         .environment(\.scopedTint, scopedTint)
         .task {
-            AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
+            let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
+            guard outcome != .hardResetRequested else { return }
             SeedDataLoader.bootstrapIfNeeded(context: modelContext)
             viewModel.configure(context: modelContext)
             await BackupScheduler.runIfNeeded(context: modelContext)
-        }
-        .onAppear {
-            viewModel.refresh()
         }
         .onChange(of: sidebarSelection) {
             switch sidebarSelection {
