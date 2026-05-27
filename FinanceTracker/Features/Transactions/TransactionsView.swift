@@ -11,11 +11,13 @@ struct PendingApplyToSimilar: Identifiable {
 enum CategoryFilter: Hashable {
     case all
     case uncategorized
-    case parent(Category)
-    case specific(Category)
+    case parent(UUID)
+    case specific(UUID)
 }
 
 struct TransactionsView: View {
+    var resetSignal: Int = 0
+
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<Transaction> { $0.deletedAt == nil },
            sort: \Transaction.postedAt, order: .reverse) private var allTransactions: [Transaction]
@@ -57,6 +59,13 @@ struct TransactionsView: View {
 
     private func recomputeDisplay() {
         let active = showingRecentlyDeleted ? deletedTransactions : allTransactions
+
+        if accounts.isEmpty {
+            dayGroups = []
+            lastTxCount = 0
+            return
+        }
+
         var result = Array(active)
 
         if let filterID = accountFilterID {
@@ -68,14 +77,13 @@ struct TransactionsView: View {
             break
         case .uncategorized:
             result = result.filter { $0.category == nil }
-        case .parent(let cat):
+        case .parent(let id):
+            let childIDs = Set(categories.filter { $0.parent?.id == id }.map(\.id))
             result = result.filter { tx in
-                tx.category?.id == cat.id || tx.category?.parent?.id == cat.id
+                tx.category?.id == id || childIDs.contains(tx.category?.id ?? UUID())
             }
-        case .specific(let cat):
-            result = result.filter { tx in
-                tx.category?.id == cat.id || tx.category?.parent?.id == cat.id
-            }
+        case .specific(let id):
+            result = result.filter { tx in tx.category?.id == id }
         }
 
         if !searchText.isEmpty {
@@ -175,6 +183,33 @@ struct TransactionsView: View {
             recomputeDisplay()
         }
         .onAppear { recomputeDisplay() }
+        .onChange(of: resetSignal) {
+            accountFilterID = nil
+            categoryFilter = .all
+            editingTransaction = nil
+            pendingApplyToSimilar = nil
+            pendingApplyCandidate = nil
+            showingManualTransaction = false
+            showingRecentlyDeleted = false
+            searchText = ""
+        }
+        .onChange(of: accounts.map(\.id)) {
+            let activeAccountIDs = Set(accounts.map(\.id))
+            if let id = accountFilterID, !activeAccountIDs.contains(id) {
+                accountFilterID = nil
+            }
+        }
+        .onChange(of: categories.map(\.id)) {
+            let activeIDs = Set(categories.map(\.id))
+            switch categoryFilter {
+            case .parent(let id), .specific(let id):
+                if !activeIDs.contains(id) {
+                    categoryFilter = .all
+                }
+            default:
+                break
+            }
+        }
     }
 
     private var groupedLedger: some View {

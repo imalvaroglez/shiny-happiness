@@ -1,22 +1,32 @@
 import SwiftUI
 import SwiftData
 
+private struct AccountDeletionTarget {
+    let id: UUID
+    let displayName: String
+    let preview: AccountDeletionService.DeletionPreview
+}
+
 struct SettingsView: View {
     var onAccountDeleted: (UUID) -> Void = { _ in }
     var onAccountCreated: (Account) -> Void = { _ in }
+    var onDataReset: () -> Void = {}
 
     @Environment(\.modelContext) private var modelContext
     @Query private var accounts: [Account]
     @Query private var transactions: [Transaction]
     @Query(filter: #Predicate<Category> { $0.deletedAt == nil }) private var categories: [Category]
+    @Query(filter: #Predicate<PendingImport> { $0.resolvedTransaction == nil })
+    private var pendingImports: [PendingImport]
+    @Query private var installmentPlans: [InstallmentPlan]
 
     @State private var showDeleteConfirmation = false
     @State private var isExporting = false
     @State private var isRestoring = false
     @State private var backupStatus = ""
+    @State private var resetErrorMessage: String?
 
-    @State private var accountToDelete: Account?
-    @State private var deletionPreview: AccountDeletionService.DeletionPreview?
+    @State private var accountDeletionTarget: AccountDeletionTarget?
     @State private var showingAddAccount = false
     @State private var balanceSnapshotAccount: Account?
 
@@ -28,12 +38,21 @@ struct SettingsView: View {
 
     private var transactionCountsByAccountID: [UUID: Int] {
         var counts: [UUID: Int] = [:]
-        for tx in transactions {
-            if let id = tx.account?.id {
-                counts[id, default: 0] += 1
-            }
+        for account in accounts {
+            let accountId = account.id
+            let descriptor = FetchDescriptor<Transaction>(
+                predicate: #Predicate<Transaction> { $0.account?.id == accountId }
+            )
+            counts[accountId] = ((try? modelContext.fetch(descriptor)) ?? []).count
         }
         return counts
+    }
+
+    private func fetchAccount(id: UUID) -> Account? {
+        let descriptor = FetchDescriptor<Account>(
+            predicate: #Predicate<Account> { $0.id == id }
+        )
+        return try? modelContext.fetch(descriptor).first
     }
 
     var body: some View {
@@ -50,31 +69,39 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .alert("Delete Account?", isPresented: Binding(
-            get: { accountToDelete != nil },
-            set: { if !$0 { accountToDelete = nil; deletionPreview = nil } }
+            get: { accountDeletionTarget != nil },
+            set: { if !$0 { accountDeletionTarget = nil } }
         )) {
             Button("Cancel", role: .cancel) {
-                accountToDelete = nil
-                deletionPreview = nil
+                accountDeletionTarget = nil
             }
             Button("Delete", role: .destructive) {
-                if let account = accountToDelete {
+                if let target = accountDeletionTarget,
+                   let account = fetchAccount(id: target.id) {
                     do {
+                        balanceSnapshotAccount = nil
                         try AccountDeletionService.delete(account: account, context: modelContext)
-                        onAccountDeleted(account.id)
+                        onAccountDeleted(target.id)
                     } catch {
                         NSLog("Failed to delete account: %@", error.localizedDescription)
                     }
-                    accountToDelete = nil
-                    deletionPreview = nil
                 }
+                accountDeletionTarget = nil
             }
         } message: {
-            if let account = accountToDelete, let preview = deletionPreview {
-                Text("Permanently delete \"\(account.displayName)\"? This will remove \(preview.statementCount) statement(s), \(preview.transactionCount) transaction(s), \(preview.balanceSnapshotCount) balance snapshot(s), \(preview.pendingImportCount) pending import(s), and \(preview.installmentPlanCount) installment plan(s). This cannot be undone.")
+            if let target = accountDeletionTarget {
+                Text("Permanently delete \"\(target.displayName)\"? This will remove \(target.preview.statementCount) statement(s), \(target.preview.transactionCount) transaction(s), \(target.preview.balanceSnapshotCount) balance snapshot(s), \(target.preview.pendingImportCount) pending import(s), and \(target.preview.installmentPlanCount) installment plan(s). This cannot be undone.")
             } else {
                 Text("Are you sure?")
             }
+        }
+        .alert("Reset Error", isPresented: Binding(
+            get: { resetErrorMessage != nil },
+            set: { if !$0 { resetErrorMessage = nil } }
+        )) {
+            Button("OK") { resetErrorMessage = nil }
+        } message: {
+            Text(resetErrorMessage ?? "An unknown error occurred.")
         }
         .sheet(isPresented: $showingNewCategory) {
             newCategorySheet
@@ -188,8 +215,11 @@ struct SettingsView: View {
                 }
 
                 Button(role: .destructive) {
-                    deletionPreview = AccountDeletionService.preview(account: account, context: modelContext)
-                    accountToDelete = account
+                    accountDeletionTarget = AccountDeletionTarget(
+                        id: account.id,
+                        displayName: account.displayName,
+                        preview: AccountDeletionService.preview(account: account, context: modelContext)
+                    )
                 } label: {
                     Label("Delete Account", systemImage: "trash")
                         .font(.caption)
@@ -443,6 +473,8 @@ struct SettingsView: View {
                 HStack(spacing: 24) {
                     MetricChip(label: "Accounts", value: "\(accounts.count)")
                     MetricChip(label: "Transactions", value: "\(transactions.count)")
+                    MetricChip(label: "Pending Review", value: "\(pendingImports.count)")
+                    MetricChip(label: "Installment Plans", value: "\(installmentPlans.count)")
                 }
 
                 Button(role: .destructive) {
@@ -459,7 +491,7 @@ struct SettingsView: View {
                 deleteAllData()
             }
         } message: {
-            Text("This will permanently delete all accounts, transactions, and categories. This cannot be undone.")
+            Text("This will permanently delete all accounts, transactions, and categories. Default categories will be recreated. This cannot be undone.")
         }
     }
 
@@ -583,15 +615,11 @@ struct SettingsView: View {
 
     private func deleteAllData() {
         do {
-            try modelContext.delete(model: Account.self)
-            try modelContext.delete(model: AccountBalanceSnapshot.self)
-            try modelContext.delete(model: Transaction.self)
-            try modelContext.delete(model: Statement.self)
-            try modelContext.delete(model: Category.self)
-            try modelContext.delete(model: CategoryRule.self)
-            try modelContext.save()
+            try AppDataResetService.resetAllData(context: modelContext)
+            resetErrorMessage = nil
+            onDataReset()
         } catch {
-            NSLog("Failed to delete all data: %@", error.localizedDescription)
+            resetErrorMessage = error.localizedDescription
         }
     }
 }

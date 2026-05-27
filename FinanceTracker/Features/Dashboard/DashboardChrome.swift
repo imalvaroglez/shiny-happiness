@@ -97,9 +97,9 @@ struct DashboardTransactionRow: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(transaction.postedAt.formatted(date: .abbreviated, time: .omitted))
-                    if let account = transaction.account?.displayName {
+                    if let card = transaction.cardLast4 {
                         Text("•")
-                        Text(account)
+                        Text("••••\(card)")
                             .lineLimit(1)
                     }
                 }

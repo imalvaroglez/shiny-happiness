@@ -17,10 +17,32 @@ struct EmptySnapshot {
 
 // MARK: - Consolidated
 
- struct AccountSummary: Identifiable, Hashable {
-     let id: UUID
-     let displayName: String
-     let institution: String
+struct DashboardAccountIdentity: Identifiable, Hashable {
+    let id: UUID
+    let displayName: String
+    let institution: String
+    let type: AccountType
+    let currency: String
+    let tintHex: String?
+    let creditLimit: Decimal?
+}
+
+extension DashboardAccountIdentity {
+    init(_ account: Account) {
+        self.id = account.id
+        self.displayName = account.displayName
+        self.institution = account.institution
+        self.type = account.type
+        self.currency = account.currency
+        self.tintHex = account.tintHex
+        self.creditLimit = account.creditLimit
+    }
+}
+
+struct AccountSummary: Identifiable, Hashable {
+    let id: UUID
+    let displayName: String
+    let institution: String
     let type: AccountType
     let currency: String
     /// Signed: positive = asset balance, negative = liability balance.
@@ -57,7 +79,7 @@ struct ConsolidatedSnapshot {
 // MARK: - Asset (checking, savings, etc.)
 
 struct AssetAccountSnapshot {
-    let account: Account
+    let account: DashboardAccountIdentity
     let currentBalance: Decimal
     let balanceOverTime: [NetWorthPoint]
     let monthlyCashFlow: [MonthlyCashFlow]
@@ -74,7 +96,7 @@ struct AssetAccountSnapshot {
 // MARK: - Liability (credit cards)
 
 struct LiabilityAccountSnapshot {
-    let account: Account
+    let account: DashboardAccountIdentity
     /// Stored signed-negative for liabilities (AD-C2). Convenience accessors below
     /// expose the absolute owed amount.
     let currentBalance: Decimal

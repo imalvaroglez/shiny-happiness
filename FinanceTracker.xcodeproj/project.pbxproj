@@ -94,6 +94,7 @@
 		9972F4A7520C93AF3B3605AC /* AccountType.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0EB885128E2A69A17B135B /* AccountType.swift */; };
 		9B454A77B487AA81B149DC56 /* StructuralParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6813D29124C05045CEDD6125 /* StructuralParserTests.swift */; };
 		9C70B77813655A009995FF23 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5A2A1E39B077344ABA252C5 /* AppContainer.swift */; };
+		9D30CE9FCB73FB11930406E7 /* AppDataResetServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5991749DFCB4D702D68AFEF6 /* AppDataResetServiceTests.swift */; };
 		A1AD6EE4E5C7D5AA5584BD27 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989ACDB4A037230E6C8E9080 /* Account.swift */; };
 		A3FA364702E99FA693D03CBF /* AccountBalanceSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8A9B5CAA7955E44FD69806 /* AccountBalanceSnapshot.swift */; };
 		A766ECFBB9300ACB31EE2783 /* ColumnDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24F0AF2908D79A4B7A1865F5 /* ColumnDetector.swift */; };
@@ -115,6 +116,7 @@
 		C80B8FA576C355F255DC67C0 /* EndToEndPDFTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76945E0492AC714D84088096 /* EndToEndPDFTests.swift */; };
 		CEBCC41FFC6CD5B63B21A840 /* ManualAccountServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8AEED416815C85A155E0055 /* ManualAccountServices.swift */; };
 		CFA27954E24E8D689A403CCA /* categories.json in Resources */ = {isa = PBXBuildFile; fileRef = 5C84E93C9A795A6020B4643B /* categories.json */; };
+		D18B106C73B2FF2E9576445B /* AppDataResetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE3A402ECAC8EDC5B7D22E7 /* AppDataResetService.swift */; };
 		D32D6CE030D869DD54D5717B /* MultiHSBCAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333B96563F77F1263638F894 /* MultiHSBCAccountTests.swift */; };
 		D4A27D48A989F8E35061F16C /* IngestPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0C844E5D35AE5153E8A82B /* IngestPipelineTests.swift */; };
 		D5AF14203C74431004F2E689 /* AmexMexicoParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A55B8805B742C85C8DF62F /* AmexMexicoParser.swift */; };
@@ -158,6 +160,7 @@
 		16109266463E3B20E879BFA7 /* LearningHookTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LearningHookTests.swift; sourceTree = "<group>"; };
 		180C8C80B7814CCAC01438A1 /* ColumnDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnDetectorTests.swift; sourceTree = "<group>"; };
 		1ADE896B846BF60B6FF840B9 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		1AE3A402ECAC8EDC5B7D22E7 /* AppDataResetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataResetService.swift; sourceTree = "<group>"; };
 		1BAE6FB9D105F2781DB4D41F /* CategoryKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryKind.swift; sourceTree = "<group>"; };
 		1CA827B92C402DBA4228BDF1 /* TransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionsView.swift; sourceTree = "<group>"; };
 		1E9C62014293BDC9D69DF68D /* SemanticNormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticNormalizerTests.swift; sourceTree = "<group>"; };
@@ -185,6 +188,7 @@
 		45CC98CFD6E5ADACC4120ED2 /* header_vocabulary.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = header_vocabulary.json; sourceTree = "<group>"; };
 		563D0A48A886DA322657A90C /* TransactionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionSource.swift; sourceTree = "<group>"; };
 		5968E2E2BFBEF7C9DA25BE07 /* Category.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Category.swift; sourceTree = "<group>"; };
+		5991749DFCB4D702D68AFEF6 /* AppDataResetServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataResetServiceTests.swift; sourceTree = "<group>"; };
 		5AD9346479E8E084E76AE432 /* SignRecoveryHint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignRecoveryHint.swift; sourceTree = "<group>"; };
 		5C84E93C9A795A6020B4643B /* categories.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = categories.json; sourceTree = "<group>"; };
 		6148A270D6812D4C3D521D51 /* LayoutFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutFingerprint.swift; sourceTree = "<group>"; };
@@ -383,6 +387,7 @@
 		556602BD2A10F46EC395E5A2 /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
+				1AE3A402ECAC8EDC5B7D22E7 /* AppDataResetService.swift */,
 				B833F7810F33D61E067029F4 /* Date+Period.swift */,
 				8D8F045F1CC4D789C71AA8C8 /* Decimal+Money.swift */,
 				8573C4DA0BD52C0E219ABFF9 /* Logger.swift */,
@@ -483,6 +488,7 @@
 			isa = PBXGroup;
 			children = (
 				AF90BB8B8BA6AA6C4D95B192 /* AccountDeletionServiceTests.swift */,
+				5991749DFCB4D702D68AFEF6 /* AppDataResetServiceTests.swift */,
 				A24A6CE11C6370FEE1842953 /* BackupArchiveTests.swift */,
 				92E3281262428E4DA9DEBC6D /* CategoryManagementActionsTests.swift */,
 				766DC0704044F15C95A1B59B /* DashboardSnapshotTests.swift */,
@@ -824,6 +830,7 @@
 				D5AF14203C74431004F2E689 /* AmexMexicoParser.swift in Sources */,
 				334DE92A9AEA2308B0C6443B /* AppBackdrop.swift in Sources */,
 				9C70B77813655A009995FF23 /* AppContainer.swift in Sources */,
+				D18B106C73B2FF2E9576445B /* AppDataResetService.swift in Sources */,
 				72D61D523AC9B58EB1FFF216 /* ApplyToSimilarView.swift in Sources */,
 				63AA955FDFE1C8C6C5D48E60 /* AssetAccountDashboard.swift in Sources */,
 				0E220C56F01C5F73AC25E438 /* BackupArchive.swift in Sources */,
@@ -908,6 +915,7 @@
 				1275084F5DF5326C2E3D9E94 /* AccountDeletionServiceTests.swift in Sources */,
 				BEFBD7ED5803C6E6E3AEB32B /* AmexMetadataParserTests.swift in Sources */,
 				40AA5D56C191AF5969E07208 /* AmexMexicoParserTests.swift in Sources */,
+				9D30CE9FCB73FB11930406E7 /* AppDataResetServiceTests.swift in Sources */,
 				2FB86180F374A9A6773D4993 /* BackupArchiveTests.swift in Sources */,
 				95101243257E43CBB06A3841 /* BanamexParserTests.swift in Sources */,
 				7CB1F81CCB8BFCF3415EA9A5 /* CashFlowExclusionTests.swift in Sources */,

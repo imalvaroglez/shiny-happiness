@@ -362,6 +362,52 @@ struct DashboardSnapshotTests {
         }
     }
 
+    @Test("Account snapshot identity remains readable after account deletion")
+    func accountSnapshotUsesValueIdentity() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let account = Account(
+            institution: "Synthetic Bank",
+            type: .checking,
+            currency: "MXN",
+            nickname: "Safe Snapshot",
+            tintHex: "#336699"
+        )
+        context.insert(account)
+        let balance = AccountBalanceSnapshot(
+            account: account,
+            date: dateFromComponents(year: 2026, month: 5, day: 1),
+            amount: 12_345,
+            kind: .manualOpening
+        )
+        context.insert(balance)
+        try context.save()
+
+        let accountID = account.id
+        let viewModel = DashboardViewModel()
+        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        viewModel.scope = .account(accountID)
+        viewModel.configure(context: context)
+
+        guard case .asset(let snap) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot"); return
+        }
+
+        try AccountDeletionService.delete(account: account, context: context)
+
+        #expect(snap.account.id == accountID)
+        #expect(snap.account.displayName == "Safe Snapshot")
+        #expect(snap.account.tintHex == "#336699")
+        #expect(snap.currencyCode == "MXN")
+
+        viewModel.refresh()
+        guard case .empty(let empty) = viewModel.snapshot else {
+            Issue.record("Expected empty snapshot after deleted scoped account"); return
+        }
+        #expect(empty.reason == "Account not found")
+    }
+
     private func dateFromComponents(year: Int, month: Int, day: Int) -> Date {
         var c = DateComponents()
         c.year = year; c.month = month; c.day = day

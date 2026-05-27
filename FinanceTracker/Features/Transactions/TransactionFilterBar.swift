@@ -98,9 +98,9 @@ struct TransactionFilterBar: View {
                     ForEach(parentCategories, id: \.id) { parent in
                         Section(parent.name) {
                             Text("All \(parent.name)")
-                                .tag(CategoryFilter.parent(parent))
+                                .tag(CategoryFilter.parent(parent.id))
                             ForEach(childrenOf(parent), id: \.id) { sub in
-                                Text(sub.name).tag(CategoryFilter.specific(sub))
+                                Text(sub.name).tag(CategoryFilter.specific(sub.id))
                             }
                         }
                     }
@@ -160,13 +160,18 @@ struct TransactionFilterBar: View {
     private var selectedCategoryName: String? {
         switch categoryFilter {
         case .all:
-            nil
+            return nil
         case .uncategorized:
-            "Uncategorized"
-        case .parent(let category):
-            "All \(category.name)"
-        case .specific(let category):
-            category.name
+            return "Uncategorized"
+        case .parent(let id):
+            if let parent = parentCategories.first(where: { $0.id == id }) {
+                return "All \(parent.name)"
+            } else {
+                return nil
+            }
+        case .specific(let id):
+            let allSubs = parentCategories.flatMap { childrenOf($0) }
+            return allSubs.first(where: { $0.id == id })?.name
         }
     }
 

@@ -58,15 +58,30 @@ final class DashboardViewModel {
     private func windowedTransactions(context: ModelContext, accountId: UUID? = nil) -> [Transaction] {
         let start = dateRange.start
         let end = dateRange.end
+        if let accountId {
+            let descriptor = FetchDescriptor<Transaction>(
+                predicate: #Predicate<Transaction> { tx in
+                    tx.postedAt >= start
+                        && tx.postedAt <= end
+                        && tx.deletedAt == nil
+                        && tx.account?.id == accountId
+                },
+                sortBy: [SortDescriptor(\.postedAt, order: .reverse)]
+            )
+            return (try? context.fetch(descriptor)) ?? []
+        }
+
         let descriptor = FetchDescriptor<Transaction>(
             predicate: #Predicate<Transaction> { tx in
                 tx.postedAt >= start && tx.postedAt <= end && tx.deletedAt == nil
             },
             sortBy: [SortDescriptor(\.postedAt, order: .reverse)]
         )
-        let all = (try? context.fetch(descriptor)) ?? []
-        guard let accountId else { return all }
-        return all.filter { $0.account?.id == accountId }
+        let fetched = (try? context.fetch(descriptor)) ?? []
+        let accounts = (try? context.fetch(FetchDescriptor<Account>())) ?? []
+        guard !accounts.isEmpty else { return [] }
+        let validIDs = Set(accounts.map(\.id))
+        return fetched.filter { validIDs.contains($0.account?.id ?? UUID()) }
     }
 
     /// Returns `true` when the transaction should NOT contribute to income/expense
@@ -176,7 +191,7 @@ final class DashboardViewModel {
         let balanceSeries = computeBalanceSeries(context: context, accountId: account.id)
 
         return AssetAccountSnapshot(
-            account: account,
+            account: DashboardAccountIdentity(account),
             currentBalance: currentBalance,
             balanceOverTime: balanceSeries,
             monthlyCashFlow: cashFlow,
@@ -221,7 +236,7 @@ final class DashboardViewModel {
         let sourceStatements = fetchSourceStatements(context: context, accountId: account.id)
 
         return LiabilityAccountSnapshot(
-            account: account,
+            account: DashboardAccountIdentity(account),
             currentBalance: currentBalance,
             creditLimit: account.creditLimit,
             utilizationPercent: utilization,

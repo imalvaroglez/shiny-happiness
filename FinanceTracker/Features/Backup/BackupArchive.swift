@@ -353,20 +353,7 @@ enum BackupArchive {
     }
 
     private static func deleteAll(from context: ModelContext) throws {
-        let types: [any PersistentModel.Type] = [
-            PendingImport.self,
-            AccountBalanceSnapshot.self,
-            Transaction.self,
-            CategoryRule.self,
-            InstallmentPlan.self,
-            SignRecoveryHint.self,
-            Statement.self,
-            Category.self,
-            Account.self,
-        ]
-        for type in types {
-            try context.delete(model: type)
-        }
+        try AppDataResetService.deletePersistentModels(from: context)
     }
 
     private static func indexByID<T>(_ items: [T], keyPath: KeyPath<T, UUID>) -> [UUID: T] {
