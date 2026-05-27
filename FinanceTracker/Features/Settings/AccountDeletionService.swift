@@ -6,6 +6,7 @@ struct AccountDeletionService {
     struct DeletionPreview {
         let statementCount: Int
         let transactionCount: Int
+        let balanceSnapshotCount: Int
         let pendingImportCount: Int
         let installmentPlanCount: Int
     }
@@ -13,6 +14,7 @@ struct AccountDeletionService {
     private struct LinkedObjects {
         let statements: [Statement]
         let transactions: [Transaction]
+        let balanceSnapshots: [AccountBalanceSnapshot]
         let pendingImports: [PendingImport]
         let installmentPlans: [InstallmentPlan]
     }
@@ -22,6 +24,7 @@ struct AccountDeletionService {
         return DeletionPreview(
             statementCount: linked.statements.count,
             transactionCount: linked.transactions.count,
+            balanceSnapshotCount: linked.balanceSnapshots.count,
             pendingImportCount: linked.pendingImports.count,
             installmentPlanCount: linked.installmentPlans.count
         )
@@ -33,6 +36,7 @@ struct AccountDeletionService {
         for plan in linked.installmentPlans { context.delete(plan) }
         for pending in linked.pendingImports { context.delete(pending) }
         for tx in linked.transactions { context.delete(tx) }
+        for snapshot in linked.balanceSnapshots { context.delete(snapshot) }
         for stmt in linked.statements { context.delete(stmt) }
         context.delete(account)
         try context.save()
@@ -45,6 +49,7 @@ struct AccountDeletionService {
         let statementIDs = Set(statements.map(\.id))
 
         let directTransactions = fetchTransactions(context: context, accountId: accountId)
+        let balanceSnapshots = fetchBalanceSnapshots(context: context, accountId: accountId)
         let statementTransactions = statements.flatMap(\.transactions)
         let allTransactions = mergeUnique(directTransactions, statementTransactions)
         let transactionIDs = Set(allTransactions.map(\.id))
@@ -68,6 +73,7 @@ struct AccountDeletionService {
         return LinkedObjects(
             statements: statements,
             transactions: allTransactions,
+            balanceSnapshots: balanceSnapshots,
             pendingImports: allPending,
             installmentPlans: allInstallments
         )
@@ -83,6 +89,13 @@ struct AccountDeletionService {
     private static func fetchTransactions(context: ModelContext, accountId: UUID) -> [Transaction] {
         let descriptor = FetchDescriptor<Transaction>(
             predicate: #Predicate<Transaction> { $0.account?.id == accountId }
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    private static func fetchBalanceSnapshots(context: ModelContext, accountId: UUID) -> [AccountBalanceSnapshot] {
+        let descriptor = FetchDescriptor<AccountBalanceSnapshot>(
+            predicate: #Predicate<AccountBalanceSnapshot> { $0.account?.id == accountId }
         )
         return (try? context.fetch(descriptor)) ?? []
     }

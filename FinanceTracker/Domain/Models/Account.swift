@@ -17,6 +17,7 @@ final class Account: LastModifiedTracking {
     /// Optional user-chosen identity color stored as `#RRGGBB`. When nil,
     /// `AccountIdentity.color(for:)` falls back to the institution default map.
     var tintHex: String?
+    var manuallyCreatedAt: Date?
     var lastModifiedAt: Date = Date.now
 
     init(
@@ -31,7 +32,8 @@ final class Account: LastModifiedTracking {
         creditLimit: Decimal? = nil,
         statementDayOfMonth: Int? = nil,
         paymentDayOfMonth: Int? = nil,
-        tintHex: String? = nil
+        tintHex: String? = nil,
+        manuallyCreatedAt: Date? = nil
     ) {
         self.id = id
         self.institution = institution
@@ -45,6 +47,7 @@ final class Account: LastModifiedTracking {
         self.statementDayOfMonth = statementDayOfMonth
         self.paymentDayOfMonth = paymentDayOfMonth
         self.tintHex = tintHex
+        self.manuallyCreatedAt = manuallyCreatedAt
     }
 
     var displayName: String {

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Manual accounts.** Users can now create debit, investment, credit-card, and loan accounts directly from Settings or the sidebar. Manual accounts store their creation provenance and always start with an opening balance snapshot.
+- **Manual balance snapshots.** New `AccountBalanceSnapshot` model supports opening balances and later manual adjustments, letting users correct account balances without fabricating statement rows.
+- **Manual transactions and transfers.** Transactions can now be added manually from the Transactions view. Paired transfers create linked source/destination transactions with a shared `transferGroupID` and consistent asset/liability signs.
+- **Hybrid balance resolver.** Account dashboards now resolve balances from the latest imported statement or manual balance snapshot, then roll forward only later non-deleted, non-duplicate transactions.
+- **Loan account support.** `AccountType.loan` routes through liability dashboards with loan-specific copy and hides credit-card-only payment due, utilization, source statement, and installment sections.
 - **Source file tracking.** `Statement` now stores `sourceFileName` and `sourceArchivedPath` alongside the existing hash. Imported files are archived with content-addressed names (`<hash-prefix>_<original-name>.pdf`) to prevent same-name overwrites. Liability dashboards show a "Source Statements" section listing each statement's file name, period, import date, and metadata completeness status.
 - **Category repair on bootstrap.** `SeedDataLoader` now repairs stale `Credit Card Payments` categories that were created with `kind = .transfer` in older stores. Repairs kind to `.creditCardPayment`, promotes to top-level, deduplicates if both old and new categories exist, and reassigns transactions/rules to the canonical.
 - **Payment due card states.** The credit-card payment-due card now distinguishes "no statement" from "statement exists but due date unavailable" from "due date present but payment amounts missing." Missing amounts show "Unavailable" instead of hiding the row.
@@ -33,9 +38,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Import account matching protects manual accounts.** Imported statements attach to manually created accounts only when account/card numbers match. Numberless imports no longer attach to manual accounts by loose institution/type matching.
 - **Liability payment computation is sign-based.** Credit-card dashboard totals and charges-vs-payments chart no longer exclude transactions by category kind. Positive amounts count as payments/credits regardless of whether categorized as transfer, credit-card payment, refund, or uncategorized. Consolidated cash flow still excludes both `.transfer` and `.creditCardPayment`.
 - **Charges vs Payments chart legend.** Added explicit color-coded legend (Charges red, Payments & Credits green). Relabeled "Payments" to "Payments & Credits" in tooltip and totals.
-- **Amex metadata extraction prefers exact-line parsing.** `exactColonDate` and `exactColonAmount` methods try colon-separated line matches first, then fall back to loose near-label regex. Prevents the 120-character window from grabbing wrong amounts in dense headers.
+- **Amex metadata extraction uses statement-summary semantics.** Gold Elite statements now parse the arithmetic summary row and credit summary directly. `closingBalance` represents total outstanding debt from credit limit minus available credit, while `paymentForNoInterest` stores the statement balance / saldo a pagar.
+- **Transactions filter bar.** Account, category, and recently-deleted controls now live behind a compact Filters popover with active filter chips. Sorting is a separate icon menu without the extra "Sort" label.
 
 - **Credit-card dashboard: removed Interest & Fees card.** Statement metadata preserved in snapshot/model; visual card removed for all credit-card types.
 - **Category picker: removed inline creation.** Replaced with passive "Manage categories in Settings" hint. Creation now lives in the Settings category manager.
@@ -50,6 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **Credit-card payments hidden from liability dashboard.** Transfer-kind credit-card payments (e.g., Explora "Credit Card Payments" with kind `.transfer`) now appear in liability payment totals and charges-vs-payments chart. Root cause: category-kind filter excluded `.transfer` from liability aggregates.
+- **Amex Gold Elite utilization understated.** Gold Elite no longer treats the previous payment amount as the statement balance. Re-importing the same PDF repairs stale non-nil metadata without duplicating transactions.
 - **Amex Gold Elite due-date not parsed.** Date format `dd de MMMM yyyy` (e.g., "31 de Marzo 2026" without second "de") now parses correctly. Added regex alternative and DateFormatter entry.
 - **Pago Mínimo collision with installments line.** Exact-colon parsing prevents "Pago mínimo mas meses sin intereses" from overriding the actual "Pago Mínimo" value.
 

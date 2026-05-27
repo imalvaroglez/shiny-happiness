@@ -9,7 +9,7 @@ struct BackupArchiveTests {
 
     private func makeContainer() throws -> ModelContainer {
         let schema = Schema([
-            Account.self, Transaction.self, Statement.self,
+            Account.self, AccountBalanceSnapshot.self, Transaction.self, Statement.self,
             Category.self, CategoryRule.self, InstallmentPlan.self,
             PendingImport.self, SignRecoveryHint.self,
         ])

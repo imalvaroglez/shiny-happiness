@@ -137,7 +137,8 @@ private struct PendingReviewRow: View {
             currency: pending.account?.currency ?? "MXN",
             descriptionRaw: description,
             merchantNormalized: description,
-            cardLast4: pending.cardLast4
+            cardLast4: pending.cardLast4,
+            source: .pendingResolution
         )
         modelContext.insert(txn)
         pending.resolvedTransaction = txn
@@ -182,7 +183,8 @@ private struct PendingReviewRow: View {
             postedAt: .now,
             amount: 0,
             currency: pending.account?.currency ?? "MXN",
-            descriptionRaw: "Suppressed — kept deleted"
+            descriptionRaw: "Suppressed — kept deleted",
+            source: .pendingResolution
         )
         if let txn = pending.resolvedTransaction {
             modelContext.insert(txn)

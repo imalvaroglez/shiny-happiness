@@ -23,6 +23,18 @@ struct AccountSnapshot: Codable {
     var statementDayOfMonth: Int?
     var paymentDayOfMonth: Int?
     var tintHex: String?
+    var manuallyCreatedAt: Date?
+    var lastModifiedAt: Date
+}
+
+struct AccountBalanceSnapshotSnapshot: Codable {
+    var id: UUID
+    var accountId: UUID?
+    var date: Date
+    var amount: Decimal
+    var kind: String
+    var note: String?
+    var createdAt: Date
     var lastModifiedAt: Date
 }
 
@@ -40,6 +52,8 @@ struct TransactionSnapshot: Codable {
     var isTransfer: Bool
     var isDuplicate: Bool
     var cardLast4: String?
+    var source: String?
+    var transferGroupID: UUID?
     var installmentPlanId: UUID?
     var lastModifiedAt: Date
     var deletedAt: Date?

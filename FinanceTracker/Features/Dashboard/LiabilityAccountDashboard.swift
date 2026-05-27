@@ -1,9 +1,8 @@
 import SwiftUI
 import Charts
 
-/// Per-account dashboard for credit-card accounts. Shows utilization, payment
-/// due info, charges-vs-payments chart, active MSI installment plans, a
-/// spending donut, and recent transactions.
+/// Per-account dashboard for debt accounts. Credit cards show utilization and
+/// statement metadata; loans use simpler amount-owed language.
 struct LiabilityAccountDashboard: View {
     let snapshot: LiabilityAccountSnapshot
 
@@ -14,13 +13,13 @@ struct LiabilityAccountDashboard: View {
         VStack(spacing: 20) {
             headerRow
             chargesVsPaymentsChart
-            if !snapshot.activeInstallmentPlans.isEmpty {
+            if snapshot.account.type == .creditCard, !snapshot.activeInstallmentPlans.isEmpty {
                 installmentsCard
             }
             if !snapshot.spendingByCategory.isEmpty {
                 spendingDonut
             }
-            if !snapshot.sourceStatements.isEmpty {
+            if snapshot.account.type == .creditCard, !snapshot.sourceStatements.isEmpty {
                 sourceStatementsCard
             }
             recentList
@@ -35,13 +34,17 @@ struct LiabilityAccountDashboard: View {
     private var headerRow: some View {
         HStack(spacing: 16) {
             utilizationCard
-            paymentDueCard
+            if snapshot.account.type == .creditCard {
+                paymentDueCard
+            }
         }
     }
 
     private var utilizationCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Utilization").font(.caption).foregroundStyle(.secondary)
+            Text(snapshot.account.type == .loan ? "Amount Owed" : "Utilization")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline) {
                 Text(MoneyFormat.string(code: snapshot.currencyCode,snapshot.amountOwed))
                     .font(.title.bold())
@@ -53,11 +56,11 @@ struct LiabilityAccountDashboard: View {
                         .foregroundStyle(pct > 0.7 ? .red : (pct > 0.3 ? .orange : .green))
                 }
             }
-            if let limit = snapshot.creditLimit {
+            if snapshot.account.type == .creditCard, let limit = snapshot.creditLimit {
                 Text("of \(MoneyFormat.string(code: snapshot.currencyCode,limit)) credit limit")
                     .font(.caption2).foregroundStyle(.secondary)
             }
-            if let pct = snapshot.utilizationPercent {
+            if snapshot.account.type == .creditCard, let pct = snapshot.utilizationPercent {
                 ProgressView(value: min(max(pct, 0), 1))
                     .progressViewStyle(.linear)
                     .tint(pct > 0.7 ? .red : (pct > 0.3 ? .orange : .green))
@@ -91,12 +94,12 @@ struct LiabilityAccountDashboard: View {
                 dueDateContent(due: due, days: days)
                 Divider()
                 unavailableRow("Minimum")
-                unavailableRow("No Interest")
+                unavailableRow("Statement balance")
             case .full(let due, let days, let minimum, let noInterest):
                 dueDateContent(due: due, days: days)
                 Divider()
                 amountRow(label: "Minimum", value: minimum)
-                amountRow(label: "No Interest", value: noInterest)
+                amountRow(label: "Statement balance", value: noInterest)
             }
         }
         .padding()

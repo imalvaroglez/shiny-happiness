@@ -16,6 +16,8 @@ final class Transaction: LastModifiedTracking {
     var isTransfer: Bool
     var isDuplicate: Bool
     var cardLast4: String?
+    var source: TransactionSource
+    var transferGroupID: UUID?
     @Relationship(deleteRule: .nullify, inverse: \InstallmentPlan.installments) var installmentPlan: InstallmentPlan?
     var lastModifiedAt: Date = Date.now
     var deletedAt: Date? = nil
@@ -34,6 +36,8 @@ final class Transaction: LastModifiedTracking {
         isTransfer: Bool = false,
         isDuplicate: Bool = false,
         cardLast4: String? = nil,
+        source: TransactionSource = .imported,
+        transferGroupID: UUID? = nil,
         installmentPlan: InstallmentPlan? = nil
     ) {
         self.id = id
@@ -49,6 +53,8 @@ final class Transaction: LastModifiedTracking {
         self.isTransfer = isTransfer
         self.isDuplicate = isDuplicate
         self.cardLast4 = cardLast4
+        self.source = source
+        self.transferGroupID = transferGroupID
         self.installmentPlan = installmentPlan
     }
 

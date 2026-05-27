@@ -76,8 +76,10 @@ final class DashboardViewModel {
     /// installments, which are separate transactions.
     private func excludedFromCashFlow(_ tx: Transaction) -> Bool {
         if tx.isDuplicate { return true }
+        if tx.isTransfer { return true }
         if tx.category?.kind == .transfer { return true }
         if tx.category?.kind == .creditCardPayment { return true }
+        if isOwnAccountMovement(tx) { return true }
         return isSynthesizedMSIPurchase(tx)
     }
 
@@ -86,6 +88,18 @@ final class DashboardViewModel {
             return true
         }
         return false
+    }
+
+    private static let ownAccountPatterns: [String] = [
+        "(?i)PAGO\\s+RECIBIDO\\s+DE\\s+STP\\s+POR\\s+ORDEN\\s+DE\\s+TITULAR",
+        "(?i)recibida\\s+(de\\s+la\\s+)?cuenta\\s+4444\\s+BANAMEX",
+        "(?i)PAGO\\s+INTERBANCARIO\\s+PAGO\\s+RECIBIDO\\s+DE.*STP.*TITULAR",
+    ]
+
+    private func isOwnAccountMovement(_ tx: Transaction) -> Bool {
+        Self.ownAccountPatterns.contains {
+            tx.descriptionRaw.range(of: $0, options: .regularExpression) != nil
+        }
     }
 
     // MARK: - Consolidated
@@ -125,11 +139,11 @@ final class DashboardViewModel {
 
         let transactions = windowedTransactions(context: context, accountId: accountId)
 
-        let latestStatement = latestStatement(context: context, accountId: accountId)
-        let currentBalance = latestStatement?.closingBalance ?? 0
+        let latestStatement = AccountBalanceResolver.latestStatement(accountId: accountId, context: context)
+        let currentBalance = AccountBalanceResolver.currentBalance(account: account, context: context)
 
         switch account.type {
-        case .creditCard:
+        case .creditCard, .loan:
             return .liability(buildLiability(
                 context: context,
                 account: account,
@@ -325,31 +339,18 @@ final class DashboardViewModel {
     // MARK: - Net worth + balance series + account summaries
 
     private func computeNetWorth(context: ModelContext) -> (current: Decimal, series: [NetWorthPoint], summaries: [AccountSummary]) {
-        let descriptor = FetchDescriptor<Statement>(sortBy: [SortDescriptor(\.periodEnd, order: .forward)])
-        let statements = (try? context.fetch(descriptor)) ?? []
-
         let accountsDescriptor = FetchDescriptor<Account>(sortBy: [SortDescriptor(\.nickname)])
         let accounts = (try? context.fetch(accountsDescriptor)) ?? []
 
-        var latestByAccount: [UUID: Statement] = [:]
-        for stmt in statements {
-            guard let accountId = stmt.account?.id else { continue }
-            if let existing = latestByAccount[accountId] {
-                if stmt.periodEnd > existing.periodEnd {
-                    latestByAccount[accountId] = stmt
-                }
-            } else {
-                latestByAccount[accountId] = stmt
-            }
-        }
-
-        let current = latestByAccount.values.compactMap(\.closingBalance).reduce(Decimal(0), +)
+        let balancesByAccount = Dictionary(uniqueKeysWithValues: accounts.map { account in
+            (account.id, AccountBalanceResolver.currentBalance(account: account, context: context))
+        })
+        let current = balancesByAccount.values.reduce(Decimal(0), +)
 
         // Build account summaries: every Account, even those without a statement yet
         // (balance defaults to zero).
         let summaries: [AccountSummary] = accounts.map { account in
-            let latest = latestByAccount[account.id]
-            let balance = latest?.closingBalance ?? 0
+            let balance = balancesByAccount[account.id] ?? 0
             let util: Double?
             if account.type == .creditCard, let limit = account.creditLimit, limit > 0 {
                 let owed = (abs(balance) as NSDecimalNumber).doubleValue
@@ -370,62 +371,48 @@ final class DashboardViewModel {
             )
         }
 
-        let series = computeMonthlyNetWorth(statements: statements)
+        let series = computeMonthlyNetWorth(context: context, accounts: accounts)
         return (current, series, summaries)
     }
 
-    private func computeMonthlyNetWorth(statements: [Statement]) -> [NetWorthPoint] {
-        guard !statements.isEmpty else { return [] }
+    private func computeMonthlyNetWorth(context: ModelContext, accounts: [Account]) -> [NetWorthPoint] {
+        let accountSeries = accounts.map { AccountBalanceResolver.balanceSeries(account: $0, context: context) }
         let calendar = Calendar(identifier: .gregorian)
-        let allDates = statements.compactMap(\.periodEnd)
-        guard let earliest = allDates.min(), let latest = allDates.max() else { return [] }
-        var currentMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: earliest))!
-        let endMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: latest))!
 
-        var lastKnownBalance: [UUID: Decimal] = [:]
-        var monthTotals: [Date: Decimal] = [:]
-        while currentMonth <= endMonth {
-            let nextMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth)!
-            for stmt in statements {
-                guard let accountId = stmt.account?.id, let balance = stmt.closingBalance else { continue }
-                if stmt.periodEnd >= currentMonth && stmt.periodEnd < nextMonth {
-                    lastKnownBalance[accountId] = balance
+        var monthSet = Set<Date>()
+        for series in accountSeries {
+            for point in series {
+                let month = calendar.date(from: calendar.dateComponents([.year, .month], from: point.month))!
+                monthSet.insert(month)
+            }
+        }
+        let months = monthSet.sorted()
+        guard !months.isEmpty else { return [] }
+
+        var latestByAccount: [UUID: Decimal] = [:]
+        var result: [NetWorthPoint] = []
+        for month in months {
+            for (index, series) in accountSeries.enumerated() {
+                guard index < accounts.count else { continue }
+                if let point = series.last(where: { calendar.date(from: calendar.dateComponents([.year, .month], from: $0.month))! <= month }) {
+                    latestByAccount[accounts[index].id] = point.balance
                 }
             }
-            if !lastKnownBalance.isEmpty {
-                monthTotals[currentMonth] = lastKnownBalance.values.reduce(0, +)
-            }
-            currentMonth = nextMonth
+            let total = latestByAccount.values.reduce(Decimal(0), +)
+            result.append(NetWorthPoint(month: month, balance: total))
         }
-        return monthTotals.map { NetWorthPoint(month: $0.key, balance: $0.value) }
-            .sorted { $0.month < $1.month }
+        return result
     }
 
     private func computeBalanceSeries(context: ModelContext, accountId: UUID) -> [NetWorthPoint] {
-        let descriptor = FetchDescriptor<Statement>(
-            predicate: #Predicate<Statement> { $0.account?.id == accountId },
-            sortBy: [SortDescriptor(\.periodEnd, order: .forward)]
-        )
-        let statements = (try? context.fetch(descriptor)) ?? []
-        return statements.compactMap { stmt in
-            guard let balance = stmt.closingBalance else { return nil }
-            return NetWorthPoint(month: stmt.periodEnd, balance: balance)
-        }
+        guard let account = fetchAccount(context: context, id: accountId) else { return [] }
+        return AccountBalanceResolver.balanceSeries(account: account, context: context)
     }
 
     // MARK: - Lookups
 
     private func fetchAccount(context: ModelContext, id: UUID) -> Account? {
         let descriptor = FetchDescriptor<Account>(predicate: #Predicate<Account> { $0.id == id })
-        return try? context.fetch(descriptor).first
-    }
-
-    private func latestStatement(context: ModelContext, accountId: UUID) -> Statement? {
-        var descriptor = FetchDescriptor<Statement>(
-            predicate: #Predicate<Statement> { $0.account?.id == accountId },
-            sortBy: [SortDescriptor(\.periodEnd, order: .reverse)]
-        )
-        descriptor.fetchLimit = 1
         return try? context.fetch(descriptor).first
     }
 

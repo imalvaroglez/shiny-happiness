@@ -62,6 +62,9 @@ struct ConsolidatedDashboard: View {
         ChartCard(title: "Cash Flow") {
             VStack(alignment: .leading, spacing: 8) {
                 seriesFilter
+                Text("Transfers between your accounts are excluded.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 Chart(snapshot.monthlyCashFlow) { entry in
                     if cashFlowSeries.contains(.income) {
                         BarMark(
@@ -152,13 +155,19 @@ struct ConsolidatedDashboard: View {
                     y: .value("Balance", point.balance)
                 )
                 .foregroundStyle(.blue)
-                .interpolationMethod(.catmullRom)
+                .interpolationMethod(.stepEnd)
                 AreaMark(
                     x: .value("Month", point.month, unit: .month),
                     y: .value("Balance", point.balance)
                 )
                 .foregroundStyle(.blue.opacity(0.15))
-                .interpolationMethod(.catmullRom)
+                .interpolationMethod(.stepEnd)
+                PointMark(
+                    x: .value("Month", point.month, unit: .month),
+                    y: .value("Balance", point.balance)
+                )
+                .foregroundStyle(.blue)
+                .symbolSize(24)
             }
             .frame(height: 220)
             .chartBackground { _ in Color.clear }
@@ -301,11 +310,23 @@ struct ConsolidatedDashboard: View {
         return RoundedRectangle(cornerRadius: 7, style: .continuous)
             .fill(color.opacity(0.14))
             .overlay {
-                Image(systemName: summary.type == .creditCard ? "creditcard" : "banknote")
+                Image(systemName: iconName(for: summary.type))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(color)
             }
             .frame(width: 28, height: 28)
+    }
+
+    private func iconName(for type: AccountType) -> String {
+        switch type {
+        case .creditCard: "creditcard"
+        case .loan: "building.columns"
+        case .investment: "chart.line.uptrend.xyaxis"
+        case .wallet: "wallet.bifold"
+        case .retirement: "calendar"
+        case .checking, .savings: "banknote"
+        case .other: "questionmark.circle"
+        }
     }
 
     private var emptyState: some View {

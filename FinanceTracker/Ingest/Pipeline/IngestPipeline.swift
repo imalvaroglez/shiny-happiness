@@ -475,11 +475,11 @@ final class IngestPipeline {
         let institutionName = detection.issuer.rawValue
 
         if let number = sectionNumber {
-            let num = number
             let descriptor = FetchDescriptor<Account>(
-                predicate: #Predicate<Account> { $0.institution == institutionName && $0.accountNumber == num }
+                predicate: #Predicate<Account> { $0.institution == institutionName }
             )
-            if let existing = try? context.fetch(descriptor).first {
+            let candidates = (try? context.fetch(descriptor)) ?? []
+            if let existing = candidates.first(where: { Self.accountNumber($0.accountNumber, matches: number) }) {
                 if let cl = creditLimit, existing.creditLimit == nil { existing.creditLimit = cl }
                 return existing
             }
@@ -495,7 +495,9 @@ final class IngestPipeline {
         let institutionDescriptor = FetchDescriptor<Account>(
             predicate: #Predicate<Account> { $0.institution == institutionName }
         )
-        if let existing = (try? context.fetch(institutionDescriptor))?.first(where: { $0.type == sectionType }) {
+        if let existing = (try? context.fetch(institutionDescriptor))?.first(where: {
+            $0.type == sectionType && $0.manuallyCreatedAt == nil
+        }) {
             if let cl = creditLimit, existing.creditLimit == nil { existing.creditLimit = cl }
             return existing
         }
@@ -507,6 +509,18 @@ final class IngestPipeline {
             number: nil,
             creditLimit: creditLimit
         )
+    }
+
+    private static func accountNumber(_ stored: String?, matches parsed: String) -> Bool {
+        guard let stored else { return false }
+        let storedDigits = stored.filter(\.isNumber)
+        let parsedDigits = parsed.filter(\.isNumber)
+        guard !storedDigits.isEmpty, !parsedDigits.isEmpty else {
+            return stored.localizedCaseInsensitiveCompare(parsed) == .orderedSame
+        }
+        return storedDigits == parsedDigits
+            || storedDigits.hasSuffix(parsedDigits)
+            || parsedDigits.hasSuffix(storedDigits)
     }
 
     private func createNewAccount(
@@ -582,35 +596,35 @@ final class IngestPipeline {
     private func mergeStatementMetadata(_ statement: Statement, with section: ParsedSection) {
         var changed = false
 
-        if statement.openingBalance == nil, let value = section.openingBalance {
+        if let value = section.openingBalance, statement.openingBalance != value {
             statement.openingBalance = value
             changed = true
         }
-        if statement.closingBalance == nil, let value = section.closingBalance {
+        if let value = section.closingBalance, statement.closingBalance != value {
             statement.closingBalance = value
             changed = true
         }
-        if statement.minimumPayment == nil, let value = section.minimumPayment {
+        if let value = section.minimumPayment, statement.minimumPayment != value {
             statement.minimumPayment = value
             changed = true
         }
-        if statement.paymentForNoInterest == nil, let value = section.paymentForNoInterest {
+        if let value = section.paymentForNoInterest, statement.paymentForNoInterest != value {
             statement.paymentForNoInterest = value
             changed = true
         }
-        if statement.paymentDueDate == nil, let value = section.paymentDueDate {
+        if let value = section.paymentDueDate, statement.paymentDueDate != value {
             statement.paymentDueDate = value
             changed = true
         }
-        if statement.interestCharged == nil, let value = section.interestCharged {
+        if let value = section.interestCharged, statement.interestCharged != value {
             statement.interestCharged = value
             changed = true
         }
-        if statement.feesCharged == nil, let value = section.feesCharged {
+        if let value = section.feesCharged, statement.feesCharged != value {
             statement.feesCharged = value
             changed = true
         }
-        if statement.ivaCharged == nil, let value = section.ivaCharged {
+        if let value = section.ivaCharged, statement.ivaCharged != value {
             statement.ivaCharged = value
             changed = true
         }

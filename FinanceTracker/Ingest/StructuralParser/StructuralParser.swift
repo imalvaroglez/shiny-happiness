@@ -200,10 +200,27 @@ struct StructuralParser: StatementParser {
         }
     }
 
+    private struct AmexStatementSummary {
+        let previousBalance: Decimal?
+        let paymentsAndCredits: Decimal?
+        let newCharges: Decimal?
+        let paymentForNoInterest: Decimal?
+        let minimumPayment: Decimal?
+        let creditLimit: Decimal?
+        let availableCredit: Decimal?
+
+        var totalOutstanding: Decimal? {
+            guard let creditLimit, let availableCredit else { return nil }
+            return creditLimit - availableCredit
+        }
+    }
+
     private func extractAmexMetadata(from text: String) -> StatementMetadata {
         guard text.range(of: "American Express", options: .caseInsensitive) != nil else {
             return StatementMetadata()
         }
+
+        let summary = extractAmexStatementSummary(from: text)
 
         let accountNumber = firstRegexCapture(
             in: text,
@@ -213,7 +230,7 @@ struct StructuralParser: StatementParser {
             return String(digits.suffix(10))
         }
 
-        let closing = amountNearAnyLabel(in: text, labels: [
+        let looseClosing = amountNearAnyLabel(in: text, labels: [
             "Nuevo Saldo",
             "Saldo Nuevo",
             "Saldo Total",
@@ -222,29 +239,35 @@ struct StructuralParser: StatementParser {
             "Saldo Actual"
         ]).map { -abs($0) }
 
-        let creditLimit = amountNearAnyLabel(in: text, labels: [
+        let closing = summary.totalOutstanding.map { -abs($0) }
+            ?? summary.paymentForNoInterest.map { -abs($0) }
+            ?? looseClosing
+
+        let creditLimit = summary.creditLimit ?? amountNearAnyLabel(in: text, labels: [
             "Límite de Crédito",
             "Limite de Credito",
             "Línea de Crédito",
             "Linea de Credito"
         ])
 
-        let minimumPayment = exactColonAmount(in: text, label: "Pago Mínimo")
-            ?? exactColonAmount(in: text, label: "Pago Minimo")
+        let minimumPayment = summary.minimumPayment
+            ?? amountAfterColonLabel(in: text, label: "Pago Mínimo")
+            ?? amountAfterColonLabel(in: text, label: "Pago Minimo")
             ?? amountNearAnyLabel(in: text, labels: [
                 "Pago mínimo requerido",
                 "Pago minimo requerido"
             ])
 
-        let noInterest = exactColonAmount(in: text, label: "Pago para no generar intereses")
-            ?? exactColonAmount(in: text, label: "Pago Para No Generar Intereses")
+        let noInterest = summary.paymentForNoInterest
+            ?? amountAfterColonLabel(in: text, label: "Pago para no generar intereses")
+            ?? amountAfterColonLabel(in: text, label: "Pago Para No Generar Intereses")
             ?? amountNearAnyLabel(in: text, labels: [
                 "Pago para no generar interés",
                 "Pago para no generar interes"
             ])
 
-        let dueDate = exactColonDate(in: text, label: "Fecha Límite de Pago")
-            ?? exactColonDate(in: text, label: "Fecha Limite de Pago")
+        let dueDate = dateAfterColonLabel(in: text, label: "Fecha Límite de Pago")
+            ?? dateAfterColonLabel(in: text, label: "Fecha Limite de Pago")
             ?? dateNearAnyLabel(in: text, labels: [
                 "Fecha Límite de Pago",
                 "Fecha Limite de Pago",
@@ -281,6 +304,48 @@ struct StructuralParser: StatementParser {
             feesCharged: fees,
             ivaCharged: iva
         )
+    }
+
+    private func extractAmexStatementSummary(from text: String) -> AmexStatementSummary {
+        let arithmetic = extractAmexArithmeticSummary(from: text)
+        let credit = extractAmexCreditSummary(from: text)
+        return AmexStatementSummary(
+            previousBalance: arithmetic?.previousBalance,
+            paymentsAndCredits: arithmetic?.paymentsAndCredits,
+            newCharges: arithmetic?.newCharges,
+            paymentForNoInterest: arithmetic?.paymentForNoInterest,
+            minimumPayment: arithmetic?.minimumPayment,
+            creditLimit: credit?.creditLimit,
+            availableCredit: credit?.availableCredit
+        )
+    }
+
+    private func extractAmexArithmeticSummary(
+        from text: String
+    ) -> (previousBalance: Decimal, paymentsAndCredits: Decimal, newCharges: Decimal, paymentForNoInterest: Decimal, minimumPayment: Decimal)? {
+        let amount = #"\$?\s*([\d,]+\.\d{2})"#
+        let pattern = amount + #"\s*-\s*"# + amount + #"\s*\+\s*"# + amount + #"\s*=\s*"# + amount + #"\s+"# + amount
+        guard let captures = regexCaptures(in: text, pattern: pattern, maxMatches: 1).first,
+              captures.count == 5,
+              let previous = parseDecimal(captures[0]),
+              let payments = parseDecimal(captures[1]),
+              let charges = parseDecimal(captures[2]),
+              let noInterest = parseDecimal(captures[3]),
+              let minimum = parseDecimal(captures[4]) else {
+            return nil
+        }
+        return (previous, payments, charges, noInterest, minimum)
+    }
+
+    private func extractAmexCreditSummary(from text: String) -> (creditLimit: Decimal, availableCredit: Decimal)? {
+        let pattern = #"(?is)L[ií]mite\s+de\s+Cr[eé]dito\s+L[ií]mite\s+Disponible.{0,240}?([\d,]+\.\d{2})\s*MN\s+([\d,]+\.\d{2})\s*MN"#
+        guard let captures = regexCaptures(in: text, pattern: pattern, maxMatches: 1).first,
+              captures.count == 2,
+              let creditLimit = parseDecimal(captures[0]),
+              let availableCredit = parseDecimal(captures[1]) else {
+            return nil
+        }
+        return (creditLimit, availableCredit)
     }
 
     private func amountNearAnyLabel(in text: String, labels: [String]) -> Decimal? {
@@ -522,7 +587,9 @@ struct StructuralParser: StatementParser {
     }
 
     private func statementYear(from text: String) -> Int? {
-        firstRegexCapture(in: text, pattern: #"(?:Fecha de corte|Periodo|Per[ií]odo).{0,80}?(\d{4})"#)
+        firstRegexCapture(in: text, pattern: #"(?:Fecha de corte|Periodo|Per[ií]odo|Fecha l[ií]mite|Estado de Cuenta incluye).{0,180}?(\d{4})"#)
+            .flatMap(Int.init)
+            ?? firstRegexCapture(in: text, pattern: #"\b(20\d{2})\b"#)
             .flatMap(Int.init)
     }
 
@@ -538,17 +605,36 @@ struct StructuralParser: StatementParser {
     }
 
     private func exactColonAmount(in text: String, label: String) -> Decimal? {
-        let escaped = NSRegularExpression.escapedPattern(for: label)
-        let pattern = #"(?im)^\s*"# + escaped + #"\s*:\s*\d*[^\n$]*\$?\s*([\d,]+\.\d{2})"#
-        guard let value = firstRegexCapture(in: text, pattern: pattern) else { return nil }
-        return Decimal(string: value.replacingOccurrences(of: ",", with: ""))
+        amountAfterColonLabel(in: text, label: label)
     }
 
     private func exactColonDate(in text: String, label: String) -> Date? {
+        dateAfterColonLabel(in: text, label: label)
+    }
+
+    private func amountAfterColonLabel(in text: String, label: String) -> Decimal? {
         let escaped = NSRegularExpression.escapedPattern(for: label)
-        let pattern = #"(?im)^\s*"# + escaped + #"\s*:\s*(.+)$"#
+        let pattern = #"(?i)"# + escaped + #"\s*:\s*\d*\s*(?:[^$\d\n]{0,40})?\$?\s*([\d,]+\.\d{2})"#
         guard let value = firstRegexCapture(in: text, pattern: pattern) else { return nil }
-        return parseStatementDate(value.trimmingCharacters(in: .whitespaces))
+        return parseDecimal(value)
+    }
+
+    private func dateAfterColonLabel(in text: String, label: String) -> Date? {
+        let escaped = NSRegularExpression.escapedPattern(for: label)
+        let datePattern = #"(\d{1,2}[-/]\w{3,4}[-/]\d{4}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}\s+de\s+\w+\s+de\s+\d{4}|\d{1,2}\s+de\s+\w+\s+\d{4}|\d{1,2}\s+de\s+\w+)"#
+        let pattern = #"(?i)"# + escaped + #"\s*:\s*.{0,80}?"# + datePattern
+        let inferredYear = statementYear(from: text)
+        for captures in regexCaptures(in: text, pattern: pattern) {
+            guard let value = captures.first else { continue }
+            if let date = parseStatementDate(value) {
+                return date
+            }
+            if let inferredYear,
+               let date = parseStatementDate("\(value) \(inferredYear)") {
+                return date
+            }
+        }
+        return nil
     }
 
     private func amountAfterLabel(in text: String, label: String) -> Decimal? {
@@ -564,8 +650,12 @@ struct StructuralParser: StatementParser {
         let range = NSRange(text.startIndex..., in: text)
         return regex.matches(in: text, range: range).compactMap { match in
             guard let amountRange = Range(match.range(at: 1), in: text) else { return nil }
-            return Decimal(string: String(text[amountRange]).replacingOccurrences(of: ",", with: ""))
+            return parseDecimal(String(text[amountRange]))
         }
+    }
+
+    private func parseDecimal(_ value: String) -> Decimal? {
+        Decimal(string: value.replacingOccurrences(of: ",", with: ""))
     }
 
     private func banamexPriorityDate(from text: String, year: Int) -> Date? {
@@ -677,6 +767,21 @@ struct StructuralParser: StatementParser {
             return nil
         }
         return String(text[captureRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func regexCaptures(in text: String, pattern: String, maxMatches: Int = .max) -> [[String]] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = regex.matches(in: text, range: range)
+        return matches.prefix(maxMatches).map { match in
+            guard match.numberOfRanges > 1 else { return [] }
+            return (1..<match.numberOfRanges).compactMap { index in
+                guard let captureRange = Range(match.range(at: index), in: text) else { return nil }
+                return String(text[captureRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
     }
 
     private func detectAccountSection(in text: String) -> (hint: String?, number: String?, type: AccountType?, nickname: String?) {

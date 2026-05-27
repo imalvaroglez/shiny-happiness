@@ -86,13 +86,19 @@ struct AssetAccountDashboard: View {
                     y: .value("Balance", point.balance)
                 )
                 .foregroundStyle(.blue)
-                .interpolationMethod(.catmullRom)
+                .interpolationMethod(.stepEnd)
                 AreaMark(
                     x: .value("Month", point.month, unit: .month),
                     y: .value("Balance", point.balance)
                 )
                 .foregroundStyle(.blue.opacity(0.15))
-                .interpolationMethod(.catmullRom)
+                .interpolationMethod(.stepEnd)
+                PointMark(
+                    x: .value("Month", point.month, unit: .month),
+                    y: .value("Balance", point.balance)
+                )
+                .foregroundStyle(.blue)
+                .symbolSize(24)
             }
             .frame(height: 200)
             .chartBackground { _ in Color.clear }

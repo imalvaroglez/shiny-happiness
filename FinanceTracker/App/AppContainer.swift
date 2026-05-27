@@ -9,6 +9,7 @@ final class AppContainer: ObservableObject {
     init() throws {
         let schema = Schema([
             Account.self,
+            AccountBalanceSnapshot.self,
             Transaction.self,
             Statement.self,
             Category.self,

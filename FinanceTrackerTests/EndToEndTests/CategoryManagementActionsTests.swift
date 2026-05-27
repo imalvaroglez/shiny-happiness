@@ -11,8 +11,7 @@ struct CategoryManagementActionsTests {
 
     private func makeContainer() throws -> ModelContainer {
         let schema = Schema([
-            Account.self,
-            Transaction.self,
+            Account.self, AccountBalanceSnapshot.self, Transaction.self,
             Statement.self,
             FinanceCategory.self,
             CategoryRule.self,

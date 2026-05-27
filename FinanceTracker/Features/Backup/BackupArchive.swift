@@ -50,6 +50,9 @@ enum BackupArchive {
         let accounts = try context.fetch(FetchDescriptor<Account>())
         try writeJSON("Account", accounts.map { AccountSnapshot($0) })
 
+        let balanceSnapshots = try context.fetch(FetchDescriptor<AccountBalanceSnapshot>())
+        try writeJSON("AccountBalanceSnapshot", balanceSnapshots.map { AccountBalanceSnapshotSnapshot($0) })
+
         let statements = try context.fetch(FetchDescriptor<Statement>())
         try writeJSON("Statement", statements.map { StatementSnapshot($0) })
 
@@ -112,6 +115,13 @@ enum BackupArchive {
             return try decoder.decode([T].self, from: data)
         }
 
+        func loadOptionalJSON<T: Codable>(_ type: T.Type, _ name: String) throws -> [T] {
+            let url = modelsDir.appendingPathComponent("\(name).json")
+            guard fm.fileExists(atPath: url.path) else { return [] }
+            let data = try Data(contentsOf: url)
+            return try decoder.decode([T].self, from: data)
+        }
+
         switch strategy {
         case .replaceAll:
             try deleteAll(from: context)
@@ -120,6 +130,7 @@ enum BackupArchive {
         }
 
         let accountsSnap = try loadJSON(AccountSnapshot.self, "Account")
+        let balanceSnapshotsSnap = try loadOptionalJSON(AccountBalanceSnapshotSnapshot.self, "AccountBalanceSnapshot")
         let statementsSnap = try loadJSON(StatementSnapshot.self, "Statement")
         let categoriesSnap = try loadJSON(CategorySnapshot.self, "Category")
         let categoryRulesSnap = try loadJSON(CategoryRuleSnapshot.self, "CategoryRule")
@@ -129,6 +140,7 @@ enum BackupArchive {
         let signRecoveryHintsSnap = try loadJSON(SignRecoveryHintSnapshot.self, "SignRecoveryHint")
 
         let existingAccounts = try context.fetch(FetchDescriptor<Account>())
+        let existingBalanceSnapshots = try context.fetch(FetchDescriptor<AccountBalanceSnapshot>())
         let existingStatements = try context.fetch(FetchDescriptor<Statement>())
         let existingCategories = try context.fetch(FetchDescriptor<Category>())
         let existingCategoryRules = try context.fetch(FetchDescriptor<CategoryRule>())
@@ -138,6 +150,7 @@ enum BackupArchive {
         let existingSignRecoveryHints = try context.fetch(FetchDescriptor<SignRecoveryHint>())
 
         var accountMap = indexByID(existingAccounts, keyPath: \Account.id)
+        var balanceSnapshotMap = indexByID(existingBalanceSnapshots, keyPath: \AccountBalanceSnapshot.id)
         var statementMap = indexByID(existingStatements, keyPath: \Statement.id)
         var categoryMap = indexByID(existingCategories, keyPath: \Category.id)
         var categoryRuleMap = indexByID(existingCategoryRules, keyPath: \CategoryRule.id)
@@ -156,6 +169,19 @@ enum BackupArchive {
             let obj = Account(snap)
             context.insert(obj)
             accountMap[id] = obj
+            return obj
+        }
+
+        func resolveOrInsertBalanceSnapshot(_ id: UUID, _ snap: AccountBalanceSnapshotSnapshot) -> AccountBalanceSnapshot {
+            if let existing = balanceSnapshotMap[id] {
+                if case .mergeKeepingNewer = strategy, snap.lastModifiedAt > existing.lastModifiedAt {
+                    existing.apply(snap)
+                }
+                return existing
+            }
+            let obj = AccountBalanceSnapshot(snap)
+            context.insert(obj)
+            balanceSnapshotMap[id] = obj
             return obj
         }
 
@@ -251,6 +277,7 @@ enum BackupArchive {
         }
 
         for snap in accountsSnap { _ = resolveOrInsertAccount(snap.id, snap) }
+        for snap in balanceSnapshotsSnap { _ = resolveOrInsertBalanceSnapshot(snap.id, snap) }
         for snap in categoriesSnap { _ = resolveOrInsertCategory(snap.id, snap) }
         for snap in statementsSnap { _ = resolveOrInsertStatement(snap.id, snap) }
         for snap in categoryRulesSnap { _ = resolveOrInsertCategoryRule(snap.id, snap) }
@@ -261,6 +288,11 @@ enum BackupArchive {
 
         for snap in accountsSnap {
             guard let obj = accountMap[snap.id] else { continue }
+            if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
+        }
+        for snap in balanceSnapshotsSnap {
+            guard let obj = balanceSnapshotMap[snap.id] else { continue }
+            obj.account = snap.accountId.flatMap { accountMap[$0] }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
         for snap in categoriesSnap {
@@ -323,6 +355,7 @@ enum BackupArchive {
     private static func deleteAll(from context: ModelContext) throws {
         let types: [any PersistentModel.Type] = [
             PendingImport.self,
+            AccountBalanceSnapshot.self,
             Transaction.self,
             CategoryRule.self,
             InstallmentPlan.self,
@@ -369,7 +402,8 @@ extension Account {
             creditLimit: snap.creditLimit,
             statementDayOfMonth: snap.statementDayOfMonth,
             paymentDayOfMonth: snap.paymentDayOfMonth,
-            tintHex: snap.tintHex
+            tintHex: snap.tintHex,
+            manuallyCreatedAt: snap.manuallyCreatedAt
         )
     }
 
@@ -385,6 +419,7 @@ extension Account {
         statementDayOfMonth = snap.statementDayOfMonth
         paymentDayOfMonth = snap.paymentDayOfMonth
         tintHex = snap.tintHex
+        manuallyCreatedAt = snap.manuallyCreatedAt
         lastModifiedAt = snap.lastModifiedAt
     }
 }
@@ -404,7 +439,46 @@ extension AccountSnapshot {
             statementDayOfMonth: account.statementDayOfMonth,
             paymentDayOfMonth: account.paymentDayOfMonth,
             tintHex: account.tintHex,
+            manuallyCreatedAt: account.manuallyCreatedAt,
             lastModifiedAt: account.lastModifiedAt
+        )
+    }
+}
+
+extension AccountBalanceSnapshot {
+    convenience init(_ snap: AccountBalanceSnapshotSnapshot) {
+        self.init(
+            id: snap.id,
+            date: snap.date,
+            amount: snap.amount,
+            kind: AccountBalanceSnapshotKind(rawValue: snap.kind) ?? .manualAdjustment,
+            note: snap.note,
+            createdAt: snap.createdAt
+        )
+        lastModifiedAt = snap.lastModifiedAt
+    }
+
+    func apply(_ snap: AccountBalanceSnapshotSnapshot) {
+        date = snap.date
+        amount = snap.amount
+        kind = AccountBalanceSnapshotKind(rawValue: snap.kind) ?? .manualAdjustment
+        note = snap.note
+        createdAt = snap.createdAt
+        lastModifiedAt = snap.lastModifiedAt
+    }
+}
+
+extension AccountBalanceSnapshotSnapshot {
+    init(_ snapshot: AccountBalanceSnapshot) {
+        self.init(
+            id: snapshot.id,
+            accountId: snapshot.account?.id,
+            date: snapshot.date,
+            amount: snapshot.amount,
+            kind: snapshot.kind.rawValue,
+            note: snapshot.note,
+            createdAt: snapshot.createdAt,
+            lastModifiedAt: snapshot.lastModifiedAt
         )
     }
 }
@@ -488,7 +562,9 @@ extension Transaction {
             fxRateToBase: snap.fxRateToBase,
             isTransfer: snap.isTransfer,
             isDuplicate: snap.isDuplicate,
-            cardLast4: snap.cardLast4
+            cardLast4: snap.cardLast4,
+            source: snap.source.flatMap { TransactionSource(rawValue: $0) } ?? .imported,
+            transferGroupID: snap.transferGroupID
         )
         deletedAt = snap.deletedAt
     }
@@ -503,6 +579,8 @@ extension Transaction {
         isTransfer = snap.isTransfer
         isDuplicate = snap.isDuplicate
         cardLast4 = snap.cardLast4
+        source = snap.source.flatMap { TransactionSource(rawValue: $0) } ?? .imported
+        transferGroupID = snap.transferGroupID
         deletedAt = snap.deletedAt
         lastModifiedAt = snap.lastModifiedAt
     }
@@ -524,6 +602,8 @@ extension TransactionSnapshot {
             isTransfer: transaction.isTransfer,
             isDuplicate: transaction.isDuplicate,
             cardLast4: transaction.cardLast4,
+            source: transaction.source.rawValue,
+            transferGroupID: transaction.transferGroupID,
             installmentPlanId: transaction.installmentPlan?.id,
             lastModifiedAt: transaction.lastModifiedAt,
             deletedAt: transaction.deletedAt

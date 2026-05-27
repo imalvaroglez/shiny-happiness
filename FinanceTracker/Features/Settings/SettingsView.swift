@@ -3,6 +3,7 @@ import SwiftData
 
 struct SettingsView: View {
     var onAccountDeleted: (UUID) -> Void = { _ in }
+    var onAccountCreated: (Account) -> Void = { _ in }
 
     @Environment(\.modelContext) private var modelContext
     @Query private var accounts: [Account]
@@ -16,6 +17,8 @@ struct SettingsView: View {
 
     @State private var accountToDelete: Account?
     @State private var deletionPreview: AccountDeletionService.DeletionPreview?
+    @State private var showingAddAccount = false
+    @State private var balanceSnapshotAccount: Account?
 
     @State private var showingNewCategory = false
     @State private var newCategoryName = ""
@@ -68,7 +71,7 @@ struct SettingsView: View {
             }
         } message: {
             if let account = accountToDelete, let preview = deletionPreview {
-                Text("Permanently delete \"\(account.displayName)\"? This will remove \(preview.statementCount) statement(s), \(preview.transactionCount) transaction(s), \(preview.pendingImportCount) pending import(s), and \(preview.installmentPlanCount) installment plan(s). This cannot be undone.")
+                Text("Permanently delete \"\(account.displayName)\"? This will remove \(preview.statementCount) statement(s), \(preview.transactionCount) transaction(s), \(preview.balanceSnapshotCount) balance snapshot(s), \(preview.pendingImportCount) pending import(s), and \(preview.installmentPlanCount) installment plan(s). This cannot be undone.")
             } else {
                 Text("Are you sure?")
             }
@@ -78,6 +81,14 @@ struct SettingsView: View {
         }
         .sheet(item: $subcategoryParent) { _ in
             newSubcategorySheet
+        }
+        .sheet(isPresented: $showingAddAccount) {
+            ManualAccountSheet { account in
+                onAccountCreated(account)
+            }
+        }
+        .sheet(item: $balanceSnapshotAccount) { account in
+            BalanceSnapshotSheet(account: account) {}
         }
     }
 
@@ -99,17 +110,30 @@ struct SettingsView: View {
 
     private var accountsSection: some View {
         SectionCard(title: "Accounts") {
-            if accounts.isEmpty {
-                Text("No accounts imported yet")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(16)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
-                        accountEditorRow(for: account)
-                        if index < accounts.count - 1 {
-                            Divider().padding(.leading, 16)
+            VStack(spacing: 0) {
+                HStack {
+                    Text(accounts.isEmpty ? "Create your first account manually or import a statement." : "Manage account details and manual balance snapshots.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        showingAddAccount = true
+                    } label: {
+                        Label("Add Account", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+                if !accounts.isEmpty {
+                    Divider().padding(.leading, 16)
+                    VStack(spacing: 0) {
+                        ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
+                            accountEditorRow(for: account)
+                            if index < accounts.count - 1 {
+                                Divider().padding(.leading, 16)
+                            }
                         }
                     }
                 }
@@ -125,7 +149,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(account.displayName)
                     .font(.callout.weight(.medium))
-                Text("\(account.type.rawValue) · \(account.currency)")
+                Text("\(account.type.displayName) · \(account.currency)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Text("\(txCount) transactions")
@@ -154,6 +178,13 @@ struct SettingsView: View {
                         set: { account.creditLimit = $0 }
                     ), format: .currency(code: account.currency))
                     .textFieldStyle(.roundedBorder)
+                }
+
+                Button {
+                    balanceSnapshotAccount = account
+                } label: {
+                    Label("Add Balance Snapshot", systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.caption)
                 }
 
                 Button(role: .destructive) {
@@ -463,10 +494,11 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Credit-card dashboards now show all payments and credits accurately.",
-        "Source statements section shows which files contributed to each account.",
-        "Payment-due card distinguishes missing metadata from missing statements.",
-        "Amex Gold Elite due dates and minimum payments now parse correctly.",
+        "Create debit, investment, credit-card, and loan accounts manually.",
+        "Add balance snapshots to set or correct account balances.",
+        "Record manual transactions and paired transfers between accounts.",
+        "Dashboards now combine statement balances, manual snapshots, and newer transactions.",
+        "Loan accounts get liability tracking without credit-card-only details.",
     ]
 
     private var lastBackupDate: String? {
@@ -552,6 +584,7 @@ struct SettingsView: View {
     private func deleteAllData() {
         do {
             try modelContext.delete(model: Account.self)
+            try modelContext.delete(model: AccountBalanceSnapshot.self)
             try modelContext.delete(model: Transaction.self)
             try modelContext.delete(model: Statement.self)
             try modelContext.delete(model: Category.self)
@@ -563,7 +596,7 @@ struct SettingsView: View {
     }
 }
 
-private extension Color {
+extension Color {
     var hexString: String {
         #if os(macOS)
         let ns = NSColor(self).usingColorSpace(.deviceRGB) ?? .controlAccentColor
