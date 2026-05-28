@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [0.3.0] - 2026-05-28
+
 ### Added
 
 - **Card credits/bonifications.** Credit-card accounts now support `.cardCredit` flow kind for cashback rewards, statement credits, and similar positive movements that reduce owed balance without being payments. Card credits are excluded from consolidated income and cash-flow totals. `TransactionFlowKind` enum provides the six flow kinds: `income`, `expense`, `transfer`, `charge`, `cardCredit`, `payment`.

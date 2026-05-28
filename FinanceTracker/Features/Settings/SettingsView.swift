@@ -526,11 +526,11 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Create debit, investment, credit-card, and loan accounts manually.",
-        "Add balance snapshots to set or correct account balances.",
-        "Record manual transactions and paired transfers between accounts.",
-        "Dashboards now combine statement balances, manual snapshots, and newer transactions.",
-        "Loan accounts get liability tracking without credit-card-only details.",
+        "Create and manage manual accounts, balances, transactions, and transfers.",
+        "Review account-specific dashboards with statement, manual, and loan balances together.",
+        "Edit dashboard transactions, including credit-card charges, payments, and statement credits.",
+        "Archive source statements and protect your data with exportable backups.",
+        "Fresh-start and reset flows are safer when old or partial data is present.",
     ]
 
     private var lastBackupDate: String? {
