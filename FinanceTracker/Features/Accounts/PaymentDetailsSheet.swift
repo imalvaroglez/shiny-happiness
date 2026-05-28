@@ -78,6 +78,9 @@ struct PaymentDetailsSheet: View {
         .onAppear {
             loadExisting()
         }
+        .onChange(of: billingMonth) {
+            loadExisting()
+        }
     }
 
     private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
@@ -100,9 +103,27 @@ struct PaymentDetailsSheet: View {
             context: modelContext
         )
         if let stmt = existing {
-            dueDate = stmt.paymentDueDate ?? dueDate
+            dueDate = stmt.paymentDueDate ?? defaultDueDate(for: billingMonth)
             paymentForNoInterest = stmt.paymentForNoInterest ?? 0
+        } else {
+            dueDate = defaultDueDate(for: billingMonth)
+            paymentForNoInterest = 0
         }
+    }
+
+    private func defaultDueDate(for billingMonth: Date) -> Date {
+        let calendar = Calendar(identifier: .gregorian)
+        let currentDay = calendar.component(.day, from: dueDate)
+        let monthComponents = calendar.dateComponents([.year, .month], from: billingMonth)
+        guard let monthStart = calendar.date(from: monthComponents),
+              let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart) else {
+            return billingMonth
+        }
+        let lastDay = calendar.component(.day, from: calendar.date(byAdding: .day, value: -1, to: nextMonth)!)
+        let clampedDay = min(currentDay, lastDay)
+        var targetComponents = monthComponents
+        targetComponents.day = clampedDay
+        return calendar.date(from: targetComponents) ?? billingMonth
     }
 
     private func save() {

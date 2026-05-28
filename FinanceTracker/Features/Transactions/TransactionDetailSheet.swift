@@ -17,6 +17,7 @@ struct TransactionDetailSheet: View {
     @State private var draftDate: Date
     @State private var draftDescription: String
     @State private var draftAbsoluteAmount: Decimal
+    @State private var draftSignedAmount: Decimal
     @State private var draftFlowKind: TransactionFlowKind
     @State private var draftCategory: Category?
     @State private var showingCategoryPicker = false
@@ -37,6 +38,7 @@ struct TransactionDetailSheet: View {
         _draftDate = State(initialValue: transaction.postedAt)
         _draftDescription = State(initialValue: transaction.descriptionRaw)
         _draftAbsoluteAmount = State(initialValue: abs(transaction.amount))
+        _draftSignedAmount = State(initialValue: transaction.amount)
         _draftFlowKind = State(initialValue: transaction.flowKind)
         _draftCategory = State(initialValue: transaction.category)
     }
@@ -67,14 +69,12 @@ struct TransactionDetailSheet: View {
 
     private var displayAmount: Decimal {
         if isKindEditable {
-            return signedAmount
+            return kindDerivedSignedAmount
         }
-        return transaction.isTransfer || !isKindEditable
-            ? draftAbsoluteAmount * (transaction.amount >= 0 ? 1 : -1)
-            : signedAmount
+        return draftSignedAmount
     }
 
-    private var signedAmount: Decimal {
+    private var kindDerivedSignedAmount: Decimal {
         switch draftFlowKind {
         case .charge, .expense: return -abs(draftAbsoluteAmount)
         default: return abs(draftAbsoluteAmount)
@@ -146,10 +146,17 @@ struct TransactionDetailSheet: View {
 
             editRow("Amount") {
                 HStack(spacing: 8) {
-                    TextField("Amount", value: $draftAbsoluteAmount, format: .number)
-                        .textFieldStyle(.plain)
-                        .multilineTextAlignment(.trailing)
-                        .monospacedDigit()
+                    if isKindEditable {
+                        TextField("Amount", value: $draftAbsoluteAmount, format: .number)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.trailing)
+                            .monospacedDigit()
+                    } else {
+                        TextField("Amount", value: $draftSignedAmount, format: .number)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.trailing)
+                            .monospacedDigit()
+                    }
                     Text(transaction.currency)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -305,7 +312,7 @@ struct TransactionDetailSheet: View {
             }
             transaction.flowKindRaw = draftFlowKind.rawValue
         } else {
-            amountToStore = draftAbsoluteAmount * (transaction.amount >= 0 ? 1 : -1)
+            amountToStore = draftSignedAmount
         }
 
         transaction.postedAt = draftDate
