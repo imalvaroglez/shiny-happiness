@@ -52,13 +52,17 @@ enum ManualTransactionKind: String, CaseIterable, Identifiable {
     case income = "Income"
     case expense = "Expense"
     case charge = "Charge"
+    case cardCredit = "Card Credit"
     case payment = "Payment"
     case transfer = "Transfer"
 
     var id: String { rawValue }
 
     static func availableKinds(for accountType: AccountType) -> [ManualTransactionKind] {
-        accountType.isLiability ? [.charge, .payment] : [.income, .expense, .transfer]
+        if accountType == .creditCard {
+            return [.charge, .cardCredit, .payment]
+        }
+        return accountType.isLiability ? [.charge, .payment] : [.income, .expense, .transfer]
     }
 }
 
@@ -74,6 +78,7 @@ enum AccountCreationService {
         openingAmount: Decimal,
         creditLimit: Decimal?,
         tintHex: String?,
+        openedAt: Date = .now,
         context: ModelContext
     ) throws -> Account {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -83,23 +88,23 @@ enum AccountCreationService {
         guard !trimmedInstitution.isEmpty else { throw ManualAccountError.emptyInstitution }
         guard openingAmount >= 0 else { throw ManualAccountError.invalidAmount }
 
-        let now = Date.now
         let account = Account(
             institution: trimmedInstitution,
             type: kind.accountType,
             currency: trimmedCurrency.isEmpty ? "MXN" : trimmedCurrency,
             nickname: trimmedName,
             accountNumber: normalizedOptional(accountNumber),
+            openedAt: openedAt,
             creditLimit: kind == .creditCard ? creditLimit : nil,
             tintHex: tintHex,
-            manuallyCreatedAt: now
+            manuallyCreatedAt: .now
         )
         context.insert(account)
 
         let signedAmount = kind.isLiability ? -abs(openingAmount) : abs(openingAmount)
         let snapshot = AccountBalanceSnapshot(
             account: account,
-            date: now,
+            date: openedAt,
             amount: signedAmount,
             kind: .manualOpening,
             note: "Opening balance"
@@ -149,6 +154,7 @@ enum ManualTransactionService {
         description: String,
         signedAmount: Decimal,
         category: Category?,
+        flowKindRaw: String? = nil,
         context: ModelContext
     ) throws -> Transaction {
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -161,7 +167,8 @@ enum ManualTransactionService {
             descriptionRaw: trimmed,
             merchantNormalized: trimmed,
             category: category,
-            source: .manual
+            source: .manual,
+            flowKindRaw: flowKindRaw
         )
         context.insert(tx)
         try context.save()
@@ -233,6 +240,77 @@ enum ManualTransferService {
         let transfer = categories.first { $0.kind == .transfer && $0.name == "Internal Transfer" }
             ?? categories.first { $0.kind == .transfer }
         return (transfer, transfer)
+    }
+}
+
+@MainActor
+enum PaymentMetadataService {
+    private static let hashPrefix = "manual-metadata-"
+
+    static func metadataHash(accountId: UUID, year: Int, month: Int) -> String {
+        "\(hashPrefix)\(accountId)-\(year)-\(String(format: "%02d", month))"
+    }
+
+    static func upsert(
+        account: Account,
+        billingMonth: Date,
+        dueDate: Date,
+        paymentForNoInterest: Decimal?,
+        context: ModelContext
+    ) throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let components = calendar.dateComponents([.year, .month], from: billingMonth)
+        guard let monthStart = calendar.date(from: components),
+              let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart)?.addingTimeInterval(-1) else {
+            return
+        }
+
+        let year = calendar.component(.year, from: monthStart)
+        let month = calendar.component(.month, from: monthStart)
+        let hash = metadataHash(accountId: account.id, year: year, month: month)
+
+        let descriptor = FetchDescriptor<Statement>(
+            predicate: #Predicate<Statement> { $0.sourceFileHash == hash }
+        )
+        let existing = (try? context.fetch(descriptor))?.first
+
+        if let stmt = existing {
+            stmt.paymentDueDate = dueDate
+            stmt.paymentForNoInterest = paymentForNoInterest
+            stmt.lastModifiedAt = .now
+        } else {
+            let stmt = Statement(
+                account: account,
+                periodStart: monthStart,
+                periodEnd: monthEnd,
+                sourceFileHash: hash,
+                closingBalance: nil,
+                paymentForNoInterest: paymentForNoInterest,
+                paymentDueDate: dueDate
+            )
+            context.insert(stmt)
+        }
+        try context.save()
+    }
+
+    static func fetch(
+        accountId: UUID,
+        billingMonthStart: Date,
+        context: ModelContext
+    ) -> Statement? {
+        let calendar = Calendar(identifier: .gregorian)
+        let year = calendar.component(.year, from: billingMonthStart)
+        let month = calendar.component(.month, from: billingMonthStart)
+        let hash = metadataHash(accountId: accountId, year: year, month: month)
+
+        let descriptor = FetchDescriptor<Statement>(
+            predicate: #Predicate<Statement> { $0.sourceFileHash == hash }
+        )
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    static func isMetadataStatement(_ statement: Statement) -> Bool {
+        statement.sourceFileHash.hasPrefix(hashPrefix)
     }
 }
 

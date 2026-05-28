@@ -17,10 +17,10 @@ struct ManualTransactionKindTests {
         #expect(kinds == [.income, .expense, .transfer])
     }
 
-    @Test("Credit card returns Charge, Payment")
+    @Test("Credit card returns Charge, Card Credit, Payment")
     func creditCardKinds() {
         let kinds = ManualTransactionKind.availableKinds(for: .creditCard)
-        #expect(kinds == [.charge, .payment])
+        #expect(kinds == [.charge, .cardCredit, .payment])
     }
 
     @Test("Loan returns Charge, Payment")

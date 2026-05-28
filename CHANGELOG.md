@@ -6,11 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Card credits/bonifications.** Credit-card accounts now support `.cardCredit` flow kind for cashback rewards, statement credits, and similar positive movements that reduce owed balance without being payments. Card credits are excluded from consolidated income and cash-flow totals. `TransactionFlowKind` enum provides the six flow kinds: `income`, `expense`, `transfer`, `charge`, `cardCredit`, `payment`.
+- **Payment due metadata.** `PaymentMetadataService` stores per-month payment details (due date, no-interest amount) as lightweight `Statement` rows with nil `closingBalance`. A dedicated `PaymentDetailsSheet` lets users set or update billing-month payment metadata from the liability dashboard.
+- **Dashboard transaction editing.** Tapping a transaction in any dashboard opens `TransactionDetailSheet` with kind editing (charge/card credit/payment for credit cards), absolute amount editing, and category changes. `onSaved` callback refreshes the dashboard after edits.
+- **Account opening dates.** Manual account creation now accepts `openedAt`, stored on `Account`. Balance roll-forward for manual-only accounts uses `openedAt` as the lower bound, excluding pre-opening transactions.
+- **Payment due vs balance statement split.** `AccountBalanceResolver` now distinguishes `latestBalanceStatement` (non-nil closing balance, for interest/fees) from `latestPaymentStatement` (has payment fields, for due-date display).
+- **Source statement metadata filtering.** Metadata-only statements (nil `closingBalance`, hash-prefixed) are excluded from the liability dashboard's source-statement archive summaries.
+
 ### Fixed
 
 - **Delete All Data crash.** "Delete All Data" now removes all 9 model types in dependency-safe order (previously missed `PendingImport`, `InstallmentPlan`, and `SignRecoveryHint`), re-bootstraps seed categories and rules, and resets all UI state (sidebar, filters, sheets). `AppDataResetService` owns the deletion order as a single source of truth, used by both Settings and backup restore. Transaction category filters are now ID-based to avoid stale model references.
 - **Fresh-start reset repair.** Startup repair now detects and cleans the "zero accounts but financial rows remain" state left by earlier partial resets. `resetAllData` verifies all model counts reach zero before restoring seed data, and surfaces a visible error if verification fails. Dashboard and Transactions defensively skip rendering when no accounts exist, preventing stale relationship access.
-- **Hardened transaction materialization.** Transaction fetches are gated on account existence — the app never fetches `Transaction` rows when there are no accounts, preventing crashes from corrupted enum columns in orphan data. Startup uses a single repair-then-configure sequence with no eager refresh. Repair verifies deletion with fresh counts and escalates to a pre-container store-file quarantine if SwiftData cannot clean its own store. Quarantined files are moved to `Application Support/FinanceTracker/ResetBackups/` rather than deleted.
+- **Hardened transaction materialization.** Transaction fetches are gated on account existence — the app never fetches `Transaction` rows when there are no accounts, preventing crashes from corrupted enum columns in orphan data. `TransactionsView` no longer uses broad `@Query<Transaction>` and fetches transactions manually only after accounts exist. Startup uses a single repair-then-configure sequence with no eager dashboard refresh before repair. Repair verifies deletion with fresh counts and escalates to a pre-container store-file quarantine under `Application Support/FinanceTracker/ResetBackups/` if SwiftData cannot clean its own store.
 
 ### Added
 
@@ -50,6 +59,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Charges vs Payments chart legend.** Added explicit color-coded legend (Charges red, Payments & Credits green). Relabeled "Payments" to "Payments & Credits" in tooltip and totals.
 - **Amex metadata extraction uses statement-summary semantics.** Gold Elite statements now parse the arithmetic summary row and credit summary directly. `closingBalance` represents total outstanding debt from credit limit minus available credit, while `paymentForNoInterest` stores the statement balance / saldo a pagar.
 - **Transactions filter bar.** Account, category, and recently-deleted controls now live behind a compact Filters popover with active filter chips. Sorting is a separate icon menu without the extra "Sort" label.
+- **Transactions list loading.** Transaction list data loading is now guarded/manual to avoid materializing orphaned corrupted transaction rows.
 
 - **Credit-card dashboard: removed Interest & Fees card.** Statement metadata preserved in snapshot/model; visual card removed for all credit-card types.
 - **Category picker: removed inline creation.** Replaced with passive "Manage categories in Settings" hint. Creation now lives in the Settings category manager.

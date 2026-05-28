@@ -5,6 +5,8 @@ import Charts
 /// statement metadata; loans use simpler amount-owed language.
 struct LiabilityAccountDashboard: View {
     let snapshot: LiabilityAccountSnapshot
+    var onTransactionTap: ((Transaction) -> Void)? = nil
+    var onEditPaymentDetails: (() -> Void)? = nil
 
     @State private var breakdown: BreakdownRequest? = nil
     @State private var hover: Date? = nil
@@ -73,9 +75,20 @@ struct LiabilityAccountDashboard: View {
 
     private var paymentDueCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Payment Due").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("Payment Due").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    onEditPaymentDetails?()
+                } label: {
+                    Text("Edit")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
             let state = PaymentDueDisplayState.from(
-                latestStatement: snapshot.latestStatement,
+                paymentStatement: snapshot.paymentStatement,
                 daysUntilDue: snapshot.daysUntilDue
             )
             switch state {
@@ -99,7 +112,7 @@ struct LiabilityAccountDashboard: View {
                 dueDateContent(due: due, days: days)
                 Divider()
                 amountRow(label: "Minimum", value: minimum)
-                amountRow(label: "Statement balance", value: noInterest)
+                amountRow(label: "Amount to pay", value: noInterest)
             }
         }
         .padding()
@@ -316,7 +329,12 @@ struct LiabilityAccountDashboard: View {
     private var recentList: some View {
         DashboardListCard(title: "Recent Transactions") {
             ForEach(snapshot.recentTransactions.prefix(10)) { tx in
-                DashboardTransactionRow(transaction: tx)
+                Button {
+                    onTransactionTap?(tx)
+                } label: {
+                    DashboardTransactionRow(transaction: tx)
+                }
+                .buttonStyle(.plain)
                 if tx.id != snapshot.recentTransactions.prefix(10).last?.id {
                     DashboardSeparator()
                 }

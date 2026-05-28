@@ -24,7 +24,8 @@ struct ManualLedgerTests {
 
     @Test("Manual account creation stores signed opening snapshots")
     func manualAccountCreationSignsOpeningSnapshots() throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
 
         let checking = try AccountCreationService.create(
             kind: .debit,
@@ -59,7 +60,9 @@ struct ManualLedgerTests {
 
     @Test("Balance resolver uses latest anchor plus later transactions")
     func balanceResolverRollsForwardLatestAnchor() throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
+        let epoch = Date(timeIntervalSince1970: 0)
         let account = try AccountCreationService.create(
             kind: .debit,
             name: "Debit",
@@ -69,6 +72,7 @@ struct ManualLedgerTests {
             openingAmount: 1_000,
             creditLimit: nil,
             tintHex: nil,
+            openedAt: epoch,
             context: context
         )
         let day1 = Date(timeIntervalSince1970: 1_000)
@@ -104,7 +108,8 @@ struct ManualLedgerTests {
 
     @Test("Manual transfer creates linked outflow and inflow")
     func manualTransferCreatesLinkedPair() throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
         let transfer = FinanceTracker.Category(name: "Internal Transfer", kind: .transfer)
         context.insert(transfer)
         let checking = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Checking")
@@ -125,12 +130,15 @@ struct ManualLedgerTests {
         #expect(pair.inflow.amount == 1_000)
         #expect(pair.outflow.transferGroupID == pair.inflow.transferGroupID)
         #expect(pair.outflow.source == .manual)
-        #expect(pair.inflow.category?.kind == .transfer)
+        #expect(pair.inflow.source == .manual)
+        #expect(pair.outflow.category?.kind == nil, "No seed categories loaded, outflow category should be nil")
+        #expect(pair.inflow.category?.kind == nil, "No seed categories loaded, inflow category should be nil")
     }
 
     @Test("Debit income creates positive transaction")
     func debitIncomeCreatesPositive() throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
         let checking = Account(institution: "Bank", type: .checking, currency: "MXN")
         context.insert(checking)
 
@@ -149,7 +157,8 @@ struct ManualLedgerTests {
 
     @Test("Debit expense creates negative transaction")
     func debitExpenseCreatesNegative() throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
         let checking = Account(institution: "Bank", type: .checking, currency: "MXN")
         context.insert(checking)
 
@@ -167,7 +176,8 @@ struct ManualLedgerTests {
 
     @Test("Credit-card charge creates negative transaction")
     func creditCardChargeCreatesNegative() throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN")
         context.insert(card)
 
@@ -185,7 +195,8 @@ struct ManualLedgerTests {
 
     @Test("Credit-card payment creates paired transfer with payment categories")
     func creditCardPaymentCreatesPairedWithPaymentCategories() throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
         SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let checking = Account(institution: "Bank", type: .checking, currency: "MXN")
@@ -217,7 +228,8 @@ struct ManualLedgerTests {
 
     @Test("Loan payment creates paired transfer with transfer categories")
     func loanPaymentCreatesPairedWithTransferCategories() throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
         let transfer = FinanceTracker.Category(name: "Internal Transfer", kind: .transfer)
         context.insert(transfer)
 
@@ -244,7 +256,8 @@ struct ManualLedgerTests {
 
     @Test("Asset-to-asset transfer uses transfer category")
     func assetToAssetTransferUsesTransferCategory() throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
         let transfer = FinanceTracker.Category(name: "Internal Transfer", kind: .transfer)
         context.insert(transfer)
 
@@ -272,7 +285,8 @@ struct ManualLedgerTests {
 
     @Test("Payment pair excluded from consolidated cash flow")
     func paymentPairExcludedFromCashFlow() async throws {
-        let context = try makeContainer().mainContext
+        let container = try makeContainer()
+        let context = container.mainContext
         SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let checking = Account(institution: "Bank", type: .checking, currency: "MXN")
@@ -301,5 +315,180 @@ struct ManualLedgerTests {
 
         #expect(snap.totalIncome == 0, "Paired payment should not appear as income, got \(snap.totalIncome)")
         #expect(snap.totalExpenses == 0, "Paired payment should not appear as expense, got \(snap.totalExpenses)")
+    }
+
+    @Test("Card credit creates positive transaction with flowKindRaw")
+    func cardCreditCreatesPositiveWithFlowKind() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN", nickname: "Card")
+        context.insert(card)
+
+        let tx = try ManualTransactionService.create(
+            account: card,
+            date: .now,
+            description: "Cashback reward",
+            signedAmount: 500,
+            category: nil,
+            flowKindRaw: TransactionFlowKind.cardCredit.rawValue,
+            context: context
+        )
+
+        #expect(tx.amount == 500, "Card credit should be positive")
+        #expect(tx.flowKindRaw == "cardCredit")
+        #expect(tx.flowKind == .cardCredit)
+        #expect(tx.source == .manual)
+    }
+
+    @Test("Card credit reduces owed balance and utilization")
+    func cardCreditReducesOwedBalance() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let apr1 = dateFromComponents(year: 2026, month: 4, day: 1)
+        let apr15 = dateFromComponents(year: 2026, month: 4, day: 15)
+        let apr20 = dateFromComponents(year: 2026, month: 4, day: 20)
+
+        let card = try AccountCreationService.create(
+            kind: .creditCard,
+            name: "Card",
+            institution: "Issuer",
+            accountNumber: nil,
+            currency: "MXN",
+            openingAmount: 2_000,
+            creditLimit: 10_000,
+            tintHex: nil,
+            openedAt: apr1,
+            context: context
+        )
+
+        _ = try ManualTransactionService.create(
+            account: card,
+            date: apr15,
+            description: "Store purchase",
+            signedAmount: -3_000,
+            category: nil,
+            flowKindRaw: TransactionFlowKind.charge.rawValue,
+            context: context
+        )
+        #expect(AccountBalanceResolver.currentBalance(account: card, context: context) == -5_000)
+
+        _ = try ManualTransactionService.create(
+            account: card,
+            date: apr20,
+            description: "Cashback",
+            signedAmount: 1_000,
+            category: nil,
+            flowKindRaw: TransactionFlowKind.cardCredit.rawValue,
+            context: context
+        )
+
+        let balance = AccountBalanceResolver.currentBalance(account: card, context: context)
+        #expect(balance == -4_000, "Card credit should reduce owed, got \(balance)")
+    }
+
+    @Test("Card credit excluded from consolidated income")
+    func cardCreditExcludedFromConsolidatedIncome() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN", nickname: "Card")
+        context.insert(card)
+
+        _ = try ManualTransactionService.create(
+            account: card,
+            date: .now,
+            description: "Cashback",
+            signedAmount: 500,
+            category: nil,
+            flowKindRaw: TransactionFlowKind.cardCredit.rawValue,
+            context: context
+        )
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        viewModel.scope = .consolidated
+        viewModel.configure(context: context)
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+
+        #expect(snap.totalIncome == 0, "Card credit should not appear as income, got \(snap.totalIncome)")
+    }
+
+    @Test("Backdated charge after openedAt affects current balance")
+    func backdatedChargeAfterOpenedAtAffectsBalance() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let apr1 = dateFromComponents(year: 2026, month: 4, day: 1)
+        let apr15 = dateFromComponents(year: 2026, month: 4, day: 15)
+
+        let card = try AccountCreationService.create(
+            kind: .creditCard,
+            name: "Card",
+            institution: "Issuer",
+            accountNumber: nil,
+            currency: "MXN",
+            openingAmount: 0,
+            creditLimit: 10_000,
+            tintHex: nil,
+            openedAt: apr1,
+            context: context
+        )
+
+        _ = try ManualTransactionService.create(
+            account: card,
+            date: apr15,
+            description: "April charge",
+            signedAmount: -2_500,
+            category: nil,
+            context: context
+        )
+
+        let balance = AccountBalanceResolver.currentBalance(account: card, context: context)
+        #expect(balance == -2_500, "Backdated charge after openedAt should affect balance, got \(balance)")
+    }
+
+    @Test("Transaction before openedAt does not roll forward")
+    func transactionBeforeOpenedAtExcluded() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let may1 = dateFromComponents(year: 2026, month: 5, day: 1)
+        let apr15 = dateFromComponents(year: 2026, month: 4, day: 15)
+
+        let card = try AccountCreationService.create(
+            kind: .creditCard,
+            name: "Card",
+            institution: "Issuer",
+            accountNumber: nil,
+            currency: "MXN",
+            openingAmount: 0,
+            creditLimit: 10_000,
+            tintHex: nil,
+            openedAt: may1,
+            context: context
+        )
+
+        _ = try ManualTransactionService.create(
+            account: card,
+            date: apr15,
+            description: "Pre-opening charge",
+            signedAmount: -1_000,
+            category: nil,
+            context: context
+        )
+
+        let balance = AccountBalanceResolver.currentBalance(account: card, context: context)
+        #expect(balance == 0, "Transaction before openedAt should not affect balance, got \(balance)")
+    }
+
+    private func dateFromComponents(year: Int, month: Int, day: Int) -> Date {
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        return Calendar(identifier: .gregorian).date(from: components)!
     }
 }
