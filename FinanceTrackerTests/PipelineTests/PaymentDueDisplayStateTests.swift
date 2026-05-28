@@ -14,7 +14,7 @@ struct PaymentDueDisplayStateTests {
 
     @Test("No statement → .noStatement")
     func noStatement() {
-        let state = PaymentDueDisplayState.from(latestStatement: nil, daysUntilDue: nil)
+        let state = PaymentDueDisplayState.from(paymentStatement: nil, daysUntilDue: nil)
         if case .noStatement = state {} else {
             Issue.record("Expected .noStatement, got \(state)")
         }
@@ -27,7 +27,7 @@ struct PaymentDueDisplayStateTests {
             periodEnd: .now,
             sourceFileHash: "test"
         )
-        let state = PaymentDueDisplayState.from(latestStatement: stmt, daysUntilDue: nil)
+        let state = PaymentDueDisplayState.from(paymentStatement: stmt, daysUntilDue: nil)
         if case .statementNoDueDate = state {} else {
             Issue.record("Expected .statementNoDueDate, got \(state)")
         }
@@ -42,7 +42,7 @@ struct PaymentDueDisplayStateTests {
             sourceFileHash: "test",
             paymentDueDate: due
         )
-        let state = PaymentDueDisplayState.from(latestStatement: stmt, daysUntilDue: 5)
+        let state = PaymentDueDisplayState.from(paymentStatement: stmt, daysUntilDue: 5)
         if case .dueDateOnly(let d, let days) = state {
             #expect(Calendar.current.isDate(d, inSameDayAs: due))
             #expect(days == 5)
@@ -62,7 +62,7 @@ struct PaymentDueDisplayStateTests {
             paymentForNoInterest: 45000,
             paymentDueDate: due
         )
-        let state = PaymentDueDisplayState.from(latestStatement: stmt, daysUntilDue: 10)
+        let state = PaymentDueDisplayState.from(paymentStatement: stmt, daysUntilDue: 10)
         if case .full(let d, let days, let min, let noInt) = state {
             #expect(Calendar.current.isDate(d, inSameDayAs: due))
             #expect(days == 10)
@@ -83,7 +83,7 @@ struct PaymentDueDisplayStateTests {
             minimumPayment: 3600,
             paymentDueDate: due
         )
-        let state = PaymentDueDisplayState.from(latestStatement: stmt, daysUntilDue: nil)
+        let state = PaymentDueDisplayState.from(paymentStatement: stmt, daysUntilDue: nil)
         if case .full(let d, _, let min, let noInt) = state {
             #expect(Calendar.current.isDate(d, inSameDayAs: due))
             #expect(min == 3600)

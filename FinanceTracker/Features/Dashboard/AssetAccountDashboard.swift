@@ -5,6 +5,7 @@ import Charts
 /// pattern as ConsolidatedDashboard but scoped to one account.
 struct AssetAccountDashboard: View {
     let snapshot: AssetAccountSnapshot
+    var onTransactionTap: ((Transaction) -> Void)? = nil
 
     @State private var breakdown: BreakdownRequest? = nil
     @State private var cashFlowHover: Date? = nil
@@ -161,7 +162,12 @@ struct AssetAccountDashboard: View {
     private var recentList: some View {
         DashboardListCard(title: "Recent Transactions") {
             ForEach(snapshot.recentTransactions.prefix(10)) { tx in
-                DashboardTransactionRow(transaction: tx)
+                Button {
+                    onTransactionTap?(tx)
+                } label: {
+                    DashboardTransactionRow(transaction: tx)
+                }
+                .buttonStyle(.plain)
                 if tx.id != snapshot.recentTransactions.prefix(10).last?.id {
                     DashboardSeparator()
                 }

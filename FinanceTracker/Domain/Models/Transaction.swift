@@ -19,6 +19,7 @@ final class Transaction: LastModifiedTracking {
     var source: TransactionSource
     var transferGroupID: UUID?
     @Relationship(deleteRule: .nullify, inverse: \InstallmentPlan.installments) var installmentPlan: InstallmentPlan?
+    var flowKindRaw: String? = nil
     var lastModifiedAt: Date = Date.now
     var deletedAt: Date? = nil
 
@@ -38,7 +39,8 @@ final class Transaction: LastModifiedTracking {
         cardLast4: String? = nil,
         source: TransactionSource = .imported,
         transferGroupID: UUID? = nil,
-        installmentPlan: InstallmentPlan? = nil
+        installmentPlan: InstallmentPlan? = nil,
+        flowKindRaw: String? = nil
     ) {
         self.id = id
         self.account = account
@@ -56,9 +58,26 @@ final class Transaction: LastModifiedTracking {
         self.source = source
         self.transferGroupID = transferGroupID
         self.installmentPlan = installmentPlan
+        self.flowKindRaw = flowKindRaw
     }
 
     var categoryName: String {
         category?.name ?? ""
+    }
+
+    var flowKind: TransactionFlowKind {
+        if let raw = flowKindRaw, let kind = TransactionFlowKind(rawValue: raw) {
+            return kind
+        }
+        if isTransfer { return .transfer }
+        let isLiability = account?.type.isLiability == true
+        if isLiability {
+            if amount > 0 {
+                if category?.kind == .creditCardPayment { return .payment }
+                return .cardCredit
+            }
+            return .charge
+        }
+        return amount >= 0 ? .income : .expense
     }
 }
