@@ -107,7 +107,7 @@ struct LiabilityAccountDashboard: View {
                 dueDateContent(due: due, days: days)
                 Divider()
                 unavailableRow("Minimum")
-                unavailableRow("Statement balance")
+                unavailableRow("Amount to pay")
             case .full(let due, let days, let minimum, let noInterest):
                 dueDateContent(due: due, days: days)
                 Divider()
