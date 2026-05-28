@@ -23,6 +23,15 @@ No external dependencies — pure Apple frameworks (SwiftUI, SwiftData, Swift Ch
 
 Deployment target is **macOS 26.0** (set in `project.yml`).
 
+## Production App Isolation
+
+The installed production app is `~/Applications/FinanceTracker.app`. Treat it and its real user data as off-limits during normal development and testing.
+
+- Do **not** overwrite, delete, move, launch, smoke-test, debug, or otherwise operate on `~/Applications/FinanceTracker.app` unless the user explicitly asks for a production release/install/smoke-test action.
+- Do **not** use the production app or production SwiftData store for parser, UI, backup, reset, migration, or ingest testing. Use Xcode build products, temporary app-support paths, in-memory containers, fixtures, or sandboxed test data instead.
+- Before any requested action that may touch the production app or production data, require a fresh manual `.ftbackup` export or an explicit user confirmation that a current backup already exists.
+- Experimental/dev builds must stay in Xcode DerivedData or another clearly non-production location and must not be copied over the production app without an explicit release step.
+
 ## Architecture
 
 ### Ingest pipeline — two import paths
