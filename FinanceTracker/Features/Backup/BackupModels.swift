@@ -55,6 +55,7 @@ struct TransactionSnapshot: Codable {
     var source: String?
     var transferGroupID: UUID?
     var installmentPlanId: UUID?
+    var flowKindRaw: String?
     var lastModifiedAt: Date
     var deletedAt: Date?
 }

@@ -13,6 +13,8 @@ struct DashboardView: View {
     @State private var showingAddAccount = false
     @State private var showingManualTransaction = false
     @State private var balanceSnapshotAccount: Account?
+    @State private var editingTransaction: Transaction?
+    @State private var showingPaymentDetails = false
     @State private var dataResetGeneration = 0
 
     @Query(sort: \Account.nickname) private var accounts: [Account]
@@ -76,13 +78,11 @@ struct DashboardView: View {
         }
         .environment(\.scopedTint, scopedTint)
         .task {
-            AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
+            let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
+            guard outcome != .hardResetRequested else { return }
             SeedDataLoader.bootstrapIfNeeded(context: modelContext)
             viewModel.configure(context: modelContext)
             await BackupScheduler.runIfNeeded(context: modelContext)
-        }
-        .onAppear {
-            viewModel.refresh()
         }
         .onChange(of: sidebarSelection) {
             switch sidebarSelection {
@@ -120,6 +120,20 @@ struct DashboardView: View {
         .sheet(item: $balanceSnapshotAccount) { account in
             BalanceSnapshotSheet(account: account) {
                 viewModel.refresh()
+            }
+        }
+        .sheet(item: $editingTransaction) { tx in
+            TransactionDetailSheet(
+                transaction: tx,
+                onCategoryAssigned: { _ in },
+                onSaved: { viewModel.refresh() }
+            )
+        }
+        .sheet(isPresented: $showingPaymentDetails) {
+            if let account = selectedAccount {
+                PaymentDetailsSheet(account: account) {
+                    viewModel.refresh()
+                }
             }
         }
     }
@@ -297,11 +311,25 @@ struct DashboardView: View {
     private var snapshotContent: some View {
         switch viewModel.snapshot {
         case .consolidated(let snap):
-            ConsolidatedDashboard(snapshot: snap)
+            ConsolidatedDashboard(snapshot: snap, onTransactionTap: { tx in
+                editingTransaction = tx
+            })
         case .asset(let snap):
-            AssetAccountDashboard(snapshot: snap)
+            AssetAccountDashboard(snapshot: snap, onTransactionTap: { tx in
+                editingTransaction = tx
+            })
         case .liability(let snap):
-            LiabilityAccountDashboard(snapshot: snap)
+            LiabilityAccountDashboard(
+                snapshot: snap,
+                onTransactionTap: { tx in
+                    editingTransaction = tx
+                },
+                onEditPaymentDetails: {
+                    if selectedAccount?.type == .creditCard {
+                        showingPaymentDetails = true
+                    }
+                }
+            )
         case .empty(let snap):
             emptyState(reason: snap.reason)
         }

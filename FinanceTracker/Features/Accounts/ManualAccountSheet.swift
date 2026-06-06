@@ -14,6 +14,7 @@ struct ManualAccountSheet: View {
     @State private var currency = "MXN"
     @State private var openingAmount: Decimal = 0
     @State private var creditLimit: Decimal = 0
+    @State private var openingDate = Date.now
     @State private var tint = Color.accentColor
     @State private var errorMessage: String?
 
@@ -68,6 +69,13 @@ struct ManualAccountSheet: View {
                         .textFieldStyle(.plain)
                         .multilineTextAlignment(.trailing)
                         .monospacedDigit()
+                }
+
+                Divider().padding(.leading, 132)
+                row("Opening Date") {
+                    DatePicker("", selection: $openingDate, displayedComponents: .date)
+                        .labelsHidden()
+                        .datePickerStyle(.compact)
                 }
 
                 if kind == .creditCard {
@@ -139,6 +147,7 @@ struct ManualAccountSheet: View {
                 openingAmount: openingAmount,
                 creditLimit: creditLimit > 0 ? creditLimit : nil,
                 tintHex: tint.hexString,
+                openedAt: openingDate,
                 context: modelContext
             )
             onCreated(account)

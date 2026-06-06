@@ -77,9 +77,9 @@ final class DashboardViewModel {
             },
             sortBy: [SortDescriptor(\.postedAt, order: .reverse)]
         )
-        let fetched = (try? context.fetch(descriptor)) ?? []
         let accounts = (try? context.fetch(FetchDescriptor<Account>())) ?? []
         guard !accounts.isEmpty else { return [] }
+        let fetched = (try? context.fetch(descriptor)) ?? []
         let validIDs = Set(accounts.map(\.id))
         return fetched.filter { validIDs.contains($0.account?.id ?? UUID()) }
     }
@@ -94,6 +94,7 @@ final class DashboardViewModel {
         if tx.isTransfer { return true }
         if tx.category?.kind == .transfer { return true }
         if tx.category?.kind == .creditCardPayment { return true }
+        if tx.account?.type.isLiability == true && tx.amount > 0 { return true }
         if isOwnAccountMovement(tx) { return true }
         return isSynthesizedMSIPurchase(tx)
     }
@@ -155,6 +156,8 @@ final class DashboardViewModel {
         let transactions = windowedTransactions(context: context, accountId: accountId)
 
         let latestStatement = AccountBalanceResolver.latestStatement(accountId: accountId, context: context)
+        let latestBalanceStatement = AccountBalanceResolver.latestBalanceStatement(accountId: accountId, context: context)
+        let latestPaymentStatement = AccountBalanceResolver.latestPaymentStatement(accountId: accountId, context: context)
         let currentBalance = AccountBalanceResolver.currentBalance(account: account, context: context)
 
         switch account.type {
@@ -163,7 +166,8 @@ final class DashboardViewModel {
                 context: context,
                 account: account,
                 transactions: transactions,
-                latestStatement: latestStatement,
+                latestBalanceStatement: latestBalanceStatement,
+                latestPaymentStatement: latestPaymentStatement,
                 currentBalance: currentBalance
             ))
         default:
@@ -208,7 +212,8 @@ final class DashboardViewModel {
         context: ModelContext,
         account: Account,
         transactions: [Transaction],
-        latestStatement: Statement?,
+        latestBalanceStatement: Statement?,
+        latestPaymentStatement: Statement?,
         currentBalance: Decimal
     ) -> LiabilityAccountSnapshot {
         let chargesVsPayments = computeChargesVsPayments(transactions)
@@ -220,8 +225,8 @@ final class DashboardViewModel {
         let totalPayments = transactions
             .filter { !$0.isDuplicate && $0.amount > 0 }
             .reduce(Decimal(0)) { $0 + $1.amount }
-        let interestCharged = latestStatement?.interestCharged ?? 0
-        let feesCharged = (latestStatement?.feesCharged ?? 0) + (latestStatement?.ivaCharged ?? 0)
+        let interestCharged = latestBalanceStatement?.interestCharged ?? 0
+        let feesCharged = (latestBalanceStatement?.feesCharged ?? 0) + (latestBalanceStatement?.ivaCharged ?? 0)
 
         let utilization: Double?
         if let limit = account.creditLimit, limit > 0 {
@@ -240,7 +245,7 @@ final class DashboardViewModel {
             currentBalance: currentBalance,
             creditLimit: account.creditLimit,
             utilizationPercent: utilization,
-            latestStatement: latestStatement,
+            paymentStatement: latestPaymentStatement,
             chargesVsPayments: chargesVsPayments,
             spendingByCategory: spending,
             totalCharges: totalCharges,
@@ -445,7 +450,9 @@ final class DashboardViewModel {
             sortBy: [SortDescriptor(\.periodEnd, order: .reverse)]
         )
         let statements = (try? context.fetch(descriptor)) ?? []
-        return statements.map { stmt in
+        return statements
+            .filter { !PaymentMetadataService.isMetadataStatement($0) }
+            .map { stmt in
             StatementSourceSummary(
                 id: stmt.id,
                 sourceFileName: stmt.sourceFileName,

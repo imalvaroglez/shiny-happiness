@@ -88,11 +88,11 @@ struct DashboardSnapshotTests {
         }
 
         // Payment-due date: sábado, 30-May-2026
-        if let due = snap.latestStatement?.paymentDueDate {
+        if let due = snap.paymentStatement?.paymentDueDate {
             let comps = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: due)
             #expect(comps.year == 2026 && comps.month == 5 && comps.day == 30)
         } else {
-            Issue.record("paymentDueDate not stored on latestStatement")
+            Issue.record("paymentDueDate not stored on paymentStatement")
         }
 
         // At least one active installment plan; HOME DEPOT must be present.
@@ -406,6 +406,47 @@ struct DashboardSnapshotTests {
             Issue.record("Expected empty snapshot after deleted scoped account"); return
         }
         #expect(empty.reason == "Account not found")
+    }
+
+    @Test("Liability snapshot counts card credits under payments/credits")
+    func cardCreditsCountedUnderPaymentsCredits() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN", nickname: "Card")
+        context.insert(card)
+
+        let charge = Transaction(
+            account: card,
+            postedAt: .now,
+            amount: -3_000,
+            descriptionRaw: "Store charge",
+            source: .manual,
+            flowKindRaw: TransactionFlowKind.charge.rawValue
+        )
+        let credit = Transaction(
+            account: card,
+            postedAt: .now,
+            amount: 500,
+            descriptionRaw: "Cashback reward",
+            source: .manual,
+            flowKindRaw: TransactionFlowKind.cardCredit.rawValue
+        )
+        context.insert(charge)
+        context.insert(credit)
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        viewModel.scope = .account(card.id)
+        viewModel.configure(context: context)
+
+        guard case .liability(let snap) = viewModel.snapshot else {
+            Issue.record("Expected liability snapshot"); return
+        }
+
+        #expect(snap.totalCharges == 3_000, "Charges should be 3000, got \(snap.totalCharges)")
+        #expect(snap.totalPayments == 500, "Payments & credits should include card credit of 500, got \(snap.totalPayments)")
     }
 
     private func dateFromComponents(year: Int, month: Int, day: Int) -> Date {

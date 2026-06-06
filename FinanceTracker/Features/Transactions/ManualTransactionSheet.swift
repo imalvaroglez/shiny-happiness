@@ -48,7 +48,7 @@ struct ManualTransactionSheet: View {
         switch kind {
         case .income:
             return [.income]
-        case .expense, .charge:
+        case .expense, .charge, .cardCredit:
             return [.expense]
         case .payment, .transfer:
             return []
@@ -131,7 +131,7 @@ struct ManualTransactionSheet: View {
         switch kind {
         case .income, .expense:
             singleRows(showCategory: true)
-        case .charge:
+        case .charge, .cardCredit:
             singleRows(showCategory: true)
         case .payment:
             pairedRows(counterpartyLabel: "From Account")
@@ -285,9 +285,10 @@ struct ManualTransactionSheet: View {
                     description: description,
                     signedAmount: abs(amount),
                     category: selectedCategory,
+                    flowKindRaw: TransactionFlowKind.income.rawValue,
                     context: modelContext
                 )
-            case .expense, .charge:
+            case .expense:
                 guard let account = selectedAccount else { throw ManualAccountError.missingAccount }
                 _ = try ManualTransactionService.create(
                     account: account,
@@ -295,6 +296,29 @@ struct ManualTransactionSheet: View {
                     description: description,
                     signedAmount: -abs(amount),
                     category: selectedCategory,
+                    flowKindRaw: TransactionFlowKind.expense.rawValue,
+                    context: modelContext
+                )
+            case .charge:
+                guard let account = selectedAccount else { throw ManualAccountError.missingAccount }
+                _ = try ManualTransactionService.create(
+                    account: account,
+                    date: date,
+                    description: description,
+                    signedAmount: -abs(amount),
+                    category: selectedCategory,
+                    flowKindRaw: TransactionFlowKind.charge.rawValue,
+                    context: modelContext
+                )
+            case .cardCredit:
+                guard let account = selectedAccount else { throw ManualAccountError.missingAccount }
+                _ = try ManualTransactionService.create(
+                    account: account,
+                    date: date,
+                    description: description,
+                    signedAmount: abs(amount),
+                    category: selectedCategory,
+                    flowKindRaw: TransactionFlowKind.cardCredit.rawValue,
                     context: modelContext
                 )
             case .payment:

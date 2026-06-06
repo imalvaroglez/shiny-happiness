@@ -7,6 +7,11 @@ private struct AccountDeletionTarget {
     let preview: AccountDeletionService.DeletionPreview
 }
 
+private enum SettingsFocusField: Hashable {
+    case newCategoryName
+    case newSubcategoryName
+}
+
 struct SettingsView: View {
     var onAccountDeleted: (UUID) -> Void = { _ in }
     var onAccountCreated: (Account) -> Void = { _ in }
@@ -35,6 +40,9 @@ struct SettingsView: View {
     @State private var newCategoryKind: CategoryKind = .expense
     @State private var subcategoryParent: Category?
     @State private var newSubcategoryName = ""
+    @State private var categoryErrorMessage: String?
+
+    @FocusState private var focusedField: SettingsFocusField?
 
     private var transactionCountsByAccountID: [UUID: Int] {
         var counts: [UUID: Int] = [:]
@@ -102,6 +110,14 @@ struct SettingsView: View {
             Button("OK") { resetErrorMessage = nil }
         } message: {
             Text(resetErrorMessage ?? "An unknown error occurred.")
+        }
+        .alert("Category Error", isPresented: Binding(
+            get: { categoryErrorMessage != nil },
+            set: { if !$0 { categoryErrorMessage = nil } }
+        )) {
+            Button("OK") { categoryErrorMessage = nil }
+        } message: {
+            Text(categoryErrorMessage ?? "An unknown error occurred.")
         }
         .sheet(isPresented: $showingNewCategory) {
             newCategorySheet
@@ -271,6 +287,8 @@ struct SettingsView: View {
                     .padding(.leading, 16)
 
                 Button {
+                    newCategoryName = ""
+                    newCategoryKind = .expense
                     showingNewCategory = true
                 } label: {
                     HStack {
@@ -349,47 +367,53 @@ struct SettingsView: View {
     }
 
     private var newCategorySheet: some View {
-        VStack(spacing: 16) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("New Category")
                 .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .center)
 
             TextField("Category name", text: $newCategoryName)
                 .textFieldStyle(.roundedBorder)
+                .focused($focusedField, equals: .newCategoryName)
+                .onSubmit(createNewCategoryIfValid)
 
-            Picker("Kind", selection: $newCategoryKind) {
-                ForEach(CategoryKind.allCases, id: \.self) { kind in
-                    Text(kind.rawValue.capitalized).tag(kind)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Category Type")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker("Category Type", selection: $newCategoryKind) {
+                    ForEach(categoryKindOrder, id: \.self) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
                 }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.regular)
+                .frame(maxWidth: .infinity)
             }
-            .pickerStyle(.segmented)
-
-            let trimmed = newCategoryName.trimmingCharacters(in: .whitespaces)
-            let isDuplicate = CategoryManagementActions.isDuplicate(
-                name: trimmed, kind: newCategoryKind, parent: nil, context: modelContext
-            )
 
             HStack {
-                Button("Cancel") { showingNewCategory = false }
+                Spacer()
+                Button("Cancel") { cancelNewCategory() }
                     .keyboardShortcut(.cancelAction)
-                Button("Create") {
-                    guard !trimmed.isEmpty else { return }
-                    do {
-                        _ = try CategoryManagementActions.createParent(
-                            name: newCategoryName, kind: newCategoryKind, context: modelContext
-                        )
-                    } catch {
-                        NSLog("Failed to create category: %@", error.localizedDescription)
-                    }
-                    newCategoryName = ""
-                    showingNewCategory = false
-                }
+                Button("Create", action: createNewCategoryIfValid)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.glassProminent)
-                .disabled(trimmed.isEmpty || isDuplicate)
+                .disabled(!canCreateNewCategory)
+                Spacer()
             }
         }
         .padding(24)
-        .frame(width: 380)
+        .frame(width: 540)
+        .onAppear {
+            focusedField = .newCategoryName
+        }
+        .onDisappear {
+            if focusedField == .newCategoryName {
+                focusedField = nil
+            }
+        }
     }
 
     private var newSubcategorySheet: some View {
@@ -400,27 +424,18 @@ struct SettingsView: View {
 
                 TextField("Subcategory name", text: $newSubcategoryName)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .newSubcategoryName)
+                    .onSubmit(createSubcategoryIfValid)
 
-                let trimmed = newSubcategoryName.trimmingCharacters(in: .whitespaces)
+                let trimmed = newSubcategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
                 let isDuplicate = CategoryManagementActions.isDuplicate(
                     name: trimmed, kind: parent.kind, parent: parent, context: modelContext
                 )
 
                 HStack {
-                    Button("Cancel") { subcategoryParent = nil }
+                    Button("Cancel") { cancelSubcategory() }
                         .keyboardShortcut(.cancelAction)
-                    Button("Create") {
-                        guard !trimmed.isEmpty else { return }
-                        do {
-                            _ = try CategoryManagementActions.createSubcategory(
-                                parent: parent, name: newSubcategoryName, context: modelContext
-                            )
-                        } catch {
-                            NSLog("Failed to create subcategory: %@", error.localizedDescription)
-                        }
-                        newSubcategoryName = ""
-                        subcategoryParent = nil
-                    }
+                    Button("Create", action: createSubcategoryIfValid)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.glassProminent)
                     .disabled(trimmed.isEmpty || isDuplicate)
@@ -429,6 +444,83 @@ struct SettingsView: View {
         }
         .padding(24)
         .frame(width: 380)
+        .onAppear {
+            focusedField = .newSubcategoryName
+        }
+        .onDisappear {
+            if focusedField == .newSubcategoryName {
+                focusedField = nil
+            }
+        }
+    }
+
+    private var categoryKindOrder: [CategoryKind] {
+        [.income, .expense, .transfer, .investment, .creditCardPayment]
+    }
+
+    private var trimmedNewCategoryName: String {
+        newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canCreateNewCategory: Bool {
+        !trimmedNewCategoryName.isEmpty && !CategoryManagementActions.isDuplicate(
+            name: trimmedNewCategoryName,
+            kind: newCategoryKind,
+            parent: nil,
+            context: modelContext
+        )
+    }
+
+    private func createNewCategoryIfValid() {
+        guard canCreateNewCategory else { return }
+        do {
+            _ = try CategoryManagementActions.createParent(
+                name: trimmedNewCategoryName,
+                kind: newCategoryKind,
+                context: modelContext
+            )
+            cancelNewCategory()
+        } catch {
+            categoryErrorMessage = error.localizedDescription
+            NSLog("Failed to create category: %@", error.localizedDescription)
+        }
+    }
+
+    private func cancelNewCategory() {
+        newCategoryName = ""
+        newCategoryKind = .expense
+        focusedField = nil
+        showingNewCategory = false
+    }
+
+    private func createSubcategoryIfValid() {
+        guard let parent = subcategoryParent else { return }
+        let trimmed = newSubcategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isDuplicate = CategoryManagementActions.isDuplicate(
+            name: trimmed,
+            kind: parent.kind,
+            parent: parent,
+            context: modelContext
+        )
+        guard !trimmed.isEmpty, !isDuplicate else { return }
+
+        do {
+            _ = try CategoryManagementActions.createSubcategory(
+                parent: parent,
+                name: trimmed,
+                context: modelContext
+            )
+            cancelSubcategory()
+        } catch {
+            categoryErrorMessage = error.localizedDescription
+            NSLog("Failed to create subcategory: %@", error.localizedDescription)
+        }
+    }
+
+    private func cancelSubcategory() {
+        newSubcategoryName = ""
+        focusedField = nil
+        subcategoryParent = nil
     }
 
     private var backupSection: some View {
@@ -526,11 +618,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Create debit, investment, credit-card, and loan accounts manually.",
-        "Add balance snapshots to set or correct account balances.",
-        "Record manual transactions and paired transfers between accounts.",
-        "Dashboards now combine statement balances, manual snapshots, and newer transactions.",
-        "Loan accounts get liability tracking without credit-card-only details.",
+        "Creating categories from Settings is reliable again.",
+        "The category name field is focused automatically when the sheet opens.",
+        "Category creation now supports keyboard submit and cancel actions.",
+        "Production release steps now require verified backup safety gates.",
     ]
 
     private var lastBackupDate: String? {
@@ -635,5 +726,22 @@ extension Color {
         #else
         return "#000000"
         #endif
+    }
+}
+
+private extension CategoryKind {
+    var displayName: String {
+        switch self {
+        case .income:
+            "Income"
+        case .expense:
+            "Expense"
+        case .transfer:
+            "Transfer"
+        case .investment:
+            "Investment"
+        case .creditCardPayment:
+            "Credit Card Payment"
+        }
     }
 }

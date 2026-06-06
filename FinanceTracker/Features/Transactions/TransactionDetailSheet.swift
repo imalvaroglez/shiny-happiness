@@ -12,22 +12,34 @@ struct TransactionDetailSheet: View {
 
     let transaction: Transaction
     let onCategoryAssigned: (CategoryChange) -> Void
+    var onSaved: (() -> Void)? = nil
 
     @State private var draftDate: Date
     @State private var draftDescription: String
-    @State private var draftAmount: Decimal
+    @State private var draftAbsoluteAmount: Decimal
+    @State private var draftSignedAmount: Decimal
+    @State private var draftFlowKind: TransactionFlowKind
     @State private var draftCategory: Category?
     @State private var showingCategoryPicker = false
 
     @State private var pendingKeyword: String?
     @State private var categoryDidChange = false
 
-    init(transaction: Transaction, onCategoryAssigned: @escaping (CategoryChange) -> Void) {
+    private var isKindEditable: Bool {
+        transaction.source == .manual
+        && !transaction.isTransfer
+        && transaction.account?.type == .creditCard
+    }
+
+    init(transaction: Transaction, onCategoryAssigned: @escaping (CategoryChange) -> Void, onSaved: (() -> Void)? = nil) {
         self.transaction = transaction
         self.onCategoryAssigned = onCategoryAssigned
+        self.onSaved = onSaved
         _draftDate = State(initialValue: transaction.postedAt)
         _draftDescription = State(initialValue: transaction.descriptionRaw)
-        _draftAmount = State(initialValue: transaction.amount)
+        _draftAbsoluteAmount = State(initialValue: abs(transaction.amount))
+        _draftSignedAmount = State(initialValue: transaction.amount)
+        _draftFlowKind = State(initialValue: transaction.flowKind)
         _draftCategory = State(initialValue: transaction.category)
     }
 
@@ -53,6 +65,20 @@ struct TransactionDetailSheet: View {
         Text("Transaction Details")
             .font(.headline)
             .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private var displayAmount: Decimal {
+        if isKindEditable {
+            return kindDerivedSignedAmount
+        }
+        return draftSignedAmount
+    }
+
+    private var kindDerivedSignedAmount: Decimal {
+        switch draftFlowKind {
+        case .charge, .expense: return -abs(draftAbsoluteAmount)
+        default: return abs(draftAbsoluteAmount)
+        }
     }
 
     private var summaryHeader: some View {
@@ -81,10 +107,10 @@ struct TransactionDetailSheet: View {
 
             Spacer(minLength: 16)
 
-            Text(MoneyFormat.string(draftAmount, code: transaction.currency))
+            Text(MoneyFormat.string(displayAmount, code: transaction.currency))
                 .font(.title3.weight(.semibold))
                 .monospacedDigit()
-                .foregroundStyle(draftAmount >= 0 ? .green : .red)
+                .foregroundStyle(displayAmount >= 0 ? .green : .red)
                 .lineLimit(1)
         }
         .padding(14)
@@ -113,12 +139,24 @@ struct TransactionDetailSheet: View {
             }
             panelDivider
 
+            if isKindEditable {
+                kindRow
+                panelDivider
+            }
+
             editRow("Amount") {
                 HStack(spacing: 8) {
-                    TextField("Amount", value: $draftAmount, format: .number)
-                        .textFieldStyle(.plain)
-                        .multilineTextAlignment(.trailing)
-                        .monospacedDigit()
+                    if isKindEditable {
+                        TextField("Amount", value: $draftAbsoluteAmount, format: .number)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.trailing)
+                            .monospacedDigit()
+                    } else {
+                        TextField("Amount", value: $draftSignedAmount, format: .number)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.trailing)
+                            .monospacedDigit()
+                    }
                     Text(transaction.currency)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -143,6 +181,18 @@ struct TransactionDetailSheet: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
         )
+    }
+
+    @ViewBuilder
+    private var kindRow: some View {
+        editRow("Kind") {
+            Picker("Kind", selection: $draftFlowKind) {
+                Text("Charge").tag(TransactionFlowKind.charge)
+                Text("Card Credit").tag(TransactionFlowKind.cardCredit)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 
     private func editRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
@@ -254,10 +304,21 @@ struct TransactionDetailSheet: View {
     }
 
     private func save() {
+        let amountToStore: Decimal
+        if isKindEditable {
+            switch draftFlowKind {
+            case .charge: amountToStore = -abs(draftAbsoluteAmount)
+            default: amountToStore = abs(draftAbsoluteAmount)
+            }
+            transaction.flowKindRaw = draftFlowKind.rawValue
+        } else {
+            amountToStore = draftSignedAmount
+        }
+
         transaction.postedAt = draftDate
         transaction.descriptionRaw = draftDescription
         transaction.merchantNormalized = draftDescription
-        transaction.amount = draftAmount
+        transaction.amount = amountToStore
 
         if categoryDidChange, let newCategory = draftCategory {
             transaction.category = newCategory
@@ -280,6 +341,7 @@ struct TransactionDetailSheet: View {
             )
         }
 
+        onSaved?()
         dismiss()
     }
 }

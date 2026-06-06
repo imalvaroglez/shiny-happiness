@@ -7,7 +7,7 @@
 - `Domain/` — SwiftData `@Model` classes (`Models/`), value objects (`ValueObjects/`), learning hooks (`Learning/`), and domain extensions (`Extensions/`).
 - `Ingest/` — statement detection, parsing, normalization, deduplication, categorization, seed data, and the structural parser. Parsers live in `Ingest/Parsers/` with subdirectories `CSV/`, `PDF/`, and `Text/` (paste-text parsers like `PastedHsbc2NowParser`). JSON resources: `Ingest/SeedData/` and `Ingest/StructuralParser/Knowledge/`.
 - `Features/` — SwiftUI screens: `Dashboard/`, `Statements/`, `Transactions/`, `Settings/`, `Backup/`, `Shared/`.
-- `Utilities/` — shared helpers (Logger, Decimal+Money, Date+Period).
+- `Utilities/` — shared helpers (Logger, Decimal+Money, Date+Period) plus persistence safety services such as `AppDataResetService` and `StoreFileResetService`.
 
 `FinanceTrackerTests/` mirrors behavior by area: `ParserTests/`, `PipelineTests/`, `StructuralParserTests/`, `EndToEndTests/`, `IngestTests/`, `AnalyticsTests/`, `KnowledgeLoaderTests/`. Sample PDFs and paste inputs used by tests live in `samples/`. Architecture decisions are documented in `DECISIONS.md`; planned work lives in `specs/`.
 
@@ -22,6 +22,31 @@ No external dependencies — pure Apple frameworks (SwiftUI, SwiftData, Swift Ch
 - `open FinanceTracker.xcodeproj` opens the generated project in Xcode.
 
 Deployment target is **macOS 26.0** (set in `project.yml`).
+
+## Production App Isolation
+
+The installed production app is `~/Applications/FinanceTracker.app`. Treat it and its real user data as off-limits during normal development and testing.
+
+- Do **not** overwrite, delete, move, launch, smoke-test, debug, or otherwise operate on `~/Applications/FinanceTracker.app` unless the user explicitly asks for a production release/install/smoke-test action.
+- Do **not** use the production app or production SwiftData store for parser, UI, backup, reset, migration, or ingest testing. Use Xcode build products, temporary app-support paths, in-memory containers, fixtures, or sandboxed test data instead.
+- Before any requested action that may touch the production app or production data, require a fresh manual `.ftbackup` export or an explicit user confirmation that a current backup already exists.
+- Experimental/dev builds must stay in Xcode DerivedData or another clearly non-production location and must not be copied over the production app without an explicit release step.
+
+## Production Data Safety & Release Gates
+
+Production financial data is sacred. Data loss, corruption, unintended rewrites, unsafe migrations, or silent resets are worse than shipping nothing. If a change is not clearly safe for production data, stop and ask before proceeding.
+
+- Treat production data as read-only by default. Never use live production storage for development, parser work, UI testing, backup/restore experiments, reset testing, migrations, normalization, cleanup, or data repair.
+- Run all experiments against mock data, seeded fixtures, in-memory SwiftData containers, temporary app-support paths, or a cloned copy restored from backup. Never experiment on the live source.
+- Never auto-clean, normalize, repair, migrate, delete, reset, or rewrite user data unless the user explicitly requested that operation and the safety checks below are satisfied.
+- Code defensively against missing, legacy, partial, duplicated, corrupted, or inconsistent data. Do not assume existing stores match the newest model or happy-path invariants.
+- Schema changes must be backward-compatible by default. Do not delete existing fields without a deprecation phase. Destructive migrations are forbidden unless a full backup exists, a rollback plan exists, and data preservation is explicitly proven.
+- Migrations must be idempotent, resumable, and fail safely without partial writes. If this cannot be guaranteed, block the release.
+- Backups must be versioned, immutable once created, and include schema plus all user data: accounts, transactions, categories, rules, statements, pending imports, installment plans, metadata, and related records needed for deterministic restore.
+- Restore must be tested and deterministic. Do not accept “backup exists” or “backup probably works” as proof; untested backups do not satisfy the release gate.
+- Before any release, confirm a fresh, verifiable `.ftbackup` exists and its timestamp is later than the last data change. If this cannot be confirmed, do not release.
+- A release is blocked unless all are true: latest backup confirmed, restore path reviewed/tested, no code path unintentionally deletes or rewrites existing data, existing user data loads after update, the app launches with real production data without errors, and there are no silent failures or resets.
+- No feature, refactor, UX improvement, or speed goal outranks production data safety.
 
 ## Architecture
 
@@ -65,6 +90,20 @@ Swift 6 strict concurrency (`SWIFT_STRICT_CONCURRENCY = complete`). All ViewMode
 
 `.ftbackup` folder bundles under `~/Library/Application Support/FinanceTracker/Backups/`. `BackupScheduler` writes snapshots if >24h old, prunes to 7 daily / 4 weekly / 12 monthly. Two restore strategies: `replaceAll` and `mergeKeepingNewer`. Soft-delete via `Transaction.deletedAt`; deduplicator surfaces soft-deleted matches as `PendingImport` for manual review (AD-018).
 
+### Manual ledger and balance resolution
+
+Manual accounts use `Account.manuallyCreatedAt` to distinguish user-created accounts from import-created accounts. Opening balances and later corrections live in `AccountBalanceSnapshot`; do not fabricate `Statement` rows for manual balances. Manual transactions use `Transaction.source`, and paired transfers use a shared `transferGroupID` across the source and destination rows.
+
+`AccountBalanceResolver` computes account balances from the latest imported statement or manual balance snapshot anchor, then rolls forward only later non-deleted, non-duplicate transactions. Asset accounts store positive balances; liabilities store debt as signed-negative balances, with payments reducing debt as positive transactions.
+
+### Fresh-start reset and SwiftData safety
+
+`AppDataResetService` is the single owner of model deletion order. Normal reset uses object-level deletion (`fetch` + `context.delete(obj)`) so SwiftData relationship rules run; do not replace it with broad `context.delete(model:)` in the healthy reset path, because batch delete can violate cascade/nullify constraints in this model graph. `BackupArchive` should delegate to the same service instead of keeping a second deletion list.
+
+Startup repair must avoid faulting corrupted `Transaction` rows. `DashboardView` startup order must remain: `AppDataResetService.repairIncompleteResetIfNeeded` → `SeedDataLoader.bootstrapIfNeeded` → `viewModel.configure(context:)`. Do not add eager dashboard refreshes before repair.
+
+Do not add broad `@Query<Transaction>` to views that can appear when there are zero accounts. Gate transaction fetches on account existence first; a corrupted enum column such as `Transaction.source` can crash during materialization before app code can inspect the row. If SwiftData cannot repair a broken fresh-start store, `StoreFileResetService` quarantines `default.store`, `default.store-wal`, and `default.store-shm` under `Application Support/FinanceTracker/ResetBackups/` before the model container opens on the next launch.
+
 ## Adding a New Parser
 
 1. Create parser in `FinanceTracker/Ingest/Parsers/CSV/` (or `PDF/`/`Text/`), conform to `StatementParser`.
@@ -80,6 +119,10 @@ Use Swift 6 with strict concurrency. Keep ViewModels and SwiftData `ModelContext
 ## Testing Guidelines
 
 Use XCTest-style unit and end-to-end tests under `FinanceTrackerTests/`. Add focused tests when changing parsers, normalization, categorization, dashboard snapshots, or backup behavior. Prefer real fixtures from `samples/` for statement parsing. Run the serial full-suite command before handing off changes that touch ingest, persistence, or shared domain logic.
+
+Any change touching reset, SwiftData model deletion, dashboard startup, transaction fetching, or backup restore must run focused reset/dashboard coverage plus the serial full suite. Tests involving store-file reset must inject a temporary app-support path (for example via `StoreFileResetService.appSupportOverride`) and must never operate on real user data.
+
+When using an in-memory SwiftData test container, keep the `ModelContainer` alive for the full test. Never write `let context = try makeContainer().mainContext`; the temporary container can be deallocated immediately, leaving `mainContext` invalid and causing SwiftData signal-trap crashes. Use `let container = try makeContainer(); let context = container.mainContext`.
 
 ## Commit & Pull Request Guidelines
 

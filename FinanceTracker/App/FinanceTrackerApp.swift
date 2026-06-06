@@ -3,6 +3,10 @@ import SwiftData
 
 @main
 struct FinanceTrackerApp: App {
+    init() {
+        StoreFileResetService.performHardResetIfNeeded()
+    }
+
     var body: some Scene {
         WindowGroup {
             ZStack {
