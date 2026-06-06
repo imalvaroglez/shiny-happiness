@@ -551,7 +551,8 @@ extension Transaction {
             isDuplicate: snap.isDuplicate,
             cardLast4: snap.cardLast4,
             source: snap.source.flatMap { TransactionSource(rawValue: $0) } ?? .imported,
-            transferGroupID: snap.transferGroupID
+            transferGroupID: snap.transferGroupID,
+            flowKindRaw: snap.flowKindRaw
         )
         deletedAt = snap.deletedAt
     }
@@ -568,6 +569,7 @@ extension Transaction {
         cardLast4 = snap.cardLast4
         source = snap.source.flatMap { TransactionSource(rawValue: $0) } ?? .imported
         transferGroupID = snap.transferGroupID
+        flowKindRaw = snap.flowKindRaw
         deletedAt = snap.deletedAt
         lastModifiedAt = snap.lastModifiedAt
     }
@@ -592,6 +594,7 @@ extension TransactionSnapshot {
             source: transaction.source.rawValue,
             transferGroupID: transaction.transferGroupID,
             installmentPlanId: transaction.installmentPlan?.id,
+            flowKindRaw: transaction.flowKindRaw,
             lastModifiedAt: transaction.lastModifiedAt,
             deletedAt: transaction.deletedAt
         )

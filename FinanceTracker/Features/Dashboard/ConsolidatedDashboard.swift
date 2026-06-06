@@ -8,6 +8,7 @@ import Charts
 /// per-account list. All cards and chart marks support drill-down via a sheet.
 struct ConsolidatedDashboard: View {
     let snapshot: ConsolidatedSnapshot
+    var onTransactionTap: ((Transaction) -> Void)? = nil
 
     @State private var breakdown: BreakdownRequest? = nil
     @State private var cashFlowSeries: Set<CashFlowSeries> = [.income, .expenses]
@@ -297,7 +298,12 @@ struct ConsolidatedDashboard: View {
     private var recentTransactionsList: some View {
         DashboardListCard(title: "Recent Transactions") {
             ForEach(snapshot.recentTransactions.prefix(10)) { tx in
-                DashboardTransactionRow(transaction: tx)
+                Button {
+                    onTransactionTap?(tx)
+                } label: {
+                    DashboardTransactionRow(transaction: tx)
+                }
+                .buttonStyle(.plain)
                 if tx.id != snapshot.recentTransactions.prefix(10).last?.id {
                     DashboardSeparator()
                 }

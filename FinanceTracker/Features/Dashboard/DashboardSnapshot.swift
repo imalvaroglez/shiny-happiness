@@ -97,12 +97,10 @@ struct AssetAccountSnapshot {
 
 struct LiabilityAccountSnapshot {
     let account: DashboardAccountIdentity
-    /// Stored signed-negative for liabilities (AD-C2). Convenience accessors below
-    /// expose the absolute owed amount.
     let currentBalance: Decimal
     let creditLimit: Decimal?
     let utilizationPercent: Double?
-    let latestStatement: Statement?
+    let paymentStatement: Statement?
     let chargesVsPayments: [MonthlyChargesPayments]
     let spendingByCategory: [CategorySpending]
     let totalCharges: Decimal
@@ -115,9 +113,8 @@ struct LiabilityAccountSnapshot {
     let totalTransactions: Int
 
     var amountOwed: Decimal { abs(currentBalance) }
-    /// Days from `Date.now` to `paymentDueDate`. Negative if overdue. nil if no due date.
     var daysUntilDue: Int? {
-        guard let due = latestStatement?.paymentDueDate else { return nil }
+        guard let due = paymentStatement?.paymentDueDate else { return nil }
         return Calendar(identifier: .gregorian).dateComponents([.day], from: .now, to: due).day
     }
 
@@ -166,8 +163,8 @@ enum PaymentDueDisplayState {
     case dueDateOnly(due: Date, daysUntilDue: Int?)
     case full(due: Date, daysUntilDue: Int?, minimum: Decimal?, noInterest: Decimal?)
 
-    static func from(latestStatement: Statement?, daysUntilDue: Int?) -> PaymentDueDisplayState {
-        guard let stmt = latestStatement else {
+    static func from(paymentStatement: Statement?, daysUntilDue: Int?) -> PaymentDueDisplayState {
+        guard let stmt = paymentStatement else {
             return .noStatement
         }
         guard let due = stmt.paymentDueDate else {

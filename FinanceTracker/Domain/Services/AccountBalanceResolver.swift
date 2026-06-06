@@ -16,7 +16,23 @@ struct AccountBalanceAnchor {
 enum AccountBalanceResolver {
     static func currentBalance(account: Account, context: ModelContext) -> Decimal {
         let accountId = account.id
-        let anchor = latestAnchor(accountId: accountId, context: context)
+        let anchors = allAnchors(accountId: accountId, context: context)
+        let anchor = anchors.max { $0.date < $1.date }
+
+        let hasStatementAnchors = anchors.contains {
+            if case .statement = $0.source { return true }
+            return false
+        }
+
+        if !hasStatementAnchors, let anchor = anchor,
+           case .manualSnapshot(let snap) = anchor.source,
+           snap.kind == .manualOpening {
+            let base = anchor.amount
+            let deltas = transactionsFrom(account.openedAt, accountId: accountId, context: context)
+                .reduce(Decimal(0)) { $0 + $1.amount }
+            return base + deltas
+        }
+
         let anchorDate = anchor?.date ?? .distantPast
         let base = anchor?.amount ?? 0
         let deltas = transactionsAfter(anchorDate, accountId: accountId, context: context)
@@ -33,12 +49,42 @@ enum AccountBalanceResolver {
         return try? context.fetch(descriptor).first
     }
 
+    static func latestBalanceStatement(accountId: UUID, context: ModelContext) -> Statement? {
+        let statements = fetchStatements(accountId: accountId, context: context)
+        return statements
+            .filter { $0.closingBalance != nil }
+            .max { $0.periodEnd < $1.periodEnd }
+    }
+
+    static func latestPaymentStatement(accountId: UUID, context: ModelContext) -> Statement? {
+        let statements = fetchStatements(accountId: accountId, context: context)
+        return statements
+            .filter { $0.paymentDueDate != nil || $0.paymentForNoInterest != nil || $0.minimumPayment != nil }
+            .max { $0.periodEnd < $1.periodEnd }
+    }
+
     static func balanceSeries(account: Account, context: ModelContext) -> [NetWorthPoint] {
         let accountId = account.id
         let anchors = allAnchors(accountId: accountId, context: context).sorted { $0.date < $1.date }
-        let transactions = allTransactions(accountId: accountId, context: context)
-            .filter { !$0.isDuplicate && $0.deletedAt == nil }
-            .sorted { $0.postedAt < $1.postedAt }
+
+        let hasStatementAnchors = anchors.contains {
+            if case .statement = $0.source { return true }
+            return false
+        }
+
+        let effectiveTransactions: [Transaction]
+        if !hasStatementAnchors,
+           let firstAnchor = anchors.first,
+           case .manualSnapshot(let snap) = firstAnchor.source,
+           snap.kind == .manualOpening {
+            effectiveTransactions = allTransactions(accountId: accountId, context: context)
+                .filter { $0.postedAt >= account.openedAt && !$0.isDuplicate && $0.deletedAt == nil }
+                .sorted { $0.postedAt < $1.postedAt }
+        } else {
+            effectiveTransactions = allTransactions(accountId: accountId, context: context)
+                .filter { !$0.isDuplicate && $0.deletedAt == nil }
+                .sorted { $0.postedAt < $1.postedAt }
+        }
 
         enum Event {
             case anchor(AccountBalanceAnchor)
@@ -52,11 +98,12 @@ enum AccountBalanceResolver {
             }
         }
 
-        let events = (anchors.map(Event.anchor) + transactions.map(Event.transaction))
+        let events = (anchors.map(Event.anchor) + effectiveTransactions.map(Event.transaction))
             .sorted { lhs, rhs in
                 if lhs.date == rhs.date {
-                    if case .anchor = lhs { return false }
-                    return true
+                    if case .anchor = lhs, case .transaction = rhs { return true }
+                    if case .transaction = lhs, case .anchor = rhs { return false }
+                    return false
                 }
                 return lhs.date < rhs.date
             }
@@ -97,13 +144,14 @@ enum AccountBalanceResolver {
         return statementAnchors + manualAnchors
     }
 
-    private static func nextAnchor(after date: Date, in anchors: [AccountBalanceAnchor]) -> AccountBalanceAnchor? {
-        anchors.first { $0.date > date }
-    }
-
     private static func transactionsAfter(_ date: Date, accountId: UUID, context: ModelContext) -> [Transaction] {
         allTransactions(accountId: accountId, context: context)
             .filter { $0.postedAt > date && $0.deletedAt == nil && !$0.isDuplicate }
+    }
+
+    private static func transactionsFrom(_ date: Date, accountId: UUID, context: ModelContext) -> [Transaction] {
+        allTransactions(accountId: accountId, context: context)
+            .filter { $0.postedAt >= date && $0.deletedAt == nil && !$0.isDuplicate }
     }
 
     private static func allTransactions(accountId: UUID, context: ModelContext) -> [Transaction] {
