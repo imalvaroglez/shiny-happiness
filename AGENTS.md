@@ -32,6 +32,22 @@ The installed production app is `~/Applications/FinanceTracker.app`. Treat it an
 - Before any requested action that may touch the production app or production data, require a fresh manual `.ftbackup` export or an explicit user confirmation that a current backup already exists.
 - Experimental/dev builds must stay in Xcode DerivedData or another clearly non-production location and must not be copied over the production app without an explicit release step.
 
+## Production Data Safety & Release Gates
+
+Production financial data is sacred. Data loss, corruption, unintended rewrites, unsafe migrations, or silent resets are worse than shipping nothing. If a change is not clearly safe for production data, stop and ask before proceeding.
+
+- Treat production data as read-only by default. Never use live production storage for development, parser work, UI testing, backup/restore experiments, reset testing, migrations, normalization, cleanup, or data repair.
+- Run all experiments against mock data, seeded fixtures, in-memory SwiftData containers, temporary app-support paths, or a cloned copy restored from backup. Never experiment on the live source.
+- Never auto-clean, normalize, repair, migrate, delete, reset, or rewrite user data unless the user explicitly requested that operation and the safety checks below are satisfied.
+- Code defensively against missing, legacy, partial, duplicated, corrupted, or inconsistent data. Do not assume existing stores match the newest model or happy-path invariants.
+- Schema changes must be backward-compatible by default. Do not delete existing fields without a deprecation phase. Destructive migrations are forbidden unless a full backup exists, a rollback plan exists, and data preservation is explicitly proven.
+- Migrations must be idempotent, resumable, and fail safely without partial writes. If this cannot be guaranteed, block the release.
+- Backups must be versioned, immutable once created, and include schema plus all user data: accounts, transactions, categories, rules, statements, pending imports, installment plans, metadata, and related records needed for deterministic restore.
+- Restore must be tested and deterministic. Do not accept “backup exists” or “backup probably works” as proof; untested backups do not satisfy the release gate.
+- Before any release, confirm a fresh, verifiable `.ftbackup` exists and its timestamp is later than the last data change. If this cannot be confirmed, do not release.
+- A release is blocked unless all are true: latest backup confirmed, restore path reviewed/tested, no code path unintentionally deletes or rewrites existing data, existing user data loads after update, the app launches with real production data without errors, and there are no silent failures or resets.
+- No feature, refactor, UX improvement, or speed goal outranks production data safety.
+
 ## Architecture
 
 ### Ingest pipeline — two import paths
