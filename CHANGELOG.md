@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No unreleased changes.
 
+## [0.3.1] - 2026-06-06
+
+### Fixed
+
+- **Settings category creation.** The "New Category" sheet now focuses the name field on open, keeps the category type selector fully interactive, enables Create only for valid input, supports Enter/Esc keyboard actions, and closes only after a successful save.
+
+### Documentation
+
+- **Production release safety.** `AGENTS.md` now documents backup-first release gates, production data isolation, migration safety rules, and blocking criteria for releases that could risk real financial data.
+
 ## [0.3.0] - 2026-05-28
 
 ### Added
