@@ -13,6 +13,7 @@ No unreleased changes.
 ### Fixed
 
 - **Settings category creation.** The "New Category" sheet now focuses the name field on open, keeps the category type selector fully interactive, enables Create only for valid input, supports Enter/Esc keyboard actions, and closes only after a successful save.
+- **Backup restore safety.** The restore panel now accepts `.ftbackup` folder bundles, validates the selected bundle before attempting restore, and uses replace-all restore when recovering into an otherwise empty seeded store to avoid duplicate categories.
 
 ### Documentation
 
