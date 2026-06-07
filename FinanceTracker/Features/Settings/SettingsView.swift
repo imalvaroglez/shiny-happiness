@@ -676,20 +676,44 @@ struct SettingsView: View {
 
     private func restoreBackup() {
         let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
         panel.allowedContentTypes = []
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard url.pathExtension == "ftbackup",
+              FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path) else {
+            backupStatus = "Restore failed: choose a .ftbackup bundle"
+            return
+        }
         isRestoring = true
         Task {
             do {
-                try await BackupArchive.restore(from: url, into: modelContext, strategy: .mergeKeepingNewer)
+                let strategy: RestoreStrategy = hasFinancialRows ? .mergeKeepingNewer : .replaceAll
+                try await BackupArchive.restore(from: url, into: modelContext, strategy: strategy)
                 backupStatus = "Restore complete"
             } catch {
                 backupStatus = "Restore failed: \(error.localizedDescription)"
             }
             isRestoring = false
         }
+    }
+
+    private var hasFinancialRows: Bool {
+        let accountCount = (try? modelContext.fetchCount(FetchDescriptor<Account>())) ?? 0
+        let balanceSnapshotCount = (try? modelContext.fetchCount(FetchDescriptor<AccountBalanceSnapshot>())) ?? 0
+        let statementCount = (try? modelContext.fetchCount(FetchDescriptor<Statement>())) ?? 0
+        let transactionCount = (try? modelContext.fetchCount(FetchDescriptor<Transaction>())) ?? 0
+        let installmentPlanCount = (try? modelContext.fetchCount(FetchDescriptor<InstallmentPlan>())) ?? 0
+        let pendingImportCount = (try? modelContext.fetchCount(FetchDescriptor<PendingImport>())) ?? 0
+        let signRecoveryHintCount = (try? modelContext.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
+
+        return accountCount > 0
+            || balanceSnapshotCount > 0
+            || statementCount > 0
+            || transactionCount > 0
+            || installmentPlanCount > 0
+            || pendingImportCount > 0
+            || signRecoveryHintCount > 0
     }
 
     private func revealBackupsFolder() {
