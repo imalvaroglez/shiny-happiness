@@ -618,10 +618,11 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Creating categories from Settings is reliable again.",
-        "The category name field is focused automatically when the sheet opens.",
-        "Category creation now supports keyboard submit and cancel actions.",
-        "Production release steps now require verified backup safety gates.",
+        "Category and cash-flow charts now respond more clearly to hover.",
+        "Hovering a spending slice highlights it and shows the exact amount.",
+        "Category rows and chart slices now stay visually linked.",
+        "Bar chart tooltips stay visible near chart edges.",
+        "Dashboard action buttons no longer cover recent transactions.",
     ]
 
     private var lastBackupDate: String? {

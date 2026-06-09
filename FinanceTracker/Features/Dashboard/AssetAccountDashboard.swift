@@ -47,11 +47,13 @@ struct AssetAccountDashboard: View {
                     y: .value("Income", entry.income)
                 )
                 .foregroundStyle(.green)
+                .opacity(cashFlowOpacity(for: entry.month))
                 BarMark(
                     x: .value("Month", entry.month, unit: .month),
                     y: .value("Expenses", abs(entry.expenses))
                 )
                 .foregroundStyle(.red)
+                .opacity(cashFlowOpacity(for: entry.month))
             }
             .frame(height: 200)
             .chartBackground { _ in Color.clear }
@@ -63,20 +65,43 @@ struct AssetAccountDashboard: View {
                 }
             }
             .chartOverlay { proxy in
-                if let hover = cashFlowHover,
-                   let entry = snapshot.monthlyCashFlow.first(where: { Calendar.current.isDate($0.month, equalTo: hover, toGranularity: .month) }),
-                   let xPos = proxy.position(forX: entry.month) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
-                        Text("Income: \(MoneyFormat.string(code: snapshot.currencyCode,entry.income))").font(.caption2).foregroundStyle(.green)
-                        Text("Expenses: \(MoneyFormat.string(code: snapshot.currencyCode,abs(entry.expenses)))").font(.caption2).foregroundStyle(.red)
+                GeometryReader { geo in
+                    if let hover = cashFlowHover,
+                       let entry = snapshot.monthlyCashFlow.first(where: { Calendar.current.isDate($0.month, equalTo: hover, toGranularity: .month) }),
+                       let xPos = proxy.position(forX: entry.month) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
+                            Text("Income: \(MoneyFormat.string(code: snapshot.currencyCode,entry.income))").font(.caption2).foregroundStyle(.green)
+                            Text("Expenses: \(MoneyFormat.string(code: snapshot.currencyCode,abs(entry.expenses)))").font(.caption2).foregroundStyle(.red)
+                            Text("Net: \(MoneyFormat.string(code: snapshot.currencyCode,entry.savings))").font(.caption2).foregroundStyle(.secondary)
+                            if entry.income > 0 {
+                                Text("Savings Rate: \(cashFlowSavingsRateText(entry))").font(.caption2).foregroundStyle(entry.savings >= 0 ? .blue : .red)
+                            }
+                        }
+                        .padding(8)
+                        .frame(width: 210, alignment: .leading)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .position(x: dashboardTooltipX(xPos, in: geo), y: 30)
                     }
-                    .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                    .position(x: xPos, y: 24)
                 }
             }
+            .onTapGesture {
+                guard let hover = cashFlowHover,
+                      let entry = snapshot.monthlyCashFlow.first(where: { Calendar.current.isDate($0.month, equalTo: hover, toGranularity: .month) }) else { return }
+                breakdown = .cashFlowMonth(month: entry.month, transactions: snapshot.recentTransactions)
+            }
         }
+    }
+
+    private func cashFlowOpacity(for month: Date) -> Double {
+        guard let hover = cashFlowHover else { return 1 }
+        return Calendar.current.isDate(month, equalTo: hover, toGranularity: .month) ? 1 : 0.28
+    }
+
+    private func cashFlowSavingsRateText(_ entry: MonthlyCashFlow) -> String {
+        guard entry.income > 0 else { return "0.0%" }
+        let rate = ((entry.savings / entry.income) as NSDecimalNumber).doubleValue * 100
+        return String(format: "%.1f%%", rate)
     }
 
     private var balanceChart: some View {
@@ -105,16 +130,19 @@ struct AssetAccountDashboard: View {
             .chartBackground { _ in Color.clear }
             .chartXSelection(value: $balanceHover)
             .chartOverlay { proxy in
-                if let hover = balanceHover,
-                   let point = snapshot.balanceOverTime.first(where: { Calendar.current.isDate($0.month, equalTo: hover, toGranularity: .month) }),
-                   let xPos = proxy.position(forX: point.month) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(point.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
-                        Text(MoneyFormat.string(code: snapshot.currencyCode,point.balance)).font(.caption2).foregroundStyle(.secondary)
+                GeometryReader { geo in
+                    if let hover = balanceHover,
+                       let point = snapshot.balanceOverTime.first(where: { Calendar.current.isDate($0.month, equalTo: hover, toGranularity: .month) }),
+                       let xPos = proxy.position(forX: point.month) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(point.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
+                            Text(MoneyFormat.string(code: snapshot.currencyCode,point.balance)).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(8)
+                        .frame(width: 190, alignment: .leading)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .position(x: dashboardTooltipX(xPos, in: geo, width: 190), y: 24)
                     }
-                    .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                    .position(x: xPos, y: 24)
                 }
             }
         }
@@ -122,39 +150,12 @@ struct AssetAccountDashboard: View {
 
     private var spendingDonut: some View {
         let top = Array(snapshot.spendingByCategory.prefix(8))
-        let total = top.reduce(Decimal.zero) { $0 + $1.amount }
         return ChartCard(title: "Spending by Category") {
-            Chart(top) { entry in
-                SectorMark(
-                    angle: .value("Amount", entry.amount),
-                    innerRadius: .ratio(0.5),
-                    angularInset: 1.5
-                )
-                .foregroundStyle(CategoryPalette.color(for: entry.category.name))
-                .annotation(position: .overlay) {
-                    if entry.amount > total / 5 {
-                        VStack(spacing: 2) {
-                            Text(entry.category.name).font(.caption2).fontWeight(.semibold)
-                            Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount)).font(.caption2)
-                        }
-                        .foregroundStyle(.white)
-                    }
-                }
-            }
-            .frame(height: 220)
-
-            ForEach(top) { entry in
-                Button {
-                    breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
-                } label: {
-                    HStack {
-                        Circle().fill(CategoryPalette.color(for: entry.category.name)).frame(width: 8, height: 8)
-                        Text(entry.category.name).font(.caption)
-                        Spacer()
-                        Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount)).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .buttonStyle(.plain)
+            SpendingCategoryDonut(
+                entries: top,
+                currencyCode: snapshot.currencyCode
+            ) { entry in
+                breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
             }
         }
     }

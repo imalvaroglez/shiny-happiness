@@ -168,11 +168,13 @@ struct LiabilityAccountDashboard: View {
                     y: .value("Charges", entry.charges)
                 )
                 .foregroundStyle(.red)
+                .opacity(chargesPaymentsOpacity(for: entry.month))
                 BarMark(
                     x: .value("Month", entry.month, unit: .month),
                     y: .value("Payments", entry.payments)
                 )
                 .foregroundStyle(.green)
+                .opacity(chargesPaymentsOpacity(for: entry.month))
             }
             .frame(height: 200)
             .chartBackground { _ in Color.clear }
@@ -184,17 +186,23 @@ struct LiabilityAccountDashboard: View {
                 }
             }
             .chartOverlay { proxy in
-                if let h = hover,
-                   let entry = snapshot.chargesVsPayments.first(where: { Calendar.current.isDate($0.month, equalTo: h, toGranularity: .month) }),
-                   let xPos = proxy.position(forX: entry.month) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
-                        Text("Charges: \(MoneyFormat.string(code: snapshot.currencyCode,entry.charges))").font(.caption2).foregroundStyle(.red)
-                        Text("Payments & Credits: \(MoneyFormat.string(code: snapshot.currencyCode,entry.payments))").font(.caption2).foregroundStyle(.green)
+                GeometryReader { geo in
+                    if let h = hover,
+                       let entry = snapshot.chargesVsPayments.first(where: { Calendar.current.isDate($0.month, equalTo: h, toGranularity: .month) }),
+                       let xPos = proxy.position(forX: entry.month) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
+                            Text("Charges: \(MoneyFormat.string(code: snapshot.currencyCode,entry.charges))").font(.caption2).foregroundStyle(.red)
+                            Text("Payments & Credits: \(MoneyFormat.string(code: snapshot.currencyCode,entry.payments))").font(.caption2).foregroundStyle(.green)
+                            Text("Net Debt Change: \(MoneyFormat.string(code: snapshot.currencyCode,entry.payments - entry.charges))")
+                                .font(.caption2)
+                                .foregroundStyle(entry.payments >= entry.charges ? .green : .red)
+                        }
+                        .padding(8)
+                        .frame(width: 230, alignment: .leading)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                        .position(x: dashboardTooltipX(xPos, in: geo, width: 230), y: 30)
                     }
-                    .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                    .position(x: xPos, y: 24)
                 }
             }
 
@@ -218,6 +226,11 @@ struct LiabilityAccountDashboard: View {
             }
             .font(.caption.monospacedDigit())
         }
+    }
+
+    private func chargesPaymentsOpacity(for month: Date) -> Double {
+        guard let hover else { return 1 }
+        return Calendar.current.isDate(month, equalTo: hover, toGranularity: .month) ? 1 : 0.28
     }
 
     // MARK: - Installments
@@ -256,39 +269,12 @@ struct LiabilityAccountDashboard: View {
 
     private var spendingDonut: some View {
         let top = Array(snapshot.spendingByCategory.prefix(8))
-        let total = top.reduce(Decimal.zero) { $0 + $1.amount }
         return ChartCard(title: "Spending by Category") {
-            Chart(top) { entry in
-                SectorMark(
-                    angle: .value("Amount", entry.amount),
-                    innerRadius: .ratio(0.5),
-                    angularInset: 1.5
-                )
-                .foregroundStyle(CategoryPalette.color(for: entry.category.name))
-                .annotation(position: .overlay) {
-                    if entry.amount > total / 5 {
-                        VStack(spacing: 2) {
-                            Text(entry.category.name).font(.caption2).fontWeight(.semibold)
-                            Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount)).font(.caption2)
-                        }
-                        .foregroundStyle(.white)
-                    }
-                }
-            }
-            .frame(height: 220)
-
-            ForEach(top) { entry in
-                Button {
-                    breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
-                } label: {
-                    HStack {
-                        Circle().fill(CategoryPalette.color(for: entry.category.name)).frame(width: 8, height: 8)
-                        Text(entry.category.name).font(.caption)
-                        Spacer()
-                        Text(MoneyFormat.string(code: snapshot.currencyCode,entry.amount)).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .buttonStyle(.plain)
+            SpendingCategoryDonut(
+                entries: top,
+                currencyCode: snapshot.currencyCode
+            ) { entry in
+                breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
             }
         }
     }
