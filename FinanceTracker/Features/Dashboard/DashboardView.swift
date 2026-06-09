@@ -225,36 +225,13 @@ struct DashboardView: View {
             .padding()
         }
         .navigationTitle(navigationTitle)
-        .overlay(alignment: .bottomTrailing) {
-            VStack(alignment: .trailing, spacing: 10) {
-                if let account = selectedAccount {
-                    Button {
-                        showingManualTransaction = true
-                    } label: {
-                        Label("Add Transaction", systemImage: "plus.circle")
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                    }
-                    .buttonStyle(.glass)
-                    Button {
-                        balanceSnapshotAccount = account
-                    } label: {
-                        Label("Add Balance", systemImage: "chart.line.uptrend.xyaxis")
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                    }
-                    .buttonStyle(.glass)
-                }
-                Button {
-                    showingImport = true
-                } label: {
-                    Label("Import Statement", systemImage: "doc.badge.plus")
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.glassProminent)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Spacer()
+                dashboardActions
             }
-            .padding(20)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
         .sheet(isPresented: $showingImport) {
             NavigationStack {
@@ -273,6 +250,37 @@ struct DashboardView: View {
                 lockedAccountID: selectedAccount?.id,
                 onSaved: { viewModel.refresh() }
             )
+        }
+    }
+
+    private var dashboardActions: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            if let account = selectedAccount {
+                Button {
+                    showingManualTransaction = true
+                } label: {
+                    Label("Add Transaction", systemImage: "plus.circle")
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.glass)
+                Button {
+                    balanceSnapshotAccount = account
+                } label: {
+                    Label("Add Balance", systemImage: "chart.line.uptrend.xyaxis")
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.glass)
+            }
+            Button {
+                showingImport = true
+            } label: {
+                Label("Import Statement", systemImage: "doc.badge.plus")
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.glassProminent)
         }
     }
 

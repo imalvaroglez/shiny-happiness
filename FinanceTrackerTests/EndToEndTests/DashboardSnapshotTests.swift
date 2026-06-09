@@ -45,6 +45,25 @@ struct DashboardSnapshotTests {
         !FileManager.default.fileExists(atPath: path)
     }
 
+    @Test("Category palette separates visible dashboard categories")
+    func categoryPaletteSeparatesVisibleDashboardCategories() {
+        let visibleNames = [
+            "Events",
+            "Shopping",
+            "Restaurants",
+            "Groceries",
+            "Uncategorized",
+            "Home",
+            "Rideshare",
+            "Water",
+            "Maintenance",
+        ]
+
+        let tokens = visibleNames.map(CategoryPalette.colorToken(for:))
+        #expect(Set(tokens).count == visibleNames.count,
+                "Visible dashboard categories should not share palette tokens: \(Array(zip(visibleNames, tokens)))")
+    }
+
     // MARK: - Liability scope
 
     @Test("HSBC liability snapshot has the documented utilization, due date, MSI")

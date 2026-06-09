@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No unreleased changes.
 
+## [0.3.2] - 2026-06-08
+
+### Changed
+
+- **Dashboard charts.** Spending donuts now use stable, distinct per-category colors across dashboard scopes, dim non-hovered slices, show hover/focus readouts with amount and share of total, and keep category-list rows visually linked to the active chart slice. Cash-flow and charges-vs-payments bar charts now dim inactive months, show richer hover details for net movement and savings rate, and keep tooltips fully visible near chart edges.
+- **Dashboard actions.** Add Transaction, Add Balance, and Import Statement now reserve scroll space at the bottom of account dashboards so recent transaction rows and amounts remain readable.
+
 ## [0.3.1] - 2026-06-06
 
 ### Fixed
