@@ -618,11 +618,9 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Category and cash-flow charts now respond more clearly to hover.",
-        "Hovering a spending slice highlights it and shows the exact amount.",
-        "Category rows and chart slices now stay visually linked.",
-        "Bar chart tooltips stay visible near chart edges.",
-        "Dashboard action buttons no longer cover recent transactions.",
+        "FinanceTracker now has a custom macOS app icon.",
+        "The new icon blends a finance card with category-chart segments.",
+        "Launchpad, Dock, and app switcher identity now feel more polished.",
     ]
 
     private var lastBackupDate: String? {
