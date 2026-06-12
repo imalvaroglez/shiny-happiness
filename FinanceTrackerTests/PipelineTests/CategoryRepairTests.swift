@@ -197,4 +197,177 @@ struct CategoryRepairTests {
         #expect(activeCCPay.count == 1,
                 "Idempotent repair should not create duplicates")
     }
+
+    @Test("Duplicate income categories are canonicalized by lowest UUID")
+    func canonicalizesDuplicateIncomeCategoriesByLowestUUID() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let canonicalIncome = FinanceTracker.Category(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            name: "Income",
+            kind: .income
+        )
+        context.insert(canonicalIncome)
+        let canonicalInterest = FinanceTracker.Category(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000011")!,
+            name: "Interest",
+            parent: canonicalIncome,
+            kind: .income
+        )
+        context.insert(canonicalInterest)
+
+        let duplicateIncome = FinanceTracker.Category(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            name: "Income",
+            kind: .income
+        )
+        context.insert(duplicateIncome)
+        let duplicateInterest = FinanceTracker.Category(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000012")!,
+            name: "Interest",
+            parent: duplicateIncome,
+            kind: .income
+        )
+        context.insert(duplicateInterest)
+        let duplicateBonus = FinanceTracker.Category(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000013")!,
+            name: "Bonus",
+            parent: duplicateIncome,
+            kind: .income
+        )
+        context.insert(duplicateBonus)
+
+        let account = Account(institution: "Test", type: .savings, currency: "MXN")
+        context.insert(account)
+        let incomeTx = Transaction(
+            account: account,
+            postedAt: .now,
+            amount: 1000,
+            descriptionRaw: "INTEREST",
+            category: duplicateIncome
+        )
+        context.insert(incomeTx)
+        let interestTx = Transaction(
+            account: account,
+            postedAt: .now,
+            amount: 25,
+            descriptionRaw: "BONUS INTEREST",
+            category: duplicateInterest
+        )
+        context.insert(interestTx)
+
+        let incomeRule = CategoryRule(
+            patternRegex: "(?i)income-duplicate",
+            category: duplicateIncome,
+            priority: 50
+        )
+        context.insert(incomeRule)
+        let interestRule = CategoryRule(
+            patternRegex: "(?i)interest-duplicate",
+            category: duplicateInterest,
+            priority: 50
+        )
+        context.insert(interestRule)
+        try context.save()
+
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let allCategories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
+        let activeIncome = allCategories.filter {
+            $0.name == "Income" && $0.kind == .income && $0.parent == nil && $0.deletedAt == nil
+        }
+        #expect(activeIncome.count == 1)
+        #expect(activeIncome.first?.id == canonicalIncome.id)
+        #expect(duplicateIncome.deletedAt != nil)
+
+        #expect(incomeTx.category?.id == canonicalIncome.id)
+        #expect(incomeRule.category?.id == canonicalIncome.id)
+
+        let activeInterest = allCategories.filter {
+            $0.name == "Interest" && $0.kind == .income && $0.parent?.id == canonicalIncome.id && $0.deletedAt == nil
+        }
+        #expect(activeInterest.count == 1)
+        #expect(activeInterest.first?.id == canonicalInterest.id)
+        #expect(duplicateInterest.deletedAt != nil)
+        #expect(interestTx.category?.id == canonicalInterest.id)
+        #expect(interestRule.category?.id == canonicalInterest.id)
+
+        let movedBonus = allCategories.first {
+            $0.name == "Bonus" && $0.kind == .income && $0.deletedAt == nil
+        }
+        #expect(movedBonus?.parent?.id == canonicalIncome.id)
+    }
+
+    @Test("Duplicate repair preserves same names in different kinds and parent scopes")
+    func duplicateRepairPreservesDistinctScopes() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let incomeShared = FinanceTracker.Category(name: "Shared", kind: .income)
+        context.insert(incomeShared)
+        let expenseShared = FinanceTracker.Category(name: "Shared", kind: .expense)
+        context.insert(expenseShared)
+
+        let firstParent = FinanceTracker.Category(name: "First Parent", kind: .expense)
+        context.insert(firstParent)
+        let secondParent = FinanceTracker.Category(name: "Second Parent", kind: .expense)
+        context.insert(secondParent)
+        let firstScoped = FinanceTracker.Category(name: "Scoped", parent: firstParent, kind: .expense)
+        context.insert(firstScoped)
+        let secondScoped = FinanceTracker.Category(name: "Scoped", parent: secondParent, kind: .expense)
+        context.insert(secondScoped)
+        try context.save()
+
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        #expect(incomeShared.deletedAt == nil)
+        #expect(expenseShared.deletedAt == nil)
+        #expect(firstScoped.deletedAt == nil)
+        #expect(secondScoped.deletedAt == nil)
+
+        let allCategories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
+        let activeShared = allCategories.filter {
+            $0.name == "Shared" && $0.parent == nil && $0.deletedAt == nil
+        }
+        #expect(activeShared.count == 2)
+
+        let activeScoped = allCategories.filter {
+            $0.name == "Scoped" && $0.deletedAt == nil
+        }
+        #expect(activeScoped.count == 2)
+        #expect(Set(activeScoped.compactMap { $0.parent?.id }).count == 2)
+    }
+
+    @Test("Generic duplicate repair is idempotent")
+    func genericDuplicateRepairIsIdempotent() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let canonicalIncome = FinanceTracker.Category(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000101")!,
+            name: "Income",
+            kind: .income
+        )
+        context.insert(canonicalIncome)
+        let duplicateIncome = FinanceTracker.Category(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000102")!,
+            name: "Income",
+            kind: .income
+        )
+        context.insert(duplicateIncome)
+        try context.save()
+
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+        let deletedAt = duplicateIncome.deletedAt
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let allCategories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
+        let activeIncome = allCategories.filter {
+            $0.name == "Income" && $0.kind == .income && $0.parent == nil && $0.deletedAt == nil
+        }
+        #expect(activeIncome.count == 1)
+        #expect(activeIncome.first?.id == canonicalIncome.id)
+        #expect(duplicateIncome.deletedAt == deletedAt)
+    }
 }

@@ -34,13 +34,21 @@ struct CategoryPickerView: View {
     }
 
     private var groupedCategories: [(kind: CategoryKind, categories: [Category])] {
-        let parents = categories.filter { category in
+        let parents = displayCategories.filter { category in
             category.parent == nil && (allowedKinds?.contains(category.kind) ?? true)
         }
         let kinds: [CategoryKind] = [.expense, .income, .transfer, .investment, .creditCardPayment]
         return kinds.compactMap { kind in
             let cats = parents.filter { $0.kind == kind }.sorted { $0.name < $1.name }
             return cats.isEmpty ? nil : (kind, cats)
+        }
+    }
+
+    private var displayCategories: [Category] {
+        // Dirty-store guard only; SeedDataLoader is responsible for repairing duplicates.
+        var seen = Set<String>()
+        return categories.sorted(by: categoryDisplaySort).filter { category in
+            seen.insert(categoryDisplayKey(category)).inserted
         }
     }
 
@@ -61,7 +69,7 @@ struct CategoryPickerView: View {
 
                         ForEach(group.categories) { cat in
                             categoryRow(cat)
-                            let subs = categories
+                            let subs = displayCategories
                                 .filter { $0.parent?.id == cat.id }
                                 .sorted { $0.name < $1.name }
                             if !subs.isEmpty {
@@ -105,5 +113,19 @@ struct CategoryPickerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func categoryDisplayKey(_ category: Category) -> String {
+        let parentID = category.parent?.id.uuidString ?? "root"
+        let name = category.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(parentID)|\(category.kind.rawValue)|\(name)"
+    }
+
+    private func categoryDisplaySort(_ lhs: Category, _ rhs: Category) -> Bool {
+        let lhsName = lhs.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rhsName = rhs.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lhsName != rhsName { return lhsName < rhsName }
+        if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 }

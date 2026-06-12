@@ -250,7 +250,8 @@ struct SettingsView: View {
     private var categoriesSection: some View {
         SectionCard(title: "Categories") {
             VStack(spacing: 0) {
-                let parents = categories.filter { $0.parent == nil }
+                let categoriesForDisplay = displayCategories
+                let parents = categoriesForDisplay.filter { $0.parent == nil }
                 let kinds: [CategoryKind] = [.expense, .income, .transfer, .investment, .creditCardPayment]
                 let grouped = kinds.compactMap { kind -> (CategoryKind, [Category])? in
                     let cats = parents.filter { $0.kind == kind }.sorted { $0.name < $1.name }
@@ -273,7 +274,7 @@ struct SettingsView: View {
 
                         ForEach(parentsInSection) { parent in
                             categoryParentRow(parent)
-                            let subs = categories
+                            let subs = categoriesForDisplay
                                 .filter { $0.parent?.id == parent.id }
                                 .sorted { $0.name < $1.name }
                             ForEach(subs) { sub in
@@ -305,8 +306,16 @@ struct SettingsView: View {
         }
     }
 
+    private var displayCategories: [Category] {
+        // Dirty-store guard only; SeedDataLoader is responsible for repairing duplicates.
+        var seen = Set<String>()
+        return categories.sorted(by: categoryDisplaySort).filter { category in
+            seen.insert(categoryDisplayKey(category)).inserted
+        }
+    }
+
     private func categoryParentRow(_ parent: Category) -> some View {
-        let activeChildren = categories.filter { $0.parent?.id == parent.id }
+        let activeChildren = displayCategories.filter { $0.parent?.id == parent.id }
         let canDelete = activeChildren.isEmpty
 
         return HStack {
@@ -340,6 +349,20 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
+    }
+
+    private func categoryDisplayKey(_ category: Category) -> String {
+        let parentID = category.parent?.id.uuidString ?? "root"
+        let name = category.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(parentID)|\(category.kind.rawValue)|\(name)"
+    }
+
+    private func categoryDisplaySort(_ lhs: Category, _ rhs: Category) -> Bool {
+        let lhsName = lhs.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rhsName = rhs.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lhsName != rhsName { return lhsName < rhsName }
+        if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     private func categorySubcategoryRow(_ sub: Category, parent: Category) -> some View {
@@ -618,10 +641,9 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Dashboard cards and charts now stay in sync with Month, Quarter, Year, All, and Custom periods.",
-        "Net Worth is now shown as a point-in-time balance, with account breakdowns using the same as-of date.",
-        "Cash Flow and Charges vs Payments charts now render as compact grouped bars with steadier hover behavior.",
-        "Development builds now run separately as FinanceTracker Dev, keeping testing away from the production app.",
+        "Category lists now hide duplicate entries when adding or editing transactions.",
+        "Duplicate active categories are safely repaired at startup.",
+        "Existing transaction categories and category rules are preserved during repair.",
     ]
 
     private var lastBackupDate: String? {
