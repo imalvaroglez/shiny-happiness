@@ -96,6 +96,20 @@ Manual accounts use `Account.manuallyCreatedAt` to distinguish user-created acco
 
 `AccountBalanceResolver` computes account balances from the latest imported statement or manual balance snapshot anchor, then rolls forward only later non-deleted, non-duplicate transactions. Asset accounts store positive balances; liabilities store debt as signed-negative balances, with payments reducing debt as positive transactions.
 
+### Dashboard period, net worth, and chart semantics
+
+Dashboard work must preserve a clear split between financial semantics and rendering semantics:
+
+- Period selection resolves to one `DashboardPeriodContext`. Cards, charts, drill-downs, and breakdown sheets must use that context instead of recomputing local ranges.
+- `dateRange` and `effectiveNetWorthDate` are the source of truth for filtering, totals, and balance resolution. `plotDomain`, bucket centers, grouped-bar layout, and hover state are rendering-only.
+- Month uses the current calendar month to date with daily buckets. Quarter and Year use current calendar windows to date with monthly buckets. All uses all available non-future data. Custom uses the selected local-calendar range capped at today unless future data is explicitly supported.
+- Income, expenses, interest, cash flow, and chart buckets must exclude transfers, credit-card payments, duplicate rows, and synthesized MSI original-purchase rows according to the existing dashboard filters.
+- Net Worth is never a transaction sum. It is a point-in-time balance as of `effectiveNetWorthDate`, using historical snapshots or resolver reconstruction. The Net Worth card, final visible chart point, and breakdown total must match.
+- Net Worth breakdown rows explain account balance provenance, not period activity. Wording must not imply that prior snapshots or reconstruction anchors are transactions inside the selected period.
+- Cash Flow and Charges vs Payments are period-comparison charts, not date-scale charts. Render them through the shared grouped-period bar renderer: `All` skips inactive buckets; bounded Month/Quarter/Year/Custom trim inactive edges but preserve inactive buckets between active buckets as subtle zero placeholders.
+- Sparse grouped-bar charts must stay compact and centered at wide dashboard widths. Do not allow a few active months to stretch across the full card. Hover should resolve to the nearest rendered group id and update only when the group changes.
+- Net Worth and Balance charts remain date-based point-in-time line/area charts. Do not convert them to grouped bars.
+
 ### Fresh-start reset and SwiftData safety
 
 `AppDataResetService` is the single owner of model deletion order. Normal reset uses object-level deletion (`fetch` + `context.delete(obj)`) so SwiftData relationship rules run; do not replace it with broad `context.delete(model:)` in the healthy reset path, because batch delete can violate cascade/nullify constraints in this model graph. `BackupArchive` should delegate to the same service instead of keeping a second deletion list.
@@ -120,6 +134,8 @@ Use Swift 6 with strict concurrency. Keep ViewModels and SwiftData `ModelContext
 
 Use XCTest-style unit and end-to-end tests under `FinanceTrackerTests/`. Add focused tests when changing parsers, normalization, categorization, dashboard snapshots, or backup behavior. Prefer real fixtures from `samples/` for statement parsing. Run the serial full-suite command before handing off changes that touch ingest, persistence, or shared domain logic.
 
+Dashboard calculation or rendering changes must include focused coverage for the data shape that drives the UI: selected period context, transaction filtering, bucket membership, point-in-time balance resolution, grouped-bar trimming, compact layout behavior, and hover/breakdown mapping back to the original bucket start. Add SwiftUI previews for meaningful visual states when the defect is visual: sparse All, dense Year, current Month, historical Custom, liability Charges vs Payments, and empty states.
+
 Any change touching reset, SwiftData model deletion, dashboard startup, transaction fetching, or backup restore must run focused reset/dashboard coverage plus the serial full suite. Tests involving store-file reset must inject a temporary app-support path (for example via `StoreFileResetService.appSupportOverride`) and must never operate on real user data.
 
 When using an in-memory SwiftData test container, keep the `ModelContainer` alive for the full test. Never write `let context = try makeContainer().mainContext`; the temporary container can be deallocated immediately, leaving `mainContext` invalid and causing SwiftData signal-trap crashes. Use `let container = try makeContainer(); let context = container.mainContext`.
@@ -139,3 +155,5 @@ This is a private finance app. Do not commit personal statements, generated stor
 - `CHANGELOG.md` is the detailed technical record for contributors. The About "What's New" copy is product-focused and non-technical.
 - Internal-only, test-only, or refactor-only changes belong in `CHANGELOG.md` but not in About unless users will notice them.
 - Do not ship a version bump unless both `CHANGELOG.md` and the About highlights have been reviewed.
+- Release prep means: bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`, run `xcodegen generate`, run focused dashboard tests when dashboard behavior changed, run `DashboardSnapshotTests`, run the full serial suite, and run a Release build.
+- Installing or smoke-testing the production app is a separate explicit step after release prep. It requires confirmation that a fresh, verifiable `.ftbackup` exists and is newer than the latest production data change.

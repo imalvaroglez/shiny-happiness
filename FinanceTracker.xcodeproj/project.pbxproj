@@ -40,6 +40,7 @@
 		38155FEDD54751ED6C365C87 /* BalanceSnapshotSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00B957B16A6A9B1E3B2FE4FE /* BalanceSnapshotSheet.swift */; };
 		3D0930487B76158709350E82 /* DashboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D0F8EAA9E3499170618A1C7 /* DashboardChrome.swift */; };
 		3D3B81B6595F4B1EF332472D /* IngestPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D60770616C79673217A9F8A /* IngestPipeline.swift */; };
+		3DCFEBFBFBF647CED3D8B64B /* DashboardPeriodFilteringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F521469BFF0E58922383AB0A /* DashboardPeriodFilteringTests.swift */; };
 		3DE1CB18E921445F47570CF4 /* DashboardSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 766DC0704044F15C95A1B59B /* DashboardSnapshotTests.swift */; };
 		3E08E1FC36634352EE090146 /* Date+Period.swift in Sources */ = {isa = PBXBuildFile; fileRef = B833F7810F33D61E067029F4 /* Date+Period.swift */; };
 		3FE44D2B230509CC8545E9EE /* Statement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF4B815E55BBE994A9DF4A5B /* Statement.swift */; };
@@ -117,6 +118,7 @@
 		C154ACF836F15C44334268FC /* TransactionDayGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28BAFAC3B3593F82B409FC15 /* TransactionDayGroup.swift */; };
 		C26BACE3B5B94DC7C4BB11F2 /* GlassCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDCDD5AE41D0B0EF0DF03224 /* GlassCard.swift */; };
 		C80B8FA576C355F255DC67C0 /* EndToEndPDFTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76945E0492AC714D84088096 /* EndToEndPDFTests.swift */; };
+		C8849DB023F5244E7A936824 /* DashboardPeriod.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31E69074CC39EE81C9890E73 /* DashboardPeriod.swift */; };
 		CEBCC41FFC6CD5B63B21A840 /* ManualAccountServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8AEED416815C85A155E0055 /* ManualAccountServices.swift */; };
 		CFA27954E24E8D689A403CCA /* categories.json in Resources */ = {isa = PBXBuildFile; fileRef = 5C84E93C9A795A6020B4643B /* categories.json */; };
 		D18B106C73B2FF2E9576445B /* AppDataResetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE3A402ECAC8EDC5B7D22E7 /* AppDataResetService.swift */; };
@@ -186,6 +188,7 @@
 		2B30AF1EAA22404F0B2B8511 /* PaymentDueDisplayStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentDueDisplayStateTests.swift; sourceTree = "<group>"; };
 		2C2C79047686612150D874D7 /* Deduplicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deduplicator.swift; sourceTree = "<group>"; };
 		3060136CEC6240492632D295 /* Normalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Normalizer.swift; sourceTree = "<group>"; };
+		31E69074CC39EE81C9890E73 /* DashboardPeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardPeriod.swift; sourceTree = "<group>"; };
 		333B96563F77F1263638F894 /* MultiHSBCAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiHSBCAccountTests.swift; sourceTree = "<group>"; };
 		36341C3C6BDFE7D5721CAF6C /* PastedHsbc2NowParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastedHsbc2NowParser.swift; sourceTree = "<group>"; };
 		38B807CA5F0B3CAB0EBF0024 /* NormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NormalizerTests.swift; sourceTree = "<group>"; };
@@ -287,6 +290,7 @@
 		EFAF144C1C19509D096B7E57 /* LiabilityPaymentVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiabilityPaymentVisibilityTests.swift; sourceTree = "<group>"; };
 		F186C53DC07E034D72A6D23C /* ParsedSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParsedSection.swift; sourceTree = "<group>"; };
 		F336C178E969629BD4C185D3 /* MerchantExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MerchantExtractor.swift; sourceTree = "<group>"; };
+		F521469BFF0E58922383AB0A /* DashboardPeriodFilteringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardPeriodFilteringTests.swift; sourceTree = "<group>"; };
 		F5388DFE498560A674C872D8 /* AmexMetadataParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmexMetadataParserTests.swift; sourceTree = "<group>"; };
 		F5C6ED3A313C1939819ED6D7 /* AccountDeletionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionService.swift; sourceTree = "<group>"; };
 		F7A55B8805B742C85C8DF62F /* AmexMexicoParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmexMexicoParser.swift; sourceTree = "<group>"; };
@@ -503,6 +507,7 @@
 				5991749DFCB4D702D68AFEF6 /* AppDataResetServiceTests.swift */,
 				A24A6CE11C6370FEE1842953 /* BackupArchiveTests.swift */,
 				92E3281262428E4DA9DEBC6D /* CategoryManagementActionsTests.swift */,
+				F521469BFF0E58922383AB0A /* DashboardPeriodFilteringTests.swift */,
 				766DC0704044F15C95A1B59B /* DashboardSnapshotTests.swift */,
 				76945E0492AC714D84088096 /* EndToEndPDFTests.swift */,
 				B725ADC4FF020A95041D0F41 /* ManualLedgerTests.swift */,
@@ -522,6 +527,7 @@
 				2628B229834D66AE814FB1EF /* BreakdownSheet.swift */,
 				94C2CD008ED3068A1C7FF4C2 /* ConsolidatedDashboard.swift */,
 				8D0F8EAA9E3499170618A1C7 /* DashboardChrome.swift */,
+				31E69074CC39EE81C9890E73 /* DashboardPeriod.swift */,
 				B7D19D8C4A0F082760E74186 /* DashboardScope.swift */,
 				7205046DB5CF280B9AEB4B0C /* DashboardSnapshot.swift */,
 				9AEE9B7A28C2B8F8F246426D /* DashboardView.swift */,
@@ -863,6 +869,7 @@
 				A766ECFBB9300ACB31EE2783 /* ColumnDetector.swift in Sources */,
 				F6EF7475044393425338B9EC /* ConsolidatedDashboard.swift in Sources */,
 				3D0930487B76158709350E82 /* DashboardChrome.swift in Sources */,
+				C8849DB023F5244E7A936824 /* DashboardPeriod.swift in Sources */,
 				F4E1BF58F45908526146BFEB /* DashboardScope.swift in Sources */,
 				26C6365B1AA0E59F0AB5DF02 /* DashboardSnapshot.swift in Sources */,
 				B209C9963D854A879C675973 /* DashboardView.swift in Sources */,
@@ -945,6 +952,7 @@
 				B10760C2FE4C491DE965D1D1 /* CategoryRepairTests.swift in Sources */,
 				4D4E4CE44F17087F401CCE2E /* CategoryRuleSourceTrackingTests.swift in Sources */,
 				66B3D86239B373D1126F9E10 /* ColumnDetectorTests.swift in Sources */,
+				3DCFEBFBFBF647CED3D8B64B /* DashboardPeriodFilteringTests.swift in Sources */,
 				3DE1CB18E921445F47570CF4 /* DashboardSnapshotTests.swift in Sources */,
 				84C26FBE7AA03147CD3EE328 /* DeduplicatorTests.swift in Sources */,
 				C80B8FA576C355F255DC67C0 /* EndToEndPDFTests.swift in Sources */,
@@ -997,7 +1005,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app.tests;
 				SDKROOT = macosx;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FinanceTracker.app/Contents/MacOS/FinanceTracker";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FinanceTracker Dev.app/Contents/MacOS/FinanceTracker Dev";
 			};
 			name = Debug;
 		};
@@ -1071,18 +1079,20 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260610.1;
+				CURRENT_PROJECT_VERSION = 20260611.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = FinanceTracker;
+				INFOPLIST_KEY_CFBundleDisplayName = "FinanceTracker Dev";
 				INFOPLIST_KEY_LSMinimumSystemVersion = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.3.3;
-				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app;
+				MARKETING_VERSION = 0.3.4;
+				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app.dev;
+				PRODUCT_MODULE_NAME = FinanceTracker;
+				PRODUCT_NAME = "FinanceTracker Dev";
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -1113,7 +1123,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260610.1;
+				CURRENT_PROJECT_VERSION = 20260611.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1123,8 +1133,10 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.3.3;
+				MARKETING_VERSION = 0.3.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app;
+				PRODUCT_MODULE_NAME = FinanceTracker;
+				PRODUCT_NAME = FinanceTracker;
 				SDKROOT = macosx;
 			};
 			name = Release;

@@ -47,6 +47,9 @@ struct AccountSummary: Identifiable, Hashable {
     let currency: String
     /// Signed: positive = asset balance, negative = liability balance.
     let latestBalance: Decimal
+    let balanceAsOf: Date
+    let balanceSourceKind: AccountBalanceResolution.SourceKind
+    let balanceSourceDate: Date?
     /// Only populated for credit-card accounts.
     let creditLimit: Decimal?
     /// `abs(latestBalance) / creditLimit` if available; `nil` otherwise.
@@ -54,6 +57,7 @@ struct AccountSummary: Identifiable, Hashable {
 }
 
 struct ConsolidatedSnapshot {
+    let period: DashboardPeriodContext
     let netWorth: Decimal
     let netWorthOverTime: [NetWorthPoint]
     let monthlyCashFlow: [MonthlyCashFlow]
@@ -79,6 +83,7 @@ struct ConsolidatedSnapshot {
 // MARK: - Asset (checking, savings, etc.)
 
 struct AssetAccountSnapshot {
+    let period: DashboardPeriodContext
     let account: DashboardAccountIdentity
     let currentBalance: Decimal
     let balanceOverTime: [NetWorthPoint]
@@ -96,6 +101,7 @@ struct AssetAccountSnapshot {
 // MARK: - Liability (credit cards)
 
 struct LiabilityAccountSnapshot {
+    let period: DashboardPeriodContext
     let account: DashboardAccountIdentity
     let currentBalance: Decimal
     let creditLimit: Decimal?
