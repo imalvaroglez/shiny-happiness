@@ -12,32 +12,98 @@ struct AccountBalanceAnchor {
     let source: Source
 }
 
+struct AccountBalanceResolution {
+    enum SourceKind: String, Hashable {
+        case exactBalanceSnapshot
+        case latestPriorBalanceSnapshot
+        case reconstructedBalance
+        case insufficientHistory
+    }
+
+    let asOf: Date
+    let amount: Decimal
+    let sourceKind: SourceKind
+    let sourceDate: Date?
+}
+
 @MainActor
 enum AccountBalanceResolver {
     static func currentBalance(account: Account, context: ModelContext) -> Decimal {
+        balance(account: account, asOf: .now, context: context) ?? 0
+    }
+
+    static func balance(account: Account, asOf date: Date, context: ModelContext) -> Decimal? {
+        let resolution = resolution(account: account, asOf: date, context: context)
+        guard resolution.sourceKind != .insufficientHistory else { return nil }
+        return resolution.amount
+    }
+
+    static func resolution(account: Account, asOf date: Date, context: ModelContext) -> AccountBalanceResolution {
         let accountId = account.id
         let anchors = allAnchors(accountId: accountId, context: context)
-        let anchor = anchors.max { $0.date < $1.date }
+        let anchorsThroughDate = anchors.filter { $0.date <= date }
+        let anchor = anchorsThroughDate.max { $0.date < $1.date }
+        let calendar = Calendar(identifier: .gregorian)
 
         let hasStatementAnchors = anchors.contains {
             if case .statement = $0.source { return true }
             return false
         }
 
-        if !hasStatementAnchors, let anchor = anchor,
-           case .manualSnapshot(let snap) = anchor.source,
+        if !hasStatementAnchors,
+           let firstAnchor = anchorsThroughDate.sorted(by: { $0.date < $1.date }).first,
+           case .manualSnapshot(let snap) = firstAnchor.source,
            snap.kind == .manualOpening {
-            let base = anchor.amount
-            let deltas = transactionsFrom(account.openedAt, accountId: accountId, context: context)
+            if let anchor, anchor.date > firstAnchor.date {
+                let base = anchor.amount
+                let deltas = transactionsAfter(anchor.date, through: date, accountId: accountId, context: context)
+                    .reduce(Decimal(0)) { $0 + $1.amount }
+                return AccountBalanceResolution(
+                    asOf: date,
+                    amount: base + deltas,
+                    sourceKind: deltas == 0 ? balanceSourceKind(for: anchor.date, asOf: date, calendar: calendar) : .reconstructedBalance,
+                    sourceDate: anchor.date
+                )
+            }
+
+            let base = anchor?.amount ?? firstAnchor.amount
+            let deltas = transactionsFrom(account.openedAt, through: date, accountId: accountId, context: context)
                 .reduce(Decimal(0)) { $0 + $1.amount }
-            return base + deltas
+            return AccountBalanceResolution(
+                asOf: date,
+                amount: base + deltas,
+                sourceKind: deltas == 0 ? balanceSourceKind(for: firstAnchor.date, asOf: date, calendar: calendar) : .reconstructedBalance,
+                sourceDate: firstAnchor.date
+            )
+        }
+
+        let effectiveTransactions = transactionsThrough(date, accountId: accountId, context: context)
+        guard anchor != nil || !effectiveTransactions.isEmpty else {
+            return AccountBalanceResolution(
+                asOf: date,
+                amount: 0,
+                sourceKind: .insufficientHistory,
+                sourceDate: nil
+            )
         }
 
         let anchorDate = anchor?.date ?? .distantPast
         let base = anchor?.amount ?? 0
-        let deltas = transactionsAfter(anchorDate, accountId: accountId, context: context)
+        let deltas = effectiveTransactions
+            .filter { $0.postedAt > anchorDate }
             .reduce(Decimal(0)) { $0 + $1.amount }
-        return base + deltas
+        let sourceKind: AccountBalanceResolution.SourceKind
+        if let anchor {
+            sourceKind = deltas == 0 ? balanceSourceKind(for: anchor.date, asOf: date, calendar: calendar) : .reconstructedBalance
+        } else {
+            sourceKind = .reconstructedBalance
+        }
+        return AccountBalanceResolution(
+            asOf: date,
+            amount: base + deltas,
+            sourceKind: sourceKind,
+            sourceDate: anchor?.date
+        )
     }
 
     static func latestStatement(accountId: UUID, context: ModelContext) -> Statement? {
@@ -149,9 +215,24 @@ enum AccountBalanceResolver {
             .filter { $0.postedAt > date && $0.deletedAt == nil && !$0.isDuplicate }
     }
 
+    private static func transactionsAfter(_ date: Date, through end: Date, accountId: UUID, context: ModelContext) -> [Transaction] {
+        allTransactions(accountId: accountId, context: context)
+            .filter { $0.postedAt > date && $0.postedAt <= end && $0.deletedAt == nil && !$0.isDuplicate }
+    }
+
     private static func transactionsFrom(_ date: Date, accountId: UUID, context: ModelContext) -> [Transaction] {
         allTransactions(accountId: accountId, context: context)
             .filter { $0.postedAt >= date && $0.deletedAt == nil && !$0.isDuplicate }
+    }
+
+    private static func transactionsFrom(_ date: Date, through end: Date, accountId: UUID, context: ModelContext) -> [Transaction] {
+        allTransactions(accountId: accountId, context: context)
+            .filter { $0.postedAt >= date && $0.postedAt <= end && $0.deletedAt == nil && !$0.isDuplicate }
+    }
+
+    private static func transactionsThrough(_ date: Date, accountId: UUID, context: ModelContext) -> [Transaction] {
+        allTransactions(accountId: accountId, context: context)
+            .filter { $0.postedAt <= date && $0.deletedAt == nil && !$0.isDuplicate }
     }
 
     private static func allTransactions(accountId: UUID, context: ModelContext) -> [Transaction] {
@@ -174,5 +255,9 @@ enum AccountBalanceResolver {
             predicate: #Predicate<AccountBalanceSnapshot> { $0.account?.id == accountId }
         )
         return (try? context.fetch(descriptor)) ?? []
+    }
+
+    private static func balanceSourceKind(for sourceDate: Date, asOf date: Date, calendar: Calendar) -> AccountBalanceResolution.SourceKind {
+        calendar.isDate(sourceDate, inSameDayAs: date) ? .exactBalanceSnapshot : .latestPriorBalanceSnapshot
     }
 }

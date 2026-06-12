@@ -6,7 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No unreleased changes.
+## [0.3.4] - 2026-06-11
+
+### Fixed
+
+- **Dashboard period filtering.** Overview cards and charts now share one selected period, use period-appropriate buckets, and calculate net worth as a point-in-time balance at the period end.
+- **Net Worth breakdown periods.** The Net Worth drill-down now shows account balances as of the selected period's effective date, labels the balance source, and keeps its total aligned with the card and chart.
+- **Net Worth breakdown copy.** Account-level balance provenance now distinguishes snapshots and reconstruction from selected-period transaction activity.
+- **Dashboard chart rendering.** Period charts now use rendering-only padded domains, compact grouped Cash Flow / Charges vs Payments bars, stable bucket hover, and point-in-time balance positions so selected periods render without clipped marks, stretched gaps, or future flat lines.
+
+### Changed
+
+- **Development builds.** Debug builds now install as `FinanceTracker Dev` with a separate bundle identifier so manual testing does not share the production app container.
 
 ## [0.3.3] - 2026-06-10
 

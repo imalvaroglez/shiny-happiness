@@ -26,10 +26,16 @@ struct NetWorthPoint: Identifiable {
 @Observable
 final class DashboardViewModel {
     var snapshot: DashboardSnapshot = .empty(EmptySnapshot(reason: "Loading…"))
-    var dateRange: DateRange = .year(.now)
+    var dateRange: DateRange = DashboardPeriodKind.all.resolvedRange()
+    var periodKind: DashboardPeriodKind = .all
     var scope: DashboardScope = .consolidated
 
     private var context: ModelContext?
+
+    func setPeriod(_ kind: DashboardPeriodKind, customRange: DateRange? = nil, now: Date = .now) {
+        periodKind = kind
+        dateRange = kind.resolvedRange(now: now, customRange: customRange)
+    }
 
     func configure(context: ModelContext) {
         self.context = context
@@ -121,17 +127,19 @@ final class DashboardViewModel {
     // MARK: - Consolidated
 
     private func buildConsolidated(context: ModelContext) -> ConsolidatedSnapshot {
+        let period = dashboardPeriodContext(context: context)
         let transactions = windowedTransactions(context: context)
 
-        let cashFlow = computeMonthlyCashFlow(transactions)
+        let cashFlow = computeMonthlyCashFlow(transactions, period: period)
         let spending = computeSpendingByCategory(transactions, kindFilter: nil)
         let (income, expenses) = computeTotals(transactions)
         let interestEarned = computeInterestEarned(transactions)
         let interestCharged = computeInterestCharged(transactions)
 
-        let (netWorth, netWorthSeries, accountSummaries) = computeNetWorth(context: context)
+        let (netWorth, netWorthSeries, accountSummaries) = computeNetWorth(context: context, period: period)
 
         return ConsolidatedSnapshot(
+            period: period,
             netWorth: netWorth,
             netWorthOverTime: netWorthSeries,
             monthlyCashFlow: cashFlow,
@@ -154,16 +162,18 @@ final class DashboardViewModel {
         }
 
         let transactions = windowedTransactions(context: context, accountId: accountId)
+        let period = dashboardPeriodContext(context: context)
 
         let latestStatement = AccountBalanceResolver.latestStatement(accountId: accountId, context: context)
         let latestBalanceStatement = AccountBalanceResolver.latestBalanceStatement(accountId: accountId, context: context)
         let latestPaymentStatement = AccountBalanceResolver.latestPaymentStatement(accountId: accountId, context: context)
-        let currentBalance = AccountBalanceResolver.currentBalance(account: account, context: context)
+        let currentBalance = AccountBalanceResolver.balance(account: account, asOf: period.effectiveNetWorthDate, context: context) ?? 0
 
         switch account.type {
         case .creditCard, .loan:
             return .liability(buildLiability(
                 context: context,
+                period: period,
                 account: account,
                 transactions: transactions,
                 latestBalanceStatement: latestBalanceStatement,
@@ -173,6 +183,7 @@ final class DashboardViewModel {
         default:
             return .asset(buildAsset(
                 context: context,
+                period: period,
                 account: account,
                 transactions: transactions,
                 latestStatement: latestStatement,
@@ -183,18 +194,20 @@ final class DashboardViewModel {
 
     private func buildAsset(
         context: ModelContext,
+        period: DashboardPeriodContext,
         account: Account,
         transactions: [Transaction],
         latestStatement: Statement?,
         currentBalance: Decimal
     ) -> AssetAccountSnapshot {
-        let cashFlow = computeMonthlyCashFlow(transactions)
+        let cashFlow = computeMonthlyCashFlow(transactions, period: period)
         let spending = computeSpendingByCategory(transactions, kindFilter: nil)
         let (income, expenses) = computeTotals(transactions)
         let interestEarned = computeInterestEarned(transactions)
-        let balanceSeries = computeBalanceSeries(context: context, accountId: account.id)
+        let balanceSeries = computeBalanceSeries(context: context, accountId: account.id, period: period)
 
         return AssetAccountSnapshot(
+            period: period,
             account: DashboardAccountIdentity(account),
             currentBalance: currentBalance,
             balanceOverTime: balanceSeries,
@@ -210,13 +223,14 @@ final class DashboardViewModel {
 
     private func buildLiability(
         context: ModelContext,
+        period: DashboardPeriodContext,
         account: Account,
         transactions: [Transaction],
         latestBalanceStatement: Statement?,
         latestPaymentStatement: Statement?,
         currentBalance: Decimal
     ) -> LiabilityAccountSnapshot {
-        let chargesVsPayments = computeChargesVsPayments(transactions)
+        let chargesVsPayments = computeChargesVsPayments(transactions, period: period)
         let spending = computeSpendingByCategory(transactions, kindFilter: nil)
 
         let totalCharges = transactions
@@ -241,6 +255,7 @@ final class DashboardViewModel {
         let sourceStatements = fetchSourceStatements(context: context, accountId: account.id)
 
         return LiabilityAccountSnapshot(
+            period: period,
             account: DashboardAccountIdentity(account),
             currentBalance: currentBalance,
             creditLimit: account.creditLimit,
@@ -261,41 +276,57 @@ final class DashboardViewModel {
 
     // MARK: - Computations (kept compatible with the old VM)
 
-    private func computeMonthlyCashFlow(_ transactions: [Transaction]) -> [MonthlyCashFlow] {
+    private func computeMonthlyCashFlow(_ transactions: [Transaction], period: DashboardPeriodContext) -> [MonthlyCashFlow] {
         let calendar = Calendar(identifier: .gregorian)
-        var grouped: [Date: (income: Decimal, expenses: Decimal)] = [:]
+        let intervals = period.intervals(calendar: calendar)
+        var grouped = Dictionary(uniqueKeysWithValues: intervals.map { ($0.bucketStart, (income: Decimal(0), expenses: Decimal(0))) })
+        var hasIncludedTransaction = false
 
         for tx in transactions {
             if excludedFromCashFlow(tx) { continue }
-            let month = calendar.date(from: calendar.dateComponents([.year, .month], from: tx.postedAt))!
-            let existing = grouped[month] ?? (0, 0)
+            let bucketStart = period.bucket.start(for: tx.postedAt, calendar: calendar)
+            guard grouped[bucketStart] != nil else { continue }
+            hasIncludedTransaction = true
+            let existing = grouped[bucketStart] ?? (0, 0)
             if tx.amount > 0 {
-                grouped[month] = (existing.income + tx.amount, existing.expenses)
+                grouped[bucketStart] = (existing.income + tx.amount, existing.expenses)
             } else {
-                grouped[month] = (existing.income, existing.expenses + tx.amount)
+                grouped[bucketStart] = (existing.income, existing.expenses + tx.amount)
             }
         }
-        return grouped.map { month, values in
-            MonthlyCashFlow(month: month, income: values.income, expenses: values.expenses)
-        }.sorted { $0.month < $1.month }
+
+        guard hasIncludedTransaction else { return [] }
+        return intervals.map { interval in
+            let values = grouped[interval.bucketStart] ?? (0, 0)
+            return MonthlyCashFlow(month: interval.bucketStart, income: values.income, expenses: values.expenses)
+        }
     }
 
-    private func computeChargesVsPayments(_ transactions: [Transaction]) -> [MonthlyChargesPayments] {
+    private func computeChargesVsPayments(_ transactions: [Transaction], period: DashboardPeriodContext) -> [MonthlyChargesPayments] {
         let calendar = Calendar(identifier: .gregorian)
-        var grouped: [Date: (charges: Decimal, payments: Decimal)] = [:]
+        let intervals = period.intervals(calendar: calendar)
+        var grouped = Dictionary(uniqueKeysWithValues: intervals.map { ($0.bucketStart, (charges: Decimal(0), payments: Decimal(0))) })
+        var hasIncludedTransaction = false
+
         for tx in transactions {
             if tx.isDuplicate { continue }
             if isSynthesizedMSIPurchase(tx) { continue }
-            let month = calendar.date(from: calendar.dateComponents([.year, .month], from: tx.postedAt))!
-            let existing = grouped[month] ?? (0, 0)
+            let bucketStart = period.bucket.start(for: tx.postedAt, calendar: calendar)
+            guard grouped[bucketStart] != nil else { continue }
+            hasIncludedTransaction = true
+            let existing = grouped[bucketStart] ?? (0, 0)
             if tx.amount < 0 {
-                grouped[month] = (existing.charges + abs(tx.amount), existing.payments)
+                grouped[bucketStart] = (existing.charges + abs(tx.amount), existing.payments)
             } else {
-                grouped[month] = (existing.charges, existing.payments + tx.amount)
+                grouped[bucketStart] = (existing.charges, existing.payments + tx.amount)
             }
         }
-        return grouped.map { MonthlyChargesPayments(month: $0.key, charges: $0.value.charges, payments: $0.value.payments) }
-            .sorted { $0.month < $1.month }
+
+        guard hasIncludedTransaction else { return [] }
+        return intervals.map { interval in
+            let values = grouped[interval.bucketStart] ?? (0, 0)
+            return MonthlyChargesPayments(month: interval.bucketStart, charges: values.charges, payments: values.payments)
+        }
     }
 
     private func computeSpendingByCategory(_ transactions: [Transaction], kindFilter: CategoryKind?) -> [CategorySpending] {
@@ -358,21 +389,32 @@ final class DashboardViewModel {
 
     // MARK: - Net worth + balance series + account summaries
 
-    private func computeNetWorth(context: ModelContext) -> (current: Decimal, series: [NetWorthPoint], summaries: [AccountSummary]) {
+    private func computeNetWorth(context: ModelContext, period: DashboardPeriodContext) -> (current: Decimal, series: [NetWorthPoint], summaries: [AccountSummary]) {
         let accountsDescriptor = FetchDescriptor<Account>(sortBy: [SortDescriptor(\.nickname)])
         let accounts = (try? context.fetch(accountsDescriptor)) ?? []
 
-        let balancesByAccount = Dictionary(uniqueKeysWithValues: accounts.map { account in
-            (account.id, AccountBalanceResolver.currentBalance(account: account, context: context))
+        let resolutionsByAccount = Dictionary(uniqueKeysWithValues: accounts.map { account in
+            (account.id, AccountBalanceResolver.resolution(account: account, asOf: period.effectiveNetWorthDate, context: context))
         })
-        let current = balancesByAccount.values.reduce(Decimal(0), +)
+        let current = resolutionsByAccount.values.reduce(Decimal(0)) { partial, resolution in
+            resolution.sourceKind == .insufficientHistory ? partial : partial + resolution.amount
+        }
 
         // Build account summaries: every Account, even those without a statement yet
         // (balance defaults to zero).
         let summaries: [AccountSummary] = accounts.map { account in
-            let balance = balancesByAccount[account.id] ?? 0
+            let resolution = resolutionsByAccount[account.id] ?? AccountBalanceResolution(
+                asOf: period.effectiveNetWorthDate,
+                amount: 0,
+                sourceKind: .insufficientHistory,
+                sourceDate: nil
+            )
+            let balance = resolution.amount
             let util: Double?
-            if account.type == .creditCard, let limit = account.creditLimit, limit > 0 {
+            if resolution.sourceKind != .insufficientHistory,
+               account.type == .creditCard,
+               let limit = account.creditLimit,
+               limit > 0 {
                 let owed = (abs(balance) as NSDecimalNumber).doubleValue
                 let lim = (limit as NSDecimalNumber).doubleValue
                 util = owed / lim
@@ -386,47 +428,85 @@ final class DashboardViewModel {
                 type: account.type,
                 currency: account.currency,
                 latestBalance: balance,
+                balanceAsOf: resolution.asOf,
+                balanceSourceKind: resolution.sourceKind,
+                balanceSourceDate: resolution.sourceDate,
                 creditLimit: account.creditLimit,
                 utilizationPercent: util
             )
         }
 
-        let series = computeMonthlyNetWorth(context: context, accounts: accounts)
+        let series = computeMonthlyNetWorth(context: context, accounts: accounts, period: period)
         return (current, series, summaries)
     }
 
-    private func computeMonthlyNetWorth(context: ModelContext, accounts: [Account]) -> [NetWorthPoint] {
-        let accountSeries = accounts.map { AccountBalanceResolver.balanceSeries(account: $0, context: context) }
+    private func computeMonthlyNetWorth(context: ModelContext, accounts: [Account], period: DashboardPeriodContext) -> [NetWorthPoint] {
         let calendar = Calendar(identifier: .gregorian)
+        let intervals = period.intervals(calendar: calendar)
+        guard !intervals.isEmpty else { return [] }
 
-        var monthSet = Set<Date>()
-        for series in accountSeries {
-            for point in series {
-                let month = calendar.date(from: calendar.dateComponents([.year, .month], from: point.month))!
-                monthSet.insert(month)
-            }
-        }
-        let months = monthSet.sorted()
-        guard !months.isEmpty else { return [] }
-
-        var latestByAccount: [UUID: Decimal] = [:]
-        var result: [NetWorthPoint] = []
-        for month in months {
-            for (index, series) in accountSeries.enumerated() {
-                guard index < accounts.count else { continue }
-                if let point = series.last(where: { calendar.date(from: calendar.dateComponents([.year, .month], from: $0.month))! <= month }) {
-                    latestByAccount[accounts[index].id] = point.balance
+        return intervals.compactMap { interval in
+            var hasKnownBalance = false
+            let total = accounts.reduce(Decimal(0)) { partial, account in
+                guard let balance = AccountBalanceResolver.balance(account: account, asOf: interval.end, context: context) else {
+                    return partial
                 }
+                hasKnownBalance = true
+                return partial + balance
             }
-            let total = latestByAccount.values.reduce(Decimal(0), +)
-            result.append(NetWorthPoint(month: month, balance: total))
+            return hasKnownBalance ? NetWorthPoint(month: interval.end, balance: total) : nil
         }
-        return result
     }
 
-    private func computeBalanceSeries(context: ModelContext, accountId: UUID) -> [NetWorthPoint] {
+    private func computeBalanceSeries(context: ModelContext, accountId: UUID, period: DashboardPeriodContext) -> [NetWorthPoint] {
         guard let account = fetchAccount(context: context, id: accountId) else { return [] }
-        return AccountBalanceResolver.balanceSeries(account: account, context: context)
+        let calendar = Calendar(identifier: .gregorian)
+        return period.intervals(calendar: calendar).compactMap { interval in
+            guard let balance = AccountBalanceResolver.balance(account: account, asOf: interval.end, context: context) else {
+                return nil
+            }
+            return NetWorthPoint(month: interval.end, balance: balance)
+        }
+    }
+
+    // MARK: - Period metadata
+
+    private func dashboardPeriodContext(context: ModelContext) -> DashboardPeriodContext {
+        DashboardPeriodResolver.context(
+            kind: periodKind,
+            requestedRange: dateRange,
+            dataRange: fetchFinancialDateSpan(context: context)
+        )
+    }
+
+    private func fetchFinancialDateSpan(context: ModelContext) -> DateRange? {
+        let now = Date.now
+        var dates: [Date] = []
+
+        let accounts = (try? context.fetch(FetchDescriptor<Account>())) ?? []
+        guard !accounts.isEmpty else { return nil }
+        let validIDs = Set(accounts.map(\.id))
+
+        let transactionDescriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.postedAt <= now && $0.deletedAt == nil }
+        )
+        let transactions = (try? context.fetch(transactionDescriptor)) ?? []
+        dates.append(contentsOf: transactions.filter { validIDs.contains($0.account?.id ?? UUID()) }.map(\.postedAt))
+
+        let statementDescriptor = FetchDescriptor<Statement>(
+            predicate: #Predicate<Statement> { $0.periodEnd <= now }
+        )
+        let statements = (try? context.fetch(statementDescriptor)) ?? []
+        dates.append(contentsOf: statements.filter { validIDs.contains($0.account?.id ?? UUID()) }.map(\.periodEnd))
+
+        let snapshotDescriptor = FetchDescriptor<AccountBalanceSnapshot>(
+            predicate: #Predicate<AccountBalanceSnapshot> { $0.date <= now }
+        )
+        let snapshots = (try? context.fetch(snapshotDescriptor)) ?? []
+        dates.append(contentsOf: snapshots.filter { validIDs.contains($0.account?.id ?? UUID()) }.map(\.date))
+
+        guard let start = dates.min(), let end = dates.max() else { return nil }
+        return DateRange(start: start, end: end)
     }
 
     // MARK: - Lookups

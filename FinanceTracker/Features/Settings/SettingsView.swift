@@ -618,9 +618,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "FinanceTracker now has a custom macOS app icon.",
-        "The new icon blends a finance card with category-chart segments.",
-        "Launchpad, Dock, and app switcher identity now feel more polished.",
+        "Dashboard cards and charts now stay in sync with Month, Quarter, Year, All, and Custom periods.",
+        "Net Worth is now shown as a point-in-time balance, with account breakdowns using the same as-of date.",
+        "Cash Flow and Charges vs Payments charts now render as compact grouped bars with steadier hover behavior.",
+        "Development builds now run separately as FinanceTracker Dev, keeping testing away from the production app.",
     ]
 
     private var lastBackupDate: String? {

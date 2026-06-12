@@ -8,14 +8,17 @@ struct AssetAccountDashboard: View {
     var onTransactionTap: ((Transaction) -> Void)? = nil
 
     @State private var breakdown: BreakdownRequest? = nil
-    @State private var cashFlowHover: Date? = nil
     @State private var balanceHover: Date? = nil
 
     var body: some View {
         VStack(spacing: 20) {
             summaryCards
             if !snapshot.monthlyCashFlow.isEmpty { cashFlowChart }
-            if !snapshot.balanceOverTime.isEmpty { balanceChart }
+            if snapshot.balanceOverTime.isEmpty {
+                insufficientBalanceCard
+            } else {
+                balanceChart
+            }
             if !snapshot.spendingByCategory.isEmpty { spendingDonut }
             if !snapshot.recentTransactions.isEmpty { recentList }
         }
@@ -41,61 +44,46 @@ struct AssetAccountDashboard: View {
 
     private var cashFlowChart: some View {
         ChartCard(title: "Cash Flow") {
-            Chart(snapshot.monthlyCashFlow) { entry in
-                BarMark(
-                    x: .value("Month", entry.month, unit: .month),
-                    y: .value("Income", entry.income)
-                )
-                .foregroundStyle(.green)
-                .opacity(cashFlowOpacity(for: entry.month))
-                BarMark(
-                    x: .value("Month", entry.month, unit: .month),
-                    y: .value("Expenses", abs(entry.expenses))
-                )
-                .foregroundStyle(.red)
-                .opacity(cashFlowOpacity(for: entry.month))
-            }
-            .frame(height: 200)
-            .chartBackground { _ in Color.clear }
-            .chartXSelection(value: $cashFlowHover)
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .month)) { _ in
-                    AxisGridLine()
-                    AxisValueLabel(format: .dateTime.month(.abbreviated))
-                }
-            }
-            .chartOverlay { proxy in
-                GeometryReader { geo in
-                    if let hover = cashFlowHover,
-                       let entry = snapshot.monthlyCashFlow.first(where: { Calendar.current.isDate($0.month, equalTo: hover, toGranularity: .month) }),
-                       let xPos = proxy.position(forX: entry.month) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
-                            Text("Income: \(MoneyFormat.string(code: snapshot.currencyCode,entry.income))").font(.caption2).foregroundStyle(.green)
-                            Text("Expenses: \(MoneyFormat.string(code: snapshot.currencyCode,abs(entry.expenses)))").font(.caption2).foregroundStyle(.red)
-                            Text("Net: \(MoneyFormat.string(code: snapshot.currencyCode,entry.savings))").font(.caption2).foregroundStyle(.secondary)
-                            if entry.income > 0 {
-                                Text("Savings Rate: \(cashFlowSavingsRateText(entry))").font(.caption2).foregroundStyle(entry.savings >= 0 ? .blue : .red)
-                            }
-                        }
-                        .padding(8)
-                        .frame(width: 210, alignment: .leading)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                        .position(x: dashboardTooltipX(xPos, in: geo), y: 30)
+            DashboardGroupedPeriodBarChart(
+                groups: cashFlowBarGroups,
+                firstSeriesName: "Income",
+                secondSeriesName: "Expenses",
+                firstColor: DashboardChartSeriesColor.income,
+                secondColor: DashboardChartSeriesColor.expense,
+                currencyCode: snapshot.currencyCode,
+                emptyMessage: "No cash flow activity for this period.",
+                footerText: { group in
+                    guard let entry = cashFlowEntry(for: group.bucketStart) else { return nil }
+                    var parts = ["Net: \(MoneyFormat.string(code: snapshot.currencyCode, entry.savings))"]
+                    if entry.income > 0 {
+                        parts.append("Savings Rate: \(cashFlowSavingsRateText(entry))")
                     }
+                    return parts.joined(separator: " · ")
+                },
+                onGroupTap: { group in
+                    breakdown = .cashFlowPeriod(start: group.bucketStart, bucket: snapshot.period.bucket, transactions: snapshot.recentTransactions)
                 }
-            }
-            .onTapGesture {
-                guard let hover = cashFlowHover,
-                      let entry = snapshot.monthlyCashFlow.first(where: { Calendar.current.isDate($0.month, equalTo: hover, toGranularity: .month) }) else { return }
-                breakdown = .cashFlowMonth(month: entry.month, transactions: snapshot.recentTransactions)
-            }
+            )
         }
     }
 
-    private func cashFlowOpacity(for month: Date) -> Double {
-        guard let hover = cashFlowHover else { return 1 }
-        return Calendar.current.isDate(month, equalTo: hover, toGranularity: .month) ? 1 : 0.28
+    private var cashFlowBarGroups: [DashboardPeriodBarGroup] {
+        DashboardPeriodBarGroupBuilder.groups(
+            period: snapshot.period,
+            buckets: snapshot.monthlyCashFlow.map { entry in
+                DashboardPeriodBucketDisplayValue(
+                    bucketStart: entry.month,
+                    firstMagnitude: entry.income,
+                    secondMagnitude: abs(entry.expenses)
+                )
+            }
+        )
+    }
+
+    private func cashFlowEntry(for selection: Date) -> MonthlyCashFlow? {
+        guard selection >= snapshot.period.dateRange.start && selection <= snapshot.period.dateRange.end else { return nil }
+        let bucketStart = snapshot.period.bucketStart(forSelection: selection)
+        return snapshot.monthlyCashFlow.first { $0.month == bucketStart }
     }
 
     private func cashFlowSavingsRateText(_ entry: MonthlyCashFlow) -> String {
@@ -108,43 +96,78 @@ struct AssetAccountDashboard: View {
         ChartCard(title: "Balance Over Time") {
             Chart(snapshot.balanceOverTime) { point in
                 LineMark(
-                    x: .value("Month", point.month, unit: .month),
+                    x: .value("Period", point.month, unit: snapshot.period.bucket.component),
                     y: .value("Balance", point.balance)
                 )
                 .foregroundStyle(.blue)
                 .interpolationMethod(.stepEnd)
                 AreaMark(
-                    x: .value("Month", point.month, unit: .month),
+                    x: .value("Period", point.month, unit: snapshot.period.bucket.component),
                     y: .value("Balance", point.balance)
                 )
                 .foregroundStyle(.blue.opacity(0.15))
                 .interpolationMethod(.stepEnd)
                 PointMark(
-                    x: .value("Month", point.month, unit: .month),
+                    x: .value("Period", point.month, unit: snapshot.period.bucket.component),
                     y: .value("Balance", point.balance)
                 )
                 .foregroundStyle(.blue)
                 .symbolSize(24)
             }
-            .frame(height: 200)
+            .frame(height: 220)
             .chartBackground { _ in Color.clear }
-            .chartXSelection(value: $balanceHover)
-            .chartOverlay { proxy in
-                GeometryReader { geo in
-                    if let hover = balanceHover,
-                       let point = snapshot.balanceOverTime.first(where: { Calendar.current.isDate($0.month, equalTo: hover, toGranularity: .month) }),
-                       let xPos = proxy.position(forX: point.month) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(point.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
-                            Text(MoneyFormat.string(code: snapshot.currencyCode,point.balance)).font(.caption2).foregroundStyle(.secondary)
+            .chartPlotStyle { plotArea in
+                plotArea
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 4)
+            }
+            .chartXScale(domain: snapshot.period.plotDomain)
+            .chartXAxis {
+                AxisMarks(values: snapshot.period.axisMarkValues()) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(dashboardAxisLabel(for: date, bucket: snapshot.period.bucket))
                         }
-                        .padding(8)
-                        .frame(width: 190, alignment: .leading)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                        .position(x: dashboardTooltipX(xPos, in: geo, width: 190), y: 24)
                     }
                 }
             }
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    ZStack {
+                        DashboardChartHoverOverlay(
+                            proxy: proxy,
+                            geometry: geo,
+                            period: snapshot.period,
+                            hoverBucketStart: $balanceHover
+                        )
+                        if let hover = balanceHover,
+                           let point = balancePoint(for: hover),
+                           let xPos = proxy.position(forX: point.month) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(dashboardBucketLabel(for: point.month, bucket: snapshot.period.bucket)).font(.caption.bold())
+                                Text(MoneyFormat.string(code: snapshot.currencyCode,point.balance)).font(.caption2).foregroundStyle(.secondary)
+                            }
+                            .padding(8)
+                            .frame(width: 190, alignment: .leading)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                            .position(x: dashboardTooltipX(xPos, in: geo, width: 190), y: 24)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func balancePoint(for selection: Date) -> NetWorthPoint? {
+        guard selection >= snapshot.period.dateRange.start && selection <= snapshot.period.dateRange.end else { return nil }
+        let bucketStart = snapshot.period.bucketStart(forSelection: selection)
+        return snapshot.balanceOverTime.first { snapshot.period.bucketStart(forSelection: $0.month) == bucketStart }
+    }
+
+    private var insufficientBalanceCard: some View {
+        ChartCard(title: "Balance Over Time") {
+            DashboardChartEmptyState(message: "Not enough balance history to calculate this account balance for the selected period.")
         }
     }
 

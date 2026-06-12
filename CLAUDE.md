@@ -79,7 +79,7 @@ Pasted txt → Detector  →  PastedHsbc2NowParser           →  [RawTransactio
 ### Dashboard architecture
 
 - `DashboardScope` selects what's rendered: `.consolidated` aggregates across every account; `.account(UUID)` zooms into one. Sidebar's Accounts section drives the scope.
-- `DashboardViewModel` produces a typed `DashboardSnapshot` (`.consolidated | .asset | .liability | .empty`) from (scope, dateRange).
+- `DashboardViewModel` produces a typed `DashboardSnapshot` (`.consolidated | .asset | .liability | .empty`) from one canonical `DashboardPeriodContext`.
 - Three view variants render the snapshot: `ConsolidatedDashboard`, `AssetAccountDashboard`, `LiabilityAccountDashboard`. They share chrome via `DashboardChrome.swift`.
 - `BreakdownSheet` drills into every aggregate (summary tiles, cash-flow bars, net-worth points, donut sectors) so the user can see which rows produced a number.
 
@@ -87,6 +87,10 @@ Aggregation invariants:
 - Transfers (`category?.kind == .transfer`) AND credit-card payments (`.creditCardPayment`) are excluded from income / expense / cash-flow totals.
 - Synthesized "original purchase" MSI rows (where `installmentPlan != nil` and `amount == plan.originalAmount`) are excluded from cash flow — the cash impact lives in the monthly cuotas.
 - Liability balances are stored signed-negative (`Statement.closingBalance < 0` for credit cards); consolidated net worth is a plain sum.
+- `dateRange` and `effectiveNetWorthDate` are financial semantics. `plotDomain`, grouped-bar content width, bucket-center positions, and hover state are rendering semantics only.
+- Net Worth is point-in-time, not period activity. The Net Worth card, final visible Net Worth chart point, and breakdown total must match the same effective date.
+- Cash Flow and Charges vs Payments are compact grouped period-comparison charts. `All` skips inactive buckets; bounded periods trim inactive edges and preserve internal zero buckets as subtle placeholders. Sparse charts must remain centered and compact at wide desktop widths.
+- Net Worth and Balance charts remain date-based line/area charts; do not convert them to grouped bars.
 
 ### Domain models (SwiftData `@Model`)
 

@@ -9,7 +9,6 @@ struct LiabilityAccountDashboard: View {
     var onEditPaymentDetails: (() -> Void)? = nil
 
     @State private var breakdown: BreakdownRequest? = nil
-    @State private var hover: Date? = nil
 
     var body: some View {
         VStack(spacing: 20) {
@@ -162,75 +161,59 @@ struct LiabilityAccountDashboard: View {
 
     private var chargesVsPaymentsChart: some View {
         ChartCard(title: "Charges vs Payments") {
-            Chart(snapshot.chargesVsPayments) { entry in
-                BarMark(
-                    x: .value("Month", entry.month, unit: .month),
-                    y: .value("Charges", entry.charges)
-                )
-                .foregroundStyle(.red)
-                .opacity(chargesPaymentsOpacity(for: entry.month))
-                BarMark(
-                    x: .value("Month", entry.month, unit: .month),
-                    y: .value("Payments", entry.payments)
-                )
-                .foregroundStyle(.green)
-                .opacity(chargesPaymentsOpacity(for: entry.month))
-            }
-            .frame(height: 200)
-            .chartBackground { _ in Color.clear }
-            .chartXSelection(value: $hover)
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .month)) { _ in
-                    AxisGridLine()
-                    AxisValueLabel(format: .dateTime.month(.abbreviated))
+            DashboardGroupedPeriodBarChart(
+                groups: chargesPaymentsBarGroups,
+                firstSeriesName: "Charges",
+                secondSeriesName: "Payments & Credits",
+                firstColor: DashboardChartSeriesColor.expense,
+                secondColor: DashboardChartSeriesColor.income,
+                currencyCode: snapshot.currencyCode,
+                emptyMessage: "No charges or payments for this period.",
+                footerText: { group in
+                    guard let entry = chargesPaymentsEntry(for: group.bucketStart) else { return nil }
+                    return "Net Debt Change: \(MoneyFormat.string(code: snapshot.currencyCode, entry.payments - entry.charges))"
                 }
-            }
-            .chartOverlay { proxy in
-                GeometryReader { geo in
-                    if let h = hover,
-                       let entry = snapshot.chargesVsPayments.first(where: { Calendar.current.isDate($0.month, equalTo: h, toGranularity: .month) }),
-                       let xPos = proxy.position(forX: entry.month) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.month, format: .dateTime.month(.wide).year()).font(.caption.bold())
-                            Text("Charges: \(MoneyFormat.string(code: snapshot.currencyCode,entry.charges))").font(.caption2).foregroundStyle(.red)
-                            Text("Payments & Credits: \(MoneyFormat.string(code: snapshot.currencyCode,entry.payments))").font(.caption2).foregroundStyle(.green)
-                            Text("Net Debt Change: \(MoneyFormat.string(code: snapshot.currencyCode,entry.payments - entry.charges))")
-                                .font(.caption2)
-                                .foregroundStyle(entry.payments >= entry.charges ? .green : .red)
-                        }
-                        .padding(8)
-                        .frame(width: 230, alignment: .leading)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                        .position(x: dashboardTooltipX(xPos, in: geo, width: 230), y: 30)
-                    }
-                }
-            }
+            )
 
             HStack(spacing: 16) {
                 HStack(spacing: 4) {
-                    RoundedRectangle(cornerRadius: 2).fill(.red).frame(width: 10, height: 10)
+                    RoundedRectangle(cornerRadius: 2).fill(DashboardChartSeriesColor.expense).frame(width: 10, height: 10)
                     Text("Charges").font(.caption2).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 4) {
-                    RoundedRectangle(cornerRadius: 2).fill(.green).frame(width: 10, height: 10)
+                    RoundedRectangle(cornerRadius: 2).fill(DashboardChartSeriesColor.income).frame(width: 10, height: 10)
                     Text("Payments & Credits").font(.caption2).foregroundStyle(.secondary)
                 }
             }
 
             HStack {
                 Label(MoneyFormat.string(code: snapshot.currencyCode,snapshot.totalCharges), systemImage: "arrow.up.right")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(DashboardChartSeriesColor.expense)
                 Spacer()
                 Label(MoneyFormat.string(code: snapshot.currencyCode,snapshot.totalPayments), systemImage: "arrow.down.left")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(DashboardChartSeriesColor.income)
             }
             .font(.caption.monospacedDigit())
         }
     }
 
-    private func chargesPaymentsOpacity(for month: Date) -> Double {
-        guard let hover else { return 1 }
-        return Calendar.current.isDate(month, equalTo: hover, toGranularity: .month) ? 1 : 0.28
+    private var chargesPaymentsBarGroups: [DashboardPeriodBarGroup] {
+        DashboardPeriodBarGroupBuilder.groups(
+            period: snapshot.period,
+            buckets: snapshot.chargesVsPayments.map { entry in
+                DashboardPeriodBucketDisplayValue(
+                    bucketStart: entry.month,
+                    firstMagnitude: entry.charges,
+                    secondMagnitude: entry.payments
+                )
+            }
+        )
+    }
+
+    private func chargesPaymentsEntry(for selection: Date) -> MonthlyChargesPayments? {
+        guard selection >= snapshot.period.dateRange.start && selection <= snapshot.period.dateRange.end else { return nil }
+        let bucketStart = snapshot.period.bucketStart(forSelection: selection)
+        return snapshot.chargesVsPayments.first { $0.month == bucketStart }
     }
 
     // MARK: - Installments

@@ -6,6 +6,11 @@ import Charts
 // summary tiles, transaction rows, and the category color palette live
 // here so the three dashboards don't drift from each other.
 
+enum DashboardChartSeriesColor {
+    static let income = Color(red: 0.10, green: 0.70, blue: 0.34)
+    static let expense = Color(red: 0.94, green: 0.20, blue: 0.23)
+}
+
 enum MoneyFormat {
     /// Render a Decimal in the given currency code. Always emits monospaced
     /// digits via the formatter; callers should still apply `.monospacedDigit()`
@@ -41,6 +46,519 @@ func dashboardTooltipX(_ x: CGFloat, in geo: GeometryProxy, width: CGFloat = 210
     let lowerBound = halfWidth + margin
     let upperBound = max(lowerBound, geo.size.width - halfWidth - margin)
     return min(max(x, lowerBound), upperBound)
+}
+
+func dashboardAxisLabel(for date: Date, bucket: DashboardBucket) -> String {
+    switch bucket {
+    case .day:
+        return date.formatted(.dateTime.day().month(.abbreviated))
+    case .week:
+        let week = Calendar(identifier: .gregorian).component(.weekOfYear, from: date)
+        return "W\(week)"
+    case .month:
+        return date.formatted(.dateTime.month(.abbreviated))
+    case .year:
+        return date.formatted(.dateTime.year())
+    }
+}
+
+func dashboardBucketLabel(for date: Date, bucket: DashboardBucket) -> String {
+    switch bucket {
+    case .day:
+        return date.formatted(.dateTime.weekday(.abbreviated).day().month(.wide).year())
+    case .week:
+        return "Week of \(date.formatted(.dateTime.day().month(.wide).year()))"
+    case .month:
+        return date.formatted(.dateTime.month(.wide).year())
+    case .year:
+        return date.formatted(.dateTime.year())
+    }
+}
+
+struct DashboardChartHoverOverlay: View {
+    let proxy: ChartProxy
+    let geometry: GeometryProxy
+    let period: DashboardPeriodContext
+    @Binding var hoverBucketStart: Date?
+
+    var body: some View {
+        Rectangle()
+            .fill(.clear)
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    updateHover(at: location)
+                case .ended:
+                    if hoverBucketStart != nil {
+                        hoverBucketStart = nil
+                    }
+                }
+            }
+    }
+
+    private func updateHover(at location: CGPoint) {
+        guard let plotFrame = proxy.plotFrame else {
+            if hoverBucketStart != nil { hoverBucketStart = nil }
+            return
+        }
+
+        let plotRect = geometry[plotFrame]
+        guard plotRect.contains(location) else {
+            if hoverBucketStart != nil { hoverBucketStart = nil }
+            return
+        }
+
+        let x = location.x - plotRect.origin.x
+        guard let date = proxy.value(atX: x, as: Date.self) else {
+            if hoverBucketStart != nil { hoverBucketStart = nil }
+            return
+        }
+
+        let bucketStart = period.bucketStart(forSelection: date)
+        guard period.interval(forBucketStart: bucketStart) != nil else {
+            if hoverBucketStart != nil { hoverBucketStart = nil }
+            return
+        }
+
+        if hoverBucketStart != bucketStart {
+            hoverBucketStart = bucketStart
+        }
+    }
+}
+
+struct DashboardChartEmptyState: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 160)
+    }
+}
+
+struct DashboardPeriodBucketDisplayValue: Equatable {
+    let bucketStart: Date
+    let firstMagnitude: Decimal
+    let secondMagnitude: Decimal
+}
+
+struct DashboardPeriodBarGroup: Identifiable, Equatable {
+    let id: Date
+    let bucketStart: Date
+    let label: String
+    let order: Int
+    let firstMagnitude: Decimal
+    let secondMagnitude: Decimal
+    let isPlaceholder: Bool
+
+    var maxMagnitude: Decimal {
+        firstMagnitude >= secondMagnitude ? firstMagnitude : secondMagnitude
+    }
+}
+
+enum DashboardPeriodBarGroupBuilder {
+    static func groups(
+        period: DashboardPeriodContext,
+        buckets: [DashboardPeriodBucketDisplayValue],
+        calendar: Calendar = Calendar(identifier: .gregorian)
+    ) -> [DashboardPeriodBarGroup] {
+        let sorted = buckets.sorted { $0.bucketStart < $1.bucketStart }
+        let activeIndexes = sorted.indices.filter { index in
+            sorted[index].firstMagnitude != 0 || sorted[index].secondMagnitude != 0
+        }
+        guard let firstActive = activeIndexes.first,
+              let lastActive = activeIndexes.last else {
+            return []
+        }
+
+        let visibleBuckets: [DashboardPeriodBucketDisplayValue]
+        if period.kind == .all {
+            visibleBuckets = activeIndexes.map { sorted[$0] }
+        } else {
+            visibleBuckets = Array(sorted[firstActive...lastActive])
+        }
+
+        return visibleBuckets.enumerated().map { offset, bucket in
+            let isPlaceholder = bucket.firstMagnitude == 0 && bucket.secondMagnitude == 0
+            return DashboardPeriodBarGroup(
+                id: bucket.bucketStart,
+                bucketStart: bucket.bucketStart,
+                label: dashboardAxisLabel(for: bucket.bucketStart, bucket: period.bucket),
+                order: offset,
+                firstMagnitude: bucket.firstMagnitude,
+                secondMagnitude: bucket.secondMagnitude,
+                isPlaceholder: isPlaceholder
+            )
+        }
+    }
+}
+
+struct DashboardGroupedPeriodBarChart: View {
+    let groups: [DashboardPeriodBarGroup]
+    let firstSeriesName: String
+    let secondSeriesName: String
+    let firstColor: Color
+    let secondColor: Color
+    let currencyCode: String
+    let emptyMessage: String
+    var showsFirstSeries: Bool = true
+    var showsSecondSeries: Bool = true
+    var footerText: ((DashboardPeriodBarGroup) -> String?)? = nil
+    var onGroupTap: ((DashboardPeriodBarGroup) -> Void)? = nil
+
+    @State private var hoverGroupID: Date? = nil
+
+    var body: some View {
+        if groups.isEmpty || (!showsFirstSeries && !showsSecondSeries) {
+            DashboardChartEmptyState(message: groups.isEmpty ? emptyMessage : "No series selected.")
+                .frame(height: 220)
+        } else {
+            GeometryReader { geo in
+                let layout = DashboardGroupedBarLayout(
+                    groupCount: groups.count,
+                    availableWidth: max(1, geo.size.width - 62),
+                    showsFirstSeries: showsFirstSeries,
+                    showsSecondSeries: showsSecondSeries
+                )
+                let chartHeight = max(130, geo.size.height - 38)
+                let plotTop: CGFloat = 16
+                let plotBottom: CGFloat = 24
+                let plotHeight = max(80, chartHeight - plotTop - plotBottom)
+                let maxValue = maxRenderedValue
+                let gridValues = DashboardGroupedBarLayout.gridValues(maxValue: maxValue)
+                let plotWidth = max(1, geo.size.width - 62)
+                let contentLeft = max(0, (plotWidth - layout.contentWidth) / 2)
+
+                ZStack(alignment: .topLeading) {
+                    chartGrid(
+                        gridValues: gridValues,
+                        maxValue: maxValue,
+                        plotTop: plotTop,
+                        plotHeight: plotHeight,
+                        chartWidth: geo.size.width
+                    )
+
+                    HStack(alignment: .bottom, spacing: layout.groupSpacing) {
+                        ForEach(groups) { group in
+                            groupView(group: group, layout: layout, maxValue: maxValue, plotHeight: plotHeight)
+                                .frame(width: layout.groupWidth, height: plotHeight, alignment: .bottom)
+                        }
+                    }
+                    .frame(width: layout.contentWidth, height: plotHeight, alignment: .bottom)
+                    .offset(x: contentLeft, y: plotTop)
+
+                    HStack(alignment: .top, spacing: layout.groupSpacing) {
+                        ForEach(groups) { group in
+                            Text(group.label)
+                                .font(.caption2)
+                                .foregroundStyle(group.isPlaceholder ? .tertiary : .secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                                .frame(width: layout.groupWidth)
+                        }
+                    }
+                    .frame(width: layout.contentWidth)
+                    .offset(x: contentLeft, y: plotTop + plotHeight + 7)
+
+                    hoverLayer(layout: layout, contentLeft: contentLeft, plotTop: plotTop, plotHeight: plotHeight, geo: geo)
+                }
+            }
+            .frame(height: 220)
+        }
+    }
+
+    private var maxRenderedValue: Double {
+        let values = groups.flatMap { group -> [Double] in
+            [
+                showsFirstSeries ? group.firstMagnitude.dashboardDoubleMagnitude : 0,
+                showsSecondSeries ? group.secondMagnitude.dashboardDoubleMagnitude : 0
+            ]
+        }
+        return max(values.max() ?? 0, 1)
+    }
+
+    private func groupView(
+        group: DashboardPeriodBarGroup,
+        layout: DashboardGroupedBarLayout,
+        maxValue: Double,
+        plotHeight: CGFloat
+    ) -> some View {
+        let isHovered = hoverGroupID == group.id
+        return ZStack(alignment: .bottom) {
+            if group.isPlaceholder {
+                Capsule()
+                    .fill(.secondary.opacity(0.22))
+                    .frame(width: max(16, layout.groupWidth * 0.46), height: 2)
+                    .padding(.bottom, 1)
+            } else {
+                HStack(alignment: .bottom, spacing: layout.intraGroupSpacing) {
+                    if showsFirstSeries {
+                        bar(
+                            value: group.firstMagnitude.dashboardDoubleMagnitude,
+                            maxValue: maxValue,
+                            plotHeight: plotHeight,
+                            width: layout.barWidth,
+                            color: firstColor,
+                            isHovered: isHovered
+                        )
+                    }
+                    if showsSecondSeries {
+                        bar(
+                            value: group.secondMagnitude.dashboardDoubleMagnitude,
+                            maxValue: maxValue,
+                            plotHeight: plotHeight,
+                            width: layout.barWidth,
+                            color: secondColor,
+                            isHovered: isHovered
+                        )
+                    }
+                }
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func bar(
+        value: Double,
+        maxValue: Double,
+        plotHeight: CGFloat,
+        width: CGFloat,
+        color: Color,
+        isHovered: Bool
+    ) -> some View {
+        let height = max(2, CGFloat(max(0, value) / maxValue) * plotHeight)
+        return RoundedRectangle(cornerRadius: min(6, width / 2), style: .continuous)
+            .fill(color.opacity(isHovered || hoverGroupID == nil ? 1 : 0.42))
+            .frame(width: width, height: height)
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: min(6, width / 2), style: .continuous)
+                    .stroke(.white.opacity(isHovered ? 0.34 : 0), lineWidth: 1)
+            }
+    }
+
+    private func chartGrid(
+        gridValues: [Double],
+        maxValue: Double,
+        plotTop: CGFloat,
+        plotHeight: CGFloat,
+        chartWidth: CGFloat
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(gridValues, id: \.self) { value in
+                let y = plotTop + plotHeight - (CGFloat(value / maxValue) * plotHeight)
+                Rectangle()
+                    .fill(.secondary.opacity(value == 0 ? 0.16 : 0.11))
+                    .frame(width: max(1, chartWidth - 58), height: 1)
+                    .offset(x: 0, y: y)
+                Text(dashboardCompactAmount(value, code: currencyCode))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 54, alignment: .trailing)
+                    .offset(x: chartWidth - 54, y: max(0, y - 8))
+            }
+        }
+    }
+
+    private func hoverLayer(
+        layout: DashboardGroupedBarLayout,
+        contentLeft: CGFloat,
+        plotTop: CGFloat,
+        plotHeight: CGFloat,
+        geo: GeometryProxy
+    ) -> some View {
+        Rectangle()
+            .fill(.clear)
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    updateHover(location: location, layout: layout, contentLeft: contentLeft, plotTop: plotTop, plotHeight: plotHeight)
+                case .ended:
+                    hoverGroupID = nil
+                }
+            }
+            .onTapGesture {
+                guard let hoverGroupID,
+                      let group = groups.first(where: { $0.id == hoverGroupID }) else { return }
+                onGroupTap?(group)
+            }
+            .overlay(alignment: .topLeading) {
+                if let hoverGroupID,
+                   let group = groups.first(where: { $0.id == hoverGroupID }) {
+                    tooltip(for: group)
+                        .position(
+                            x: dashboardTooltipX(groupCenterX(group: group, layout: layout, contentLeft: contentLeft), in: geo, width: 230),
+                            y: 26
+                        )
+                }
+            }
+    }
+
+    private func updateHover(
+        location: CGPoint,
+        layout: DashboardGroupedBarLayout,
+        contentLeft: CGFloat,
+        plotTop: CGFloat,
+        plotHeight: CGFloat
+    ) {
+        guard location.y >= plotTop,
+              location.y <= plotTop + plotHeight + 28,
+              location.x >= contentLeft,
+              location.x <= contentLeft + layout.contentWidth else {
+            if hoverGroupID != nil { hoverGroupID = nil }
+            return
+        }
+
+        let relativeX = location.x - contentLeft
+        let step = layout.groupWidth + layout.groupSpacing
+        let estimatedIndex = Int((relativeX / step).rounded(.down))
+        let candidateIndexes = [estimatedIndex - 1, estimatedIndex, estimatedIndex + 1]
+            .filter { groups.indices.contains($0) }
+        guard let nearest = candidateIndexes.min(by: {
+            abs(groupCenterX(index: $0, layout: layout) - relativeX) < abs(groupCenterX(index: $1, layout: layout) - relativeX)
+        }) else {
+            if hoverGroupID != nil { hoverGroupID = nil }
+            return
+        }
+
+        let group = groups[nearest]
+        if hoverGroupID != group.id {
+            hoverGroupID = group.id
+        }
+    }
+
+    private func groupCenterX(group: DashboardPeriodBarGroup, layout: DashboardGroupedBarLayout, contentLeft: CGFloat) -> CGFloat {
+        guard let index = groups.firstIndex(where: { $0.id == group.id }) else { return contentLeft }
+        return contentLeft + groupCenterX(index: index, layout: layout)
+    }
+
+    private func groupCenterX(index: Int, layout: DashboardGroupedBarLayout) -> CGFloat {
+        CGFloat(index) * (layout.groupWidth + layout.groupSpacing) + (layout.groupWidth / 2)
+    }
+
+    private func tooltip(for group: DashboardPeriodBarGroup) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(group.label)
+                .font(.caption.bold())
+            Text("\(firstSeriesName): \(MoneyFormat.string(code: currencyCode, group.firstMagnitude))")
+                .font(.caption2)
+                .foregroundStyle(firstColor)
+            Text("\(secondSeriesName): \(MoneyFormat.string(code: currencyCode, group.secondMagnitude))")
+                .font(.caption2)
+                .foregroundStyle(secondColor)
+            if let footer = footerText?(group) {
+                Text(footer)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(8)
+        .frame(width: 230, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+}
+
+struct DashboardGroupedBarLayout {
+    let groupCount: Int
+    let availableWidth: CGFloat
+    let showsFirstSeries: Bool
+    let showsSecondSeries: Bool
+
+    var visibleSeriesCount: Int {
+        [showsFirstSeries, showsSecondSeries].filter { $0 }.count
+    }
+
+    var maxContentWidth: CGFloat {
+        switch groupCount {
+        case 0...3: return min(availableWidth, 320)
+        case 4...6: return min(availableWidth, 520)
+        case 7...12: return min(availableWidth, 760)
+        default: return availableWidth
+        }
+    }
+
+    var intraGroupSpacing: CGFloat {
+        groupCount > 18 ? 6 : 8
+    }
+
+    var groupSpacing: CGFloat {
+        let preferred: CGFloat
+        switch groupCount {
+        case 0...3: preferred = 28
+        case 4...6: preferred = 24
+        case 7...12: preferred = 20
+        default: preferred = 12
+        }
+        let preferredWidth = idealContentWidth(barWidth: preferredBarWidth, spacing: preferred)
+        guard preferredWidth > maxContentWidth, groupCount > 1 else { return preferred }
+        let groupTotal = CGFloat(groupCount) * groupWidth(for: preferredBarWidth)
+        return max(8, min(preferred, (maxContentWidth - groupTotal) / CGFloat(groupCount - 1)))
+    }
+
+    var preferredBarWidth: CGFloat {
+        switch groupCount {
+        case 0...3: return 28
+        case 4...6: return 24
+        case 7...12: return 20
+        case 13...24: return 14
+        default: return 8
+        }
+    }
+
+    var barWidth: CGFloat {
+        let preferred = preferredBarWidth
+        let preferredWidth = idealContentWidth(barWidth: preferred, spacing: groupSpacing)
+        guard preferredWidth > maxContentWidth else { return preferred }
+        let spacingTotal = CGFloat(max(0, groupCount - 1)) * groupSpacing
+        let availablePerGroup = max(4, (maxContentWidth - spacingTotal) / CGFloat(max(groupCount, 1)))
+        if visibleSeriesCount <= 1 {
+            return max(4, min(preferred, availablePerGroup))
+        }
+        return max(4, min(preferred, (availablePerGroup - intraGroupSpacing) / 2))
+    }
+
+    var groupWidth: CGFloat {
+        groupWidth(for: barWidth)
+    }
+
+    var contentWidth: CGFloat {
+        idealContentWidth(barWidth: barWidth, spacing: groupSpacing)
+    }
+
+    private func groupWidth(for barWidth: CGFloat) -> CGFloat {
+        if visibleSeriesCount <= 1 { return barWidth }
+        return barWidth * 2 + intraGroupSpacing
+    }
+
+    private func idealContentWidth(barWidth: CGFloat, spacing: CGFloat) -> CGFloat {
+        guard groupCount > 0 else { return 0 }
+        return CGFloat(groupCount) * groupWidth(for: barWidth) + CGFloat(groupCount - 1) * spacing
+    }
+
+    static func gridValues(maxValue: Double) -> [Double] {
+        guard maxValue > 0 else { return [0] }
+        return [maxValue, maxValue * 0.5, 0]
+    }
+}
+
+private extension Decimal {
+    var dashboardDoubleMagnitude: Double {
+        max(0, (self as NSDecimalNumber).doubleValue)
+    }
+}
+
+private func dashboardCompactAmount(_ value: Double, code: String) -> String {
+    let symbol = code == "MXN" || code == "USD" ? "$" : "\(code) "
+    let absolute = abs(value)
+    if absolute >= 1_000_000 {
+        return "\(symbol)\(String(format: "%.1fM", value / 1_000_000))"
+    }
+    if absolute >= 1_000 {
+        return "\(symbol)\(String(format: "%.0fK", value / 1_000))"
+    }
+    return "\(symbol)\(String(format: "%.0f", value))"
 }
 
 /// Hero summary tile used on every dashboard. Pickable for drill-down.

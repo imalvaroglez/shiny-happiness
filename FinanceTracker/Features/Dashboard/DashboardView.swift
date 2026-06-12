@@ -5,7 +5,7 @@ import Charts
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = DashboardViewModel()
-    @State private var selectedRange: TimeRange = .all
+    @State private var selectedRange: DashboardPeriodKind = .all
     @State private var customStart = Date().addingTimeInterval(-90 * 86400)
     @State private var customEnd = Date()
     @State private var showingCustomRange = false
@@ -18,32 +18,6 @@ struct DashboardView: View {
     @State private var dataResetGeneration = 0
 
     @Query(sort: \Account.nickname) private var accounts: [Account]
-
-    enum TimeRange: String, CaseIterable {
-        case month = "Month"
-        case quarter = "Quarter"
-        case year = "Year"
-        case all = "All"
-        case custom = "Custom"
-
-        var dateRange: DateRange {
-            let now = Date()
-            let calendar = Calendar(identifier: .gregorian)
-            switch self {
-            case .month:
-                return .month(now)
-            case .quarter:
-                let start = calendar.date(byAdding: .month, value: -3, to: now)!
-                return DateRange(start: start, end: now)
-            case .year:
-                return .year(now)
-            case .all:
-                return DateRange(start: .distantPast, end: now)
-            case .custom:
-                return DateRange(start: .distantPast, end: now)
-            }
-        }
-    }
 
     enum SidebarSelection: Hashable {
         case overview
@@ -81,6 +55,7 @@ struct DashboardView: View {
             let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
             guard outcome != .hardResetRequested else { return }
             SeedDataLoader.bootstrapIfNeeded(context: modelContext)
+            viewModel.setPeriod(selectedRange)
             viewModel.configure(context: modelContext)
             await BackupScheduler.runIfNeeded(context: modelContext)
         }
@@ -100,7 +75,7 @@ struct DashboardView: View {
             if selectedRange == .custom {
                 showingCustomRange = true
             } else {
-                viewModel.dateRange = selectedRange.dateRange
+                viewModel.setPeriod(selectedRange)
                 viewModel.refresh()
             }
         }
@@ -368,7 +343,7 @@ struct DashboardView: View {
 
     private var timeRangePicker: some View {
         Picker("Period", selection: $selectedRange) {
-            ForEach(TimeRange.allCases, id: \.self) { range in
+            ForEach(DashboardPeriodKind.allCases, id: \.self) { range in
                 Text(range.rawValue).tag(range)
             }
         }
@@ -387,7 +362,7 @@ struct DashboardView: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 Button("Apply") {
-                    viewModel.dateRange = DateRange(start: customStart, end: customEnd)
+                    viewModel.setPeriod(.custom, customRange: DateRange(start: customStart, end: customEnd))
                     viewModel.refresh()
                     showingCustomRange = false
                 }
@@ -469,4 +444,210 @@ private struct AccountSidebarRow: View {
 
 #Preview {
     DashboardView()
+}
+
+#Preview("Overview Month Current") {
+    DashboardPreviewFixtures.preview(kind: .month, now: DashboardPreviewFixtures.date(2026, 6, 11))
+}
+
+#Preview("Overview Quarter Current") {
+    DashboardPreviewFixtures.preview(kind: .quarter, now: DashboardPreviewFixtures.date(2026, 6, 11))
+}
+
+#Preview("Overview Custom May") {
+    DashboardPreviewFixtures.preview(
+        kind: .custom,
+        now: DashboardPreviewFixtures.date(2026, 6, 11),
+        customRange: DateRange(
+            start: DashboardPreviewFixtures.date(2026, 5, 1),
+            end: DashboardPreviewFixtures.date(2026, 5, 31)
+        )
+    )
+}
+
+#Preview("Overview Year Current") {
+    DashboardPreviewFixtures.preview(kind: .year, now: DashboardPreviewFixtures.date(2026, 6, 11))
+}
+
+#Preview("Overview All") {
+    DashboardPreviewFixtures.preview(kind: .all, now: DashboardPreviewFixtures.date(2026, 6, 11))
+}
+
+#Preview("Overview All Sparse Cash Flow") {
+    DashboardPreviewFixtures.sparseAllPreview()
+}
+
+#Preview("Overview Year 12 Months") {
+    DashboardPreviewFixtures.preview(kind: .year, now: DashboardPreviewFixtures.date(2026, 12, 31))
+}
+
+#Preview("Overview Empty Cash Flow") {
+    DashboardPreviewFixtures.emptyCashFlowPreview()
+}
+
+#Preview("Liability Sparse Charges vs Payments") {
+    DashboardPreviewFixtures.liabilitySparsePreview()
+}
+
+@MainActor
+private enum DashboardPreviewFixtures {
+    static func preview(kind: DashboardPeriodKind, now: Date, customRange: DateRange? = nil) -> some View {
+        overview(snapshot(kind: kind, now: now, customRange: customRange))
+    }
+
+    static func sparseAllPreview() -> some View {
+        let now = date(2026, 6, 11)
+        let requested = DashboardPeriodKind.all.resolvedRange(now: now)
+        let period = DashboardPeriodResolver.context(
+            kind: .all,
+            requestedRange: requested,
+            dataRange: DateRange(start: date(2026, 1, 1), end: now),
+            now: now
+        )
+        let cashFlow = [
+            MonthlyCashFlow(month: date(2026, 1, 1), income: 0, expenses: 0),
+            MonthlyCashFlow(month: date(2026, 2, 1), income: 0, expenses: 0),
+            MonthlyCashFlow(month: date(2026, 3, 1), income: 0, expenses: 0),
+            MonthlyCashFlow(month: date(2026, 4, 1), income: 114_872, expenses: -34_576),
+            MonthlyCashFlow(month: date(2026, 5, 1), income: 18_200, expenses: -12_400),
+            MonthlyCashFlow(month: date(2026, 6, 1), income: 903, expenses: -12_650)
+        ]
+        return overview(snapshot(period: period, cashFlow: cashFlow))
+    }
+
+    static func emptyCashFlowPreview() -> some View {
+        let now = date(2026, 6, 11)
+        let requested = DashboardPeriodKind.month.resolvedRange(now: now)
+        let period = DashboardPeriodResolver.context(kind: .month, requestedRange: requested, dataRange: nil, now: now)
+        let cashFlow = period.intervals().map {
+            MonthlyCashFlow(month: $0.bucketStart, income: 0, expenses: 0)
+        }
+        return overview(snapshot(period: period, cashFlow: cashFlow))
+    }
+
+    static func liabilitySparsePreview() -> some View {
+        let now = date(2026, 6, 11)
+        let period = DashboardPeriodResolver.context(
+            kind: .all,
+            requestedRange: DashboardPeriodKind.all.resolvedRange(now: now),
+            dataRange: DateRange(start: date(2026, 1, 1), end: now),
+            now: now
+        )
+        let chargesPayments = [
+            MonthlyChargesPayments(month: date(2026, 1, 1), charges: 0, payments: 0),
+            MonthlyChargesPayments(month: date(2026, 2, 1), charges: 0, payments: 0),
+            MonthlyChargesPayments(month: date(2026, 3, 1), charges: 0, payments: 0),
+            MonthlyChargesPayments(month: date(2026, 4, 1), charges: 34_575, payments: 6_200),
+            MonthlyChargesPayments(month: date(2026, 5, 1), charges: 12_400, payments: 18_000),
+            MonthlyChargesPayments(month: date(2026, 6, 1), charges: 12_650, payments: 900)
+        ]
+        let snapshot = LiabilityAccountSnapshot(
+            period: period,
+            account: DashboardAccountIdentity(
+                id: UUID(),
+                displayName: "Preview Credit Card",
+                institution: "Preview Bank",
+                type: .creditCard,
+                currency: "MXN",
+                tintHex: nil,
+                creditLimit: 80_000
+            ),
+            currentBalance: -24_000,
+            creditLimit: 80_000,
+            utilizationPercent: 0.3,
+            paymentStatement: nil,
+            chargesVsPayments: chargesPayments,
+            spendingByCategory: [],
+            totalCharges: chargesPayments.reduce(Decimal.zero) { $0 + $1.charges },
+            totalPayments: chargesPayments.reduce(Decimal.zero) { $0 + $1.payments },
+            interestCharged: 0,
+            feesCharged: 0,
+            activeInstallmentPlans: [],
+            sourceStatements: [],
+            recentTransactions: [],
+            totalTransactions: chargesPayments.count
+        )
+
+        return ScrollView {
+            LiabilityAccountDashboard(snapshot: snapshot)
+                .padding()
+        }
+        .frame(width: 1_100, height: 820)
+        .background(AppBackdrop())
+    }
+
+    private static func overview(_ snapshot: ConsolidatedSnapshot) -> some View {
+        ScrollView {
+            ConsolidatedDashboard(snapshot: snapshot)
+                .padding()
+        }
+        .frame(width: 1_100, height: 820)
+        .background(AppBackdrop())
+    }
+
+    static func snapshot(kind: DashboardPeriodKind, now: Date, customRange: DateRange?) -> ConsolidatedSnapshot {
+        let requested = kind.resolvedRange(now: now, customRange: customRange)
+        let dataRange = DateRange(start: date(2026, 1, 1), end: now)
+        let period = DashboardPeriodResolver.context(kind: kind, requestedRange: requested, dataRange: dataRange, now: now)
+        let intervals = period.intervals()
+        let cashFlow = intervals.enumerated().map { index, interval in
+            MonthlyCashFlow(
+                month: interval.bucketStart,
+                income: index.isMultiple(of: 3) ? Decimal(18_000 + index * 350) : Decimal(index.isMultiple(of: 2) ? 1_200 : 0),
+                expenses: -Decimal(3_000 + (index % 5) * 900)
+            )
+        }
+        let netWorth = intervals.enumerated().map { index, interval in
+            NetWorthPoint(month: interval.end, balance: Decimal(280_000 + index * 4_250 - (index % 4) * 1_500))
+        }
+        return snapshot(period: period, cashFlow: cashFlow, netWorth: netWorth)
+    }
+
+    private static func snapshot(
+        period: DashboardPeriodContext,
+        cashFlow: [MonthlyCashFlow],
+        netWorth: [NetWorthPoint]? = nil
+    ) -> ConsolidatedSnapshot {
+        let resolvedNetWorth = netWorth ?? period.intervals().enumerated().map { index, interval in
+            NetWorthPoint(month: interval.end, balance: Decimal(280_000 + index * 4_250 - (index % 4) * 1_500))
+        }
+        let finalNetWorth = resolvedNetWorth.last?.balance ?? 0
+        return ConsolidatedSnapshot(
+            period: period,
+            netWorth: finalNetWorth,
+            netWorthOverTime: resolvedNetWorth,
+            monthlyCashFlow: cashFlow,
+            spendingByCategory: [],
+            totalIncome: cashFlow.reduce(Decimal.zero) { $0 + $1.income },
+            totalExpenses: cashFlow.reduce(Decimal.zero) { $0 + $1.expenses },
+            totalInterestEarned: 420,
+            totalInterestCharged: 0,
+            recentTransactions: [],
+            accountSummaries: [
+                AccountSummary(
+                    id: UUID(),
+                    displayName: "Preview Checking",
+                    institution: "Preview Bank",
+                    type: .checking,
+                    currency: "MXN",
+                    latestBalance: finalNetWorth,
+                    balanceAsOf: period.effectiveNetWorthDate,
+                    balanceSourceKind: .reconstructedBalance,
+                    balanceSourceDate: date(2026, 1, 1),
+                    creditLimit: nil,
+                    utilizationPercent: nil
+                )
+            ],
+            totalTransactions: cashFlow.count
+        )
+    }
+
+    static func date(_ year: Int, _ month: Int, _ day: Int) -> Date {
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.timeZone = TimeZone(identifier: "America/Mexico_City")
+        return Calendar(identifier: .gregorian).date(from: components)!
+    }
 }
