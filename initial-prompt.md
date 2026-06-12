@@ -253,3 +253,47 @@ Each parser ships with:
 - Surface architectural decisions as comments in a `DECISIONS.md`.
 - Use `os.log` with subsystem/category for all logging — no print().
 - All ViewModels must be `@MainActor`. All heavy work on background actors.
+
+## 15. Bootstrap Category Repair
+
+`SeedDataLoader.bootstrapIfNeeded` runs repairs in this order. Do not rearrange without updating `CategoryRepairTests`:
+
+1. `buildExistingMap` — builds name→Category lookup, preferring active (non-deleted) categories.
+2. `loadCategoriesIfNeeded` — inserts seed categories and subcategories that don't already exist.
+3. `repairStaleCategoryKinds` — fixes legacy `Credit Card Payments` categories created with wrong `kind`, promotes to top-level, deduplicates.
+4. `repairDuplicateActiveCategories` — canonicalizes any remaining duplicate active categories by deterministic sort `(normalizedCategoryName, kind, id)` where lowest UUID wins. Reassigns transactions, rules, and child categories to the canonical. Soft-deletes all duplicates. Runs in a loop until no duplicate groups remain; must be idempotent.
+5. Rebuild `categoriesByName` after repair so `syncRules` sees the canonicalized map.
+6. `syncRules` — links category rules to existing categories by name. **`syncRules` must not create categories**; it only links rules to categories already in the store.
+
+## 16. Chart Rendering Constraints
+
+- Cash Flow and Charges vs Payments bar charts use centered `BarMark(x:y:)` with explicit `.barWidth(...)`. Never use `BarMark(xStart:xEnd:y:)` horizontal interval marks for these period-comparison charts.
+- Bar width scales by populated bucket count via `barWidth(for:bucketCount:)` so charts stay compact when data is sparse.
+- Cash Flow trims the x-axis domain to the first and last populated bucket; inactive leading/trailing months are excluded.
+- Net Worth and account Balance charts remain date-based line/area charts — never convert them to grouped bars.
+
+## 17. Category UI Constraints
+
+- Subcategory creation is inline only (within the category list), never via a separate sheet.
+- Parent category creation may use a sheet (e.g. the "New Category" modal in Settings).
+- Category deletion blocks when children exist; user must move or delete children first.
+- `CategoryPickerView` and `SettingsView` category sections use `displayCategories` to hide soft-deleted and duplicate rows from the rendered list.
+
+## 18. Test Commands
+
+```bash
+# Category repair (stale kinds + duplicate canonicalization + idempotency)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests \
+  -destination 'platform=macOS' -parallel-testing-enabled NO \
+  -only-testing:FinanceTrackerTests/CategoryRepairTests
+
+# Full serial suite
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests \
+  -destination 'platform=macOS' -parallel-testing-enabled NO
+```
+
+## 19. SwiftLint
+
+§14 references a SwiftLint rule to flag `Double`/`Float` in `FinanceTracker/Domain/`, but no `.swiftlint.yml` configuration file was found in the repository. A pre-commit hook in `.git/hooks/` may provide this check instead. If SwiftLint is intended, add and commit a `.swiftlint.yml` config; otherwise update this section to reflect the actual enforcement mechanism.

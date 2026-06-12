@@ -118,6 +118,57 @@ Startup repair must avoid faulting corrupted `Transaction` rows. `DashboardView`
 
 Do not add broad `@Query<Transaction>` to views that can appear when there are zero accounts. Gate transaction fetches on account existence first; a corrupted enum column such as `Transaction.source` can crash during materialization before app code can inspect the row. If SwiftData cannot repair a broken fresh-start store, `StoreFileResetService` quarantines `default.store`, `default.store-wal`, and `default.store-shm` under `Application Support/FinanceTracker/ResetBackups/` before the model container opens on the next launch.
 
+### Bootstrap category repair order
+
+`SeedDataLoader.bootstrapIfNeeded` runs repairs in this order — do not rearrange without updating `CategoryRepairTests`:
+
+1. `buildExistingMap` — builds name→Category lookup, preferring active (non-deleted) categories.
+2. `loadCategoriesIfNeeded` — inserts seed categories and subcategories that don't already exist.
+3. `repairStaleCategoryKinds` — fixes legacy `Credit Card Payments` categories created with wrong `kind`, promotes to top-level, deduplicates.
+4. `repairDuplicateActiveCategories` — canonicalizes any remaining duplicate active categories by deterministic sort `(normalizedCategoryName, kind, id)` where lowest UUID wins. Reassigns transactions, rules, and child categories to the canonical. Soft-deletes (`deletedAt = .now`) all duplicates. Runs in a loop until no duplicate groups remain; must be idempotent.
+5. Rebuild `categoriesByName` after repair so `syncRules` sees the canonicalized map.
+6. `syncRules` — links category rules to existing categories by name. **`syncRules` must not create categories**; it only links rules to categories already in the store.
+
+### Category duplicate canonicalization
+
+- `repairDuplicateActiveCategories` groups active categories by key `(parentID|kind|normalizedName)` and picks the canonical as the one with the lowest `id.uuidString`.
+- Transactions (`tx.category`), rules (`rule.category`), and children (`child.parent`) pointing to a duplicate are reassigned to the canonical before soft-delete.
+- The repair loop re-fetches on each iteration so SwiftData fault resolution stays consistent.
+- Display guards in `SettingsView.displayCategories` and `CategoryPickerView.displayCategories` provide an additional safety net: they sort by `(name, kind, id)` and filter out same-key duplicates so the UI never shows duplicate rows even if the store is temporarily dirty. These are display-only; `SeedDataLoader` owns actual repair.
+
+### Category UI constraints
+
+- Subcategory creation is inline only (within the category list), never via a separate sheet.
+- Parent category creation may use a sheet (e.g. the "New Category" modal in Settings).
+- Category deletion blocks when children exist; user must move or delete children first. Confirmation dialogs explain what will happen.
+- `CategoryPickerView` and `SettingsView` category sections use `displayCategories` to hide soft-deleted and duplicate rows from the rendered list.
+
+### Chart rendering
+
+- Cash Flow and Charges vs Payments bar charts use centered `BarMark(x:y:)` with explicit `.barWidth(...)`. Never use `BarMark(xStart:xEnd:y:)` horizontal interval marks for these period-comparison charts.
+- Bar width scales by populated bucket count via `barWidth(for:bucketCount:)` so charts stay compact when data is sparse.
+- Cash Flow trims the x-axis domain to the first and last populated bucket; inactive leading/trailing months are excluded.
+- Net Worth and account Balance charts remain date-based line/area charts — never convert them to grouped bars.
+
+### Focused test commands
+
+```bash
+# Category repair (stale kinds + duplicate canonicalization + idempotency)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests \
+  -destination 'platform=macOS' -parallel-testing-enabled NO \
+  -only-testing:FinanceTrackerTests/CategoryRepairTests
+
+# Full serial suite
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests \
+  -destination 'platform=macOS' -parallel-testing-enabled NO
+```
+
+### SwiftLint status
+
+`initial-prompt.md` §14 references a SwiftLint rule to flag `Double`/`Float` in `FinanceTracker/Domain/`, but no `.swiftlint.yml` configuration file was found in the repository. A pre-commit hook in `.git/hooks/` may provide this check instead. If SwiftLint is intended, add and commit a `.swiftlint.yml` config; otherwise update `initial-prompt.md` to reflect the actual enforcement mechanism.
+
 ## Adding a New Parser
 
 1. Create parser in `FinanceTracker/Ingest/Parsers/CSV/` (or `PDF/`/`Text/`), conform to `StatementParser`.
