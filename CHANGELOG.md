@@ -6,11 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.3.5] - 2026-06-12
+## [0.3.5] - 2026-06-11
 
 ### Fixed
 
-- **Category picker duplicates.** Startup now safely canonicalizes duplicate active categories, and category lists defensively hide duplicate rows while preserving existing transaction and rule references.
+- **Category repair on bootstrap.** Duplicate active categories are now canonicalized by deterministic UUID sort (lowest UUID wins). Transactions, rules, and child categories are reassigned to the canonical before soft-deleting duplicates. Repair runs after `repairStaleCategoryKinds` and before `syncRules`, and is idempotent — re-running does not create additional deletions.
+- **Category display dedup.** SettingsView and CategoryPickerView defensively hide duplicate rows from display using a sorted `(parentID|kind|normalizedName)` key guard, preserving existing transaction and rule references. This is a display-only safety net; `SeedDataLoader` owns the actual repair.
 
 ## [0.3.4] - 2026-06-11
 
