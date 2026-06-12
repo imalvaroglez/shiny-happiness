@@ -28,6 +28,8 @@ struct SeedDataLoader {
         var categoriesByName = buildExistingMap(context: context)
         loadCategoriesIfNeeded(context: context, categoriesByName: &categoriesByName)
         repairStaleCategoryKinds(context: context, categoriesByName: &categoriesByName)
+        repairDuplicateActiveCategories(context: context)
+        categoriesByName = buildExistingMap(context: context)
         syncRules(context: context, categoriesByName: categoriesByName)
         try? context.save()
     }
@@ -35,8 +37,13 @@ struct SeedDataLoader {
     private static func buildExistingMap(context: ModelContext) -> [String: Category] {
         let existing = (try? context.fetch(FetchDescriptor<Category>())) ?? []
         var map: [String: Category] = [:]
-        for cat in existing {
-            map[cat.name] = cat
+        for cat in existing.sorted(by: categoryMapSort) {
+            if map[cat.name] == nil {
+                map[cat.name] = cat
+            }
+            if let parent = cat.parent, map["\(parent.name).\(cat.name)"] == nil {
+                map["\(parent.name).\(cat.name)"] = cat
+            }
         }
         return map
     }
@@ -148,6 +155,87 @@ struct SeedDataLoader {
 
         categoriesByName["Credit Card Payments"] = canonical
         Logger.app.info("Category repair: canonicalized Credit Card Payments (kind=\(canonical.kind.rawValue)), soft-deleted \(duplicates.count) duplicate(s)")
+    }
+
+    private static func repairDuplicateActiveCategories(context: ModelContext) {
+        var softDeletedCount = 0
+
+        while true {
+            let activeCategories = (try? context.fetch(FetchDescriptor<Category>()))?
+                .filter { $0.deletedAt == nil } ?? []
+
+            guard let duplicateGroup = firstDuplicateGroup(in: activeCategories) else { break }
+
+            let sortedGroup = duplicateGroup.sorted(by: categorySort)
+            guard let canonical = sortedGroup.first else { break }
+            let duplicates = sortedGroup.dropFirst()
+            let duplicateIDs = Set(duplicates.map(\.id))
+
+            let allTransactions = (try? context.fetch(FetchDescriptor<Transaction>())) ?? []
+            let allRules = (try? context.fetch(FetchDescriptor<CategoryRule>())) ?? []
+
+            for tx in allTransactions where duplicateIDs.contains(tx.category?.id ?? UUID()) {
+                tx.category = canonical
+                tx.touch()
+            }
+
+            for rule in allRules where duplicateIDs.contains(rule.category?.id ?? UUID()) {
+                rule.category = canonical
+                rule.touch()
+            }
+
+            for duplicate in duplicates {
+                for child in activeCategories where child.parent?.id == duplicate.id {
+                    child.parent = canonical
+                    child.touch()
+                }
+                duplicate.deletedAt = .now
+                duplicate.touch()
+                softDeletedCount += 1
+            }
+        }
+
+        if softDeletedCount > 0 {
+            Logger.app.info("Category repair: soft-deleted \(softDeletedCount) duplicate active category record(s)")
+        }
+    }
+
+    private static func firstDuplicateGroup(in categories: [Category]) -> [Category]? {
+        let grouped = Dictionary(grouping: categories, by: duplicateKey)
+        return grouped.values
+            .filter { $0.count > 1 }
+            .sorted { lhs, rhs in
+                guard let lhsFirst = lhs.sorted(by: categorySort).first,
+                      let rhsFirst = rhs.sorted(by: categorySort).first else {
+                    return lhs.count > rhs.count
+                }
+                return categorySort(lhsFirst, rhsFirst)
+            }
+            .first
+    }
+
+    private static func duplicateKey(for category: Category) -> String {
+        let parentID = category.parent?.id.uuidString ?? "root"
+        return "\(parentID)|\(category.kind.rawValue)|\(normalizedCategoryName(category.name))"
+    }
+
+    private static func normalizedCategoryName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func categorySort(_ lhs: Category, _ rhs: Category) -> Bool {
+        let lhsName = normalizedCategoryName(lhs.name)
+        let rhsName = normalizedCategoryName(rhs.name)
+        if lhsName != rhsName { return lhsName < rhsName }
+        if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
+
+    private static func categoryMapSort(_ lhs: Category, _ rhs: Category) -> Bool {
+        if (lhs.deletedAt == nil) != (rhs.deletedAt == nil) {
+            return lhs.deletedAt == nil
+        }
+        return categorySort(lhs, rhs)
     }
 
     private static func syncRules(context: ModelContext, categoriesByName: [String: Category]) {
