@@ -145,82 +145,21 @@ struct ConsolidatedDashboard: View {
 
     private var netWorthChart: some View {
         ChartCard(title: "Net Worth") {
-            Chart(snapshot.netWorthOverTime) { point in
-                LineMark(
-                    x: .value("Period", point.month, unit: snapshot.period.bucket.component),
-                    y: .value("Balance", point.balance)
-                )
-                .foregroundStyle(.blue)
-                .interpolationMethod(.stepEnd)
-                AreaMark(
-                    x: .value("Period", point.month, unit: snapshot.period.bucket.component),
-                    y: .value("Balance", point.balance)
-                )
-                .foregroundStyle(.blue.opacity(0.15))
-                .interpolationMethod(.stepEnd)
-                PointMark(
-                    x: .value("Period", point.month, unit: snapshot.period.bucket.component),
-                    y: .value("Balance", point.balance)
-                )
-                .foregroundStyle(.blue)
-                .symbolSize(24)
-            }
-            .frame(height: 220)
-            .chartBackground { _ in Color.clear }
-            .chartPlotStyle { plotArea in
-                plotArea
-                    .padding(.trailing, 10)
-                    .padding(.bottom, 4)
-            }
-            .chartXScale(domain: snapshot.period.plotDomain)
-            .chartXAxis {
-                AxisMarks(values: snapshot.period.axisMarkValues()) { value in
-                    AxisGridLine()
-                    AxisValueLabel {
-                        if let date = value.as(Date.self) {
-                            Text(dashboardAxisLabel(for: date, bucket: snapshot.period.bucket))
-                        }
-                    }
-                }
-            }
-            .chartOverlay { proxy in
-                GeometryReader { geo in
-                    ZStack {
-                        DashboardChartHoverOverlay(
-                            proxy: proxy,
-                            geometry: geo,
-                            period: snapshot.period,
-                            hoverBucketStart: $netWorthHover
-                        )
-                        if let hover = netWorthHover,
-                           let point = netWorthPoint(for: hover),
-                           let xPos = proxy.position(forX: point.month) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(dashboardBucketLabel(for: point.month, bucket: snapshot.period.bucket))
-                                    .font(.caption.bold())
-                                Text(MoneyFormat.string(code: snapshot.currencyCode,point.balance))
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                            .padding(8)
-                            .frame(width: 190, alignment: .leading)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-                            .position(x: dashboardTooltipX(xPos, in: geo, width: 190), y: 24)
-                        }
-                    }
-                }
-            }
-            .onTapGesture {
-                guard let hover = netWorthHover,
-                      netWorthPoint(for: hover) != nil else { return }
+            DashboardBalanceTimeSeriesChart(
+                points: snapshot.netWorthOverTime,
+                period: snapshot.period,
+                currencyCode: snapshot.currencyCode,
+                onPointTap: { _ in
+                    breakdown = .netWorth(period: snapshot.period, accounts: snapshot.accountSummaries)
+                },
+                hoverBucketStart: $netWorthHover
+            )
+        }
+        .onTapGesture {
+            if netWorthHover == nil {
                 breakdown = .netWorth(period: snapshot.period, accounts: snapshot.accountSummaries)
             }
         }
-    }
-
-    private func netWorthPoint(for selection: Date) -> NetWorthPoint? {
-        guard selection >= snapshot.period.dateRange.start && selection <= snapshot.period.dateRange.end else { return nil }
-        let bucketStart = snapshot.period.bucketStart(forSelection: selection)
-        return snapshot.netWorthOverTime.first { snapshot.period.bucketStart(forSelection: $0.month) == bucketStart }
     }
 
     private var insufficientNetWorthCard: some View {

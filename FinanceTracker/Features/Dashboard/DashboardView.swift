@@ -477,6 +477,22 @@ private struct AccountSidebarRow: View {
     DashboardPreviewFixtures.sparseAllPreview()
 }
 
+#Preview("Overview All Many Months") {
+    DashboardPreviewFixtures.manyMonthsAllPreview()
+}
+
+#Preview("Overview All Retirement Jump") {
+    DashboardPreviewFixtures.retirementJumpPreview()
+}
+
+#Preview("Overview Positive Net Worth") {
+    DashboardPreviewFixtures.positiveNetWorthPreview()
+}
+
+#Preview("Overview Negative Net Worth") {
+    DashboardPreviewFixtures.negativeNetWorthPreview()
+}
+
 #Preview("Overview Year 12 Months") {
     DashboardPreviewFixtures.preview(kind: .year, now: DashboardPreviewFixtures.date(2026, 12, 31))
 }
@@ -513,6 +529,60 @@ private enum DashboardPreviewFixtures {
             MonthlyCashFlow(month: date(2026, 6, 1), income: 903, expenses: -12_650)
         ]
         return overview(snapshot(period: period, cashFlow: cashFlow))
+    }
+
+    static func manyMonthsAllPreview() -> some View {
+        preview(kind: .all, now: date(2026, 12, 31))
+    }
+
+    static func retirementJumpPreview() -> some View {
+        let now = date(2026, 12, 31)
+        let requested = DashboardPeriodKind.all.resolvedRange(now: now)
+        let period = DashboardPeriodResolver.context(
+            kind: .all,
+            requestedRange: requested,
+            dataRange: DateRange(start: date(2026, 1, 1), end: now),
+            now: now
+        )
+        let cashFlow = period.intervals().enumerated().map { index, interval in
+            MonthlyCashFlow(
+                month: interval.bucketStart,
+                income: index.isMultiple(of: 3) ? 42_000 : 0,
+                expenses: -Decimal(18_000 + (index % 4) * 1_500)
+            )
+        }
+        let netWorth = period.intervals().enumerated().map { index, interval in
+            let base = Decimal(180_000 + index * 7_500)
+            let retirement = interval.bucketStart >= date(2026, 8, 1) ? Decimal(3_250_000) : 0
+            return NetWorthPoint(month: interval.end, balance: base + retirement)
+        }
+        return overview(snapshot(period: period, cashFlow: cashFlow, netWorth: netWorth))
+    }
+
+    static func positiveNetWorthPreview() -> some View {
+        let now = date(2026, 6, 11)
+        let requested = DashboardPeriodKind.quarter.resolvedRange(now: now)
+        let period = DashboardPeriodResolver.context(kind: .quarter, requestedRange: requested, dataRange: nil, now: now)
+        let cashFlow = period.intervals().map {
+            MonthlyCashFlow(month: $0.bucketStart, income: 24_000, expenses: -15_000)
+        }
+        let netWorth = period.intervals().enumerated().map { index, interval in
+            NetWorthPoint(month: interval.end, balance: Decimal(240_000 + index * 32_000))
+        }
+        return overview(snapshot(period: period, cashFlow: cashFlow, netWorth: netWorth))
+    }
+
+    static func negativeNetWorthPreview() -> some View {
+        let now = date(2026, 6, 11)
+        let requested = DashboardPeriodKind.quarter.resolvedRange(now: now)
+        let period = DashboardPeriodResolver.context(kind: .quarter, requestedRange: requested, dataRange: nil, now: now)
+        let cashFlow = period.intervals().map {
+            MonthlyCashFlow(month: $0.bucketStart, income: 20_000, expenses: -25_000)
+        }
+        let netWorth = period.intervals().enumerated().map { index, interval in
+            NetWorthPoint(month: interval.end, balance: Decimal(-95_000 + index * 18_000))
+        }
+        return overview(snapshot(period: period, cashFlow: cashFlow, netWorth: netWorth))
     }
 
     static func emptyCashFlowPreview() -> some View {

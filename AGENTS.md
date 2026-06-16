@@ -208,3 +208,15 @@ This is a private finance app. Do not commit personal statements, generated stor
 - Do not ship a version bump unless both `CHANGELOG.md` and the About highlights have been reviewed.
 - Release prep means: bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`, run `xcodegen generate`, run focused dashboard tests when dashboard behavior changed, run `DashboardSnapshotTests`, run the full serial suite, and run a Release build.
 - Installing or smoke-testing the production app is a separate explicit step after release prep. It requires confirmation that a fresh, verifiable `.ftbackup` exists and is newer than the latest production data change.
+
+### Release Hygiene
+
+For any versioned release or release-candidate task, the work is not complete until:
+
+1. `git status --short` has been reviewed.
+2. All intended release changes are committed.
+3. The commit is pushed to the active branch.
+4. The final working tree is clean, except for explicitly documented unrelated user-owned dirty files.
+5. The final response reports the commit hash, branch name, push status, and remaining dirty files, if any.
+
+Do not claim a release is closed, done, or ready while intended release files remain uncommitted. Preserve unrelated dirty files, exclude them from the release commit, and report them clearly. If the release commit cannot be pushed, do not claim completion; report the reason and exact next step.

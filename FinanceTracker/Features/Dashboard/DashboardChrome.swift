@@ -48,6 +48,18 @@ func dashboardTooltipX(_ x: CGFloat, in geo: GeometryProxy, width: CGFloat = 210
     return min(max(x, lowerBound), upperBound)
 }
 
+func dashboardCompactAmount(_ value: Double, code: String) -> String {
+    let symbol = code == "MXN" || code == "USD" ? "$" : "\(code) "
+    let absolute = abs(value)
+    if absolute >= 1_000_000 {
+        return "\(symbol)\(String(format: "%.1fM", value / 1_000_000))"
+    }
+    if absolute >= 1_000 {
+        return "\(symbol)\(String(format: "%.0fK", value / 1_000))"
+    }
+    return "\(symbol)\(String(format: "%.0f", value))"
+}
+
 func dashboardAxisLabel(for date: Date, bucket: DashboardBucket) -> String {
     switch bucket {
     case .day:
@@ -138,6 +150,231 @@ struct DashboardChartEmptyState: View {
     }
 }
 
+struct DashboardBalanceChartDomain: Equatable {
+    let lowerBound: Double
+    let upperBound: Double
+
+    var range: ClosedRange<Double> { lowerBound...upperBound }
+}
+
+enum DashboardBalanceChartScale {
+    static func domain(for points: [NetWorthPoint]) -> DashboardBalanceChartDomain {
+        let values = points.map { $0.balance.dashboardDoubleValue }.filter(\.isFinite)
+        guard let minValue = values.min(), let maxValue = values.max() else {
+            return DashboardBalanceChartDomain(lowerBound: 0, upperBound: 1)
+        }
+
+        if minValue == maxValue {
+            if maxValue > 0 {
+                return DashboardBalanceChartDomain(lowerBound: 0, upperBound: niceCeil(maxValue * 1.12))
+            }
+            if minValue < 0 {
+                return DashboardBalanceChartDomain(lowerBound: niceFloor(minValue * 1.12), upperBound: 0)
+            }
+            return DashboardBalanceChartDomain(lowerBound: 0, upperBound: 1)
+        }
+
+        let span = maxValue - minValue
+        if minValue >= 0 {
+            return DashboardBalanceChartDomain(lowerBound: 0, upperBound: niceCeil(maxValue + span * 0.12))
+        }
+
+        return DashboardBalanceChartDomain(
+            lowerBound: niceFloor(minValue - span * 0.12),
+            upperBound: niceCeil(maxValue + span * 0.12)
+        )
+    }
+
+    private static func niceCeil(_ value: Double) -> Double {
+        guard value > 0 else { return 1 }
+        let step = niceStep(for: value)
+        return max(step, ceil(value / step) * step)
+    }
+
+    private static func niceFloor(_ value: Double) -> Double {
+        guard value < 0 else { return 0 }
+        let step = niceStep(for: abs(value))
+        return floor(value / step) * step
+    }
+
+    private static func niceStep(for value: Double) -> Double {
+        let exponent = floor(log10(max(value, 1)))
+        let base = pow(10, exponent)
+        let normalized = value / base
+        if normalized <= 2 { return base / 5 }
+        if normalized <= 5 { return base / 2 }
+        return base
+    }
+}
+
+struct DashboardBalanceTimeSeriesChart: View {
+    let points: [NetWorthPoint]
+    let period: DashboardPeriodContext
+    let currencyCode: String
+    var onPointTap: ((NetWorthPoint) -> Void)? = nil
+
+    @Binding var hoverBucketStart: Date?
+
+    private var selectedPoint: NetWorthPoint? {
+        guard let hoverBucketStart else { return nil }
+        return point(for: hoverBucketStart)
+    }
+
+    var body: some View {
+        let domain = DashboardBalanceChartScale.domain(for: points)
+        let latestID = points.last?.id
+
+        Chart {
+            ForEach(points) { point in
+                LineMark(
+                    x: .value("Period", point.month, unit: period.bucket.component),
+                    y: .value("Balance", point.balance.dashboardDoubleValue)
+                )
+                .foregroundStyle(.blue)
+                .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                .interpolationMethod(.stepEnd)
+
+                AreaMark(
+                    x: .value("Period", point.month, unit: period.bucket.component),
+                    y: .value("Balance", point.balance.dashboardDoubleValue)
+                )
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [.blue.opacity(0.22), .blue.opacity(0.03)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .interpolationMethod(.stepEnd)
+
+                PointMark(
+                    x: .value("Period", point.month, unit: period.bucket.component),
+                    y: .value("Balance", point.balance.dashboardDoubleValue)
+                )
+                .foregroundStyle(.blue.opacity(point.id == latestID ? 0.95 : 0.42))
+                .symbolSize(point.id == latestID ? 54 : 14)
+            }
+
+            if let selectedPoint {
+                RuleMark(x: .value("Selected", selectedPoint.month))
+                    .foregroundStyle(.secondary.opacity(0.28))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 4]))
+
+                PointMark(
+                    x: .value("Selected period", selectedPoint.month, unit: period.bucket.component),
+                    y: .value("Selected balance", selectedPoint.balance.dashboardDoubleValue)
+                )
+                .foregroundStyle(.blue)
+                .symbolSize(88)
+            }
+        }
+        .frame(height: 220)
+        .chartBackground { _ in Color.clear }
+        .chartPlotStyle { plotArea in
+            plotArea
+                .padding(.top, 6)
+                .padding(.trailing, 10)
+                .padding(.bottom, 4)
+        }
+        .chartXScale(domain: period.plotDomain)
+        .chartYScale(domain: domain.range)
+        .chartXAxis {
+            AxisMarks(values: period.axisMarkValues()) { value in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(.secondary.opacity(0.12))
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(dashboardAxisLabel(for: date, bucket: period.bucket))
+                    }
+                }
+                .foregroundStyle(.secondary)
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { value in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(.secondary.opacity(0.12))
+                AxisValueLabel {
+                    if let amount = value.as(Double.self) {
+                        Text(dashboardCompactAmount(amount, code: currencyCode))
+                    }
+                }
+                .foregroundStyle(.tertiary)
+            }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                ZStack {
+                    DashboardChartHoverOverlay(
+                        proxy: proxy,
+                        geometry: geo,
+                        period: period,
+                        hoverBucketStart: $hoverBucketStart
+                    )
+
+                    if let selectedPoint,
+                       let xPos = proxy.position(forX: selectedPoint.month) {
+                        balanceTooltip(for: selectedPoint)
+                            .position(x: dashboardTooltipX(xPos, in: geo, width: 224), y: 28)
+                    }
+                }
+            }
+        }
+        .onTapGesture {
+            guard let selectedPoint else { return }
+            onPointTap?(selectedPoint)
+        }
+        .animation(.easeInOut(duration: 0.24), value: points.map(\.id))
+        .animation(.easeInOut(duration: 0.18), value: hoverBucketStart)
+    }
+
+    private func point(for bucketStart: Date) -> NetWorthPoint? {
+        points.first { period.bucketStart(forSelection: $0.month) == bucketStart }
+    }
+
+    private func previousPoint(before point: NetWorthPoint) -> NetWorthPoint? {
+        guard let index = points.firstIndex(where: { $0.id == point.id }), index > 0 else { return nil }
+        return points[index - 1]
+    }
+
+    private func balanceTooltip(for point: NetWorthPoint) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(dashboardBucketLabel(for: point.month, bucket: period.bucket))
+                .font(.caption.weight(.semibold))
+            Text(MoneyFormat.string(code: currencyCode, point.balance))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.primary)
+
+            if let previous = previousPoint(before: point) {
+                let change = point.balance - previous.balance
+                HStack(spacing: 6) {
+                    Text("Change")
+                    Text(MoneyFormat.string(code: currencyCode, change))
+                        .foregroundStyle(change >= 0 ? DashboardChartSeriesColor.income : DashboardChartSeriesColor.expense)
+                    if abs(previous.balance) > 0 {
+                        Text(percentChange(from: previous.balance, to: point.balance))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.caption2.monospacedDigit())
+            }
+        }
+        .padding(9)
+        .frame(width: 224, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.white.opacity(0.18), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.10), radius: 10, y: 4)
+    }
+
+    private func percentChange(from previous: Decimal, to current: Decimal) -> String {
+        let value = (((current - previous) / abs(previous)) as NSDecimalNumber).doubleValue * 100
+        return String(format: "%+.1f%%", value)
+    }
+}
+
 struct DashboardPeriodBucketDisplayValue: Equatable {
     let bucketStart: Date
     let firstMagnitude: Decimal
@@ -207,8 +444,13 @@ struct DashboardGroupedPeriodBarChart: View {
     var showsSecondSeries: Bool = true
     var footerText: ((DashboardPeriodBarGroup) -> String?)? = nil
     var onGroupTap: ((DashboardPeriodBarGroup) -> Void)? = nil
+    var selectedGroupID: Date? = nil
 
     @State private var hoverGroupID: Date? = nil
+
+    private var activeGroupID: Date? {
+        selectedGroupID ?? hoverGroupID
+    }
 
     var body: some View {
         if groups.isEmpty || (!showsFirstSeries && !showsSecondSeries) {
@@ -285,7 +527,7 @@ struct DashboardGroupedPeriodBarChart: View {
         maxValue: Double,
         plotHeight: CGFloat
     ) -> some View {
-        let isHovered = hoverGroupID == group.id
+        let isHovered = activeGroupID == group.id
         return ZStack(alignment: .bottom) {
             if group.isPlaceholder {
                 Capsule()
@@ -330,7 +572,7 @@ struct DashboardGroupedPeriodBarChart: View {
     ) -> some View {
         let height = max(2, CGFloat(max(0, value) / maxValue) * plotHeight)
         return RoundedRectangle(cornerRadius: min(6, width / 2), style: .continuous)
-            .fill(color.opacity(isHovered || hoverGroupID == nil ? 1 : 0.42))
+            .fill(color.opacity(isHovered || activeGroupID == nil ? 1 : 0.42))
             .frame(width: width, height: height)
             .overlay(alignment: .top) {
                 RoundedRectangle(cornerRadius: min(6, width / 2), style: .continuous)
@@ -380,13 +622,13 @@ struct DashboardGroupedPeriodBarChart: View {
                 }
             }
             .onTapGesture {
-                guard let hoverGroupID,
-                      let group = groups.first(where: { $0.id == hoverGroupID }) else { return }
+                guard let activeGroupID,
+                      let group = groups.first(where: { $0.id == activeGroupID }) else { return }
                 onGroupTap?(group)
             }
             .overlay(alignment: .topLeading) {
-                if let hoverGroupID,
-                   let group = groups.first(where: { $0.id == hoverGroupID }) {
+                if let activeGroupID,
+                   let group = groups.first(where: { $0.id == activeGroupID }) {
                     tooltip(for: group)
                         .position(
                             x: dashboardTooltipX(groupCenterX(group: group, layout: layout, contentLeft: contentLeft), in: geo, width: 230),
@@ -480,15 +722,15 @@ struct DashboardGroupedBarLayout {
     }
 
     var intraGroupSpacing: CGFloat {
-        groupCount > 18 ? 6 : 8
+        groupCount > 18 ? 5 : 6
     }
 
     var groupSpacing: CGFloat {
         let preferred: CGFloat
         switch groupCount {
-        case 0...3: preferred = 28
-        case 4...6: preferred = 24
-        case 7...12: preferred = 20
+        case 0...3: preferred = 24
+        case 4...6: preferred = 22
+        case 7...12: preferred = 18
         default: preferred = 12
         }
         let preferredWidth = idealContentWidth(barWidth: preferredBarWidth, spacing: preferred)
@@ -499,9 +741,9 @@ struct DashboardGroupedBarLayout {
 
     var preferredBarWidth: CGFloat {
         switch groupCount {
-        case 0...3: return 28
-        case 4...6: return 24
-        case 7...12: return 20
+        case 0...3: return 22
+        case 4...6: return 20
+        case 7...12: return 18
         case 13...24: return 14
         default: return 8
         }
@@ -544,21 +786,13 @@ struct DashboardGroupedBarLayout {
 }
 
 private extension Decimal {
+    var dashboardDoubleValue: Double {
+        (self as NSDecimalNumber).doubleValue
+    }
+
     var dashboardDoubleMagnitude: Double {
         max(0, (self as NSDecimalNumber).doubleValue)
     }
-}
-
-private func dashboardCompactAmount(_ value: Double, code: String) -> String {
-    let symbol = code == "MXN" || code == "USD" ? "$" : "\(code) "
-    let absolute = abs(value)
-    if absolute >= 1_000_000 {
-        return "\(symbol)\(String(format: "%.1fM", value / 1_000_000))"
-    }
-    if absolute >= 1_000 {
-        return "\(symbol)\(String(format: "%.0fK", value / 1_000))"
-    }
-    return "\(symbol)\(String(format: "%.0f", value))"
 }
 
 /// Hero summary tile used on every dashboard. Pickable for drill-down.
