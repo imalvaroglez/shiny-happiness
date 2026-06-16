@@ -571,10 +571,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Categories now open in a cleaner split editor with search and type filters.",
-        "New subcategories can be added directly from the selected category.",
-        "New categories are selected automatically so setup feels continuous.",
-        "Category deletes now explain what will happen before anything changes.",
+        "Dashboard charts now feel more compact and intentional across every period.",
+        "Cash Flow groups sparse months instead of stretching them across empty space.",
+        "Net Worth labels now use clean currency formatting without scientific notation.",
+        "Hover tooltips and selected points now feel more polished and easier to read.",
     ]
 
     private var lastBackupDate: String? {

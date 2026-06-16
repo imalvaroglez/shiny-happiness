@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-16
+
+### Changed
+
+- **Dashboard chart experience.** Cash Flow and Charges vs Payments charts now render sparse activity as compact centered period groups, while Net Worth and Balance charts use polished compact currency axes, positive-only domains that start at zero, highlighted latest/selected points, and native-feeling hover tooltips. Financial calculations are unchanged.
+
 ## [0.3.6] - 2026-06-12
 
 ### Changed

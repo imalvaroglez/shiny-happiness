@@ -573,9 +573,49 @@ struct DashboardPeriodFilteringTests {
         let sparse = DashboardGroupedBarLayout(groupCount: 3, availableWidth: 1_100, showsFirstSeries: true, showsSecondSeries: true)
         let fullYear = DashboardGroupedBarLayout(groupCount: 12, availableWidth: 1_100, showsFirstSeries: true, showsSecondSeries: true)
 
-        #expect(sparse.contentWidth <= 340)
+        #expect(sparse.contentWidth <= 220)
+        #expect(sparse.barWidth >= 18 && sparse.barWidth <= 24)
+        #expect(sparse.intraGroupSpacing <= 6)
+        #expect(sparse.groupSpacing <= 36)
         #expect(fullYear.contentWidth > sparse.contentWidth)
         #expect(sparse.barWidth > fullYear.barWidth)
+    }
+
+    @Test("Dashboard compact currency labels avoid scientific notation")
+    func dashboardCompactCurrencyLabelsAvoidScientificNotation() {
+        #expect(dashboardCompactAmount(0, code: "MXN") == "$0")
+        #expect(dashboardCompactAmount(50_000, code: "MXN") == "$50K")
+        #expect(dashboardCompactAmount(123_400, code: "MXN") == "$123K")
+        #expect(dashboardCompactAmount(2_100_000, code: "MXN") == "$2.1M")
+        #expect(!dashboardCompactAmount(4_000_000, code: "MXN").contains("E"))
+    }
+
+    @Test("Positive net worth chart domain does not go negative")
+    func positiveNetWorthChartDomainDoesNotGoNegative() {
+        let points = [
+            NetWorthPoint(month: date(year: 2026, month: 4, day: 30), balance: 240_000),
+            NetWorthPoint(month: date(year: 2026, month: 5, day: 31), balance: 310_000),
+            NetWorthPoint(month: date(year: 2026, month: 6, day: 11), balance: 3_850_000)
+        ]
+
+        let domain = DashboardBalanceChartScale.domain(for: points)
+
+        #expect(domain.lowerBound == 0)
+        #expect(domain.upperBound > 3_850_000)
+    }
+
+    @Test("Negative net worth chart domain includes negative values")
+    func negativeNetWorthChartDomainIncludesNegativeValues() {
+        let points = [
+            NetWorthPoint(month: date(year: 2026, month: 4, day: 30), balance: -95_000),
+            NetWorthPoint(month: date(year: 2026, month: 5, day: 31), balance: -40_000),
+            NetWorthPoint(month: date(year: 2026, month: 6, day: 11), balance: 12_000)
+        ]
+
+        let domain = DashboardBalanceChartScale.domain(for: points)
+
+        #expect(domain.lowerBound < -95_000)
+        #expect(domain.upperBound > 12_000)
     }
 
     @Test("Grouped period bars preserve display magnitudes and chronology")
