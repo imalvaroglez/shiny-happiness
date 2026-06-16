@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-06-12
+
+### Changed
+
+- **Settings category manager.** Categories now use a split browser/detail editor with search, type filtering, inline subcategory creation, automatic selection of newly created categories, and confirmation dialogs for destructive category deletes.
+
 ## [0.3.5] - 2026-06-11
 
 ### Fixed

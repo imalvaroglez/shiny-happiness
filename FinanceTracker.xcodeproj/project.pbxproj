@@ -72,6 +72,7 @@
 		68A4A8A4C4531FC28A47D40A /* CategoryPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B57D80A4E755ED722BD76906 /* CategoryPickerView.swift */; };
 		6B10DFBF6B32F7DB37BB4991 /* RawTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 084ECD2379C85611D120A356 /* RawTransaction.swift */; };
 		6C536F153D2CE8B50657000A /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8573C4DA0BD52C0E219ABFF9 /* Logger.swift */; };
+		6DFE2DB85B4920EF6E018B70 /* CategoryManagementViewStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6CF100B0E88A7CD064C9C1 /* CategoryManagementViewStateTests.swift */; };
 		6FD36B55DDA353AF7F137279 /* DateRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED26F454D1983B2A8414793D /* DateRange.swift */; };
 		700344262340C795EC412A1E /* SeedDataLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32D2CADB3F7DBA60D048605 /* SeedDataLoader.swift */; };
 		72D61D523AC9B58EB1FFF216 /* ApplyToSimilarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7888F0C7E514D4C800665442 /* ApplyToSimilarView.swift */; };
@@ -117,6 +118,7 @@
 		C0CFAF4A4EC674DC54253F0D /* LiabilityAccountDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC84686681848248F854973E /* LiabilityAccountDashboard.swift */; };
 		C154ACF836F15C44334268FC /* TransactionDayGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28BAFAC3B3593F82B409FC15 /* TransactionDayGroup.swift */; };
 		C26BACE3B5B94DC7C4BB11F2 /* GlassCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDCDD5AE41D0B0EF0DF03224 /* GlassCard.swift */; };
+		C548497050236857450FBAC2 /* CategoryManagementViewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75CA9AD4E9A397F2014E57FC /* CategoryManagementViewState.swift */; };
 		C80B8FA576C355F255DC67C0 /* EndToEndPDFTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76945E0492AC714D84088096 /* EndToEndPDFTests.swift */; };
 		C8849DB023F5244E7A936824 /* DashboardPeriod.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31E69074CC39EE81C9890E73 /* DashboardPeriod.swift */; };
 		CEBCC41FFC6CD5B63B21A840 /* ManualAccountServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8AEED416815C85A155E0055 /* ManualAccountServices.swift */; };
@@ -209,6 +211,7 @@
 		7205046DB5CF280B9AEB4B0C /* DashboardSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardSnapshot.swift; sourceTree = "<group>"; };
 		750478702E1F74AF19265F62 /* BackupModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupModels.swift; sourceTree = "<group>"; };
 		757995A4D36A72157916AA04 /* FinanceTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FinanceTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		75CA9AD4E9A397F2014E57FC /* CategoryManagementViewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryManagementViewState.swift; sourceTree = "<group>"; };
 		762031234D540053D316B47E /* DeduplicatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeduplicatorTests.swift; sourceTree = "<group>"; };
 		766DC0704044F15C95A1B59B /* DashboardSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardSnapshotTests.swift; sourceTree = "<group>"; };
 		76945E0492AC714D84088096 /* EndToEndPDFTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndToEndPDFTests.swift; sourceTree = "<group>"; };
@@ -225,6 +228,7 @@
 		8C7D22FF552A54C707D08AA2 /* FinanceTrackerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceTrackerApp.swift; sourceTree = "<group>"; };
 		8CFAB91AA3DC62010150FA18 /* ManualTransactionKindTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualTransactionKindTests.swift; sourceTree = "<group>"; };
 		8D0F8EAA9E3499170618A1C7 /* DashboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardChrome.swift; sourceTree = "<group>"; };
+		8D6CF100B0E88A7CD064C9C1 /* CategoryManagementViewStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryManagementViewStateTests.swift; sourceTree = "<group>"; };
 		8D8F045F1CC4D789C71AA8C8 /* Decimal+Money.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Decimal+Money.swift"; sourceTree = "<group>"; };
 		8E285B0E8F12DCECA19A8F97 /* MetricChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricChip.swift; sourceTree = "<group>"; };
 		911C0B681D74C9CCC271C0CA /* StatementBalanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementBalanceTests.swift; sourceTree = "<group>"; };
@@ -425,6 +429,7 @@
 			children = (
 				F5C6ED3A313C1939819ED6D7 /* AccountDeletionService.swift */,
 				A597EF9FEFE3473730377F78 /* CategoryManagementActions.swift */,
+				75CA9AD4E9A397F2014E57FC /* CategoryManagementViewState.swift */,
 				1ADE896B846BF60B6FF840B9 /* SettingsView.swift */,
 			);
 			path = Settings;
@@ -507,6 +512,7 @@
 				5991749DFCB4D702D68AFEF6 /* AppDataResetServiceTests.swift */,
 				A24A6CE11C6370FEE1842953 /* BackupArchiveTests.swift */,
 				92E3281262428E4DA9DEBC6D /* CategoryManagementActionsTests.swift */,
+				8D6CF100B0E88A7CD064C9C1 /* CategoryManagementViewStateTests.swift */,
 				F521469BFF0E58922383AB0A /* DashboardPeriodFilteringTests.swift */,
 				766DC0704044F15C95A1B59B /* DashboardSnapshotTests.swift */,
 				76945E0492AC714D84088096 /* EndToEndPDFTests.swift */,
@@ -864,6 +870,7 @@
 				67C2E17E0F840DEB49B58867 /* Category.swift in Sources */,
 				A80162D0C239BF1AE0375EC1 /* CategoryKind.swift in Sources */,
 				D81D3721DF4E349BB6094C14 /* CategoryManagementActions.swift in Sources */,
+				C548497050236857450FBAC2 /* CategoryManagementViewState.swift in Sources */,
 				68A4A8A4C4531FC28A47D40A /* CategoryPickerView.swift in Sources */,
 				EADBE2FB305A7B4241D78F74 /* CategoryRule.swift in Sources */,
 				A766ECFBB9300ACB31EE2783 /* ColumnDetector.swift in Sources */,
@@ -949,6 +956,7 @@
 				418BEB37D74099E4E9A2B03C /* CategorizerTransferTests.swift in Sources */,
 				97D1DF44D2A183EF1CD7D0D4 /* CategoryCorrectionTests.swift in Sources */,
 				47307965BFF0C7242344F031 /* CategoryManagementActionsTests.swift in Sources */,
+				6DFE2DB85B4920EF6E018B70 /* CategoryManagementViewStateTests.swift in Sources */,
 				B10760C2FE4C491DE965D1D1 /* CategoryRepairTests.swift in Sources */,
 				4D4E4CE44F17087F401CCE2E /* CategoryRuleSourceTrackingTests.swift in Sources */,
 				66B3D86239B373D1126F9E10 /* ColumnDetectorTests.swift in Sources */,
@@ -1079,7 +1087,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260612.1;
+				CURRENT_PROJECT_VERSION = 20260612.2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1089,7 +1097,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.3.5;
+				MARKETING_VERSION = 0.3.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app.dev;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = "FinanceTracker Dev";
@@ -1123,7 +1131,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260612.1;
+				CURRENT_PROJECT_VERSION = 20260612.2;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1133,7 +1141,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.3.5;
+				MARKETING_VERSION = 0.3.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = FinanceTracker;
