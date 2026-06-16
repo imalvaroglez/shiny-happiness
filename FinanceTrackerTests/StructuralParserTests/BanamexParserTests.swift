@@ -13,17 +13,17 @@ struct BanamexParserTests {
         self.parser = parser
     }
 
-    private var priorityPDF: URL {
-        URL(fileURLWithPath: "/Users/developer/Documents/finanzas/banca/Banamex/Priority/202603.pdf")
+    private var priorityPDF: URL? {
+        FixtureLoader.optionalURL("202603.pdf")
     }
 
-    private var exploraPDF: URL {
-        URL(fileURLWithPath: "/Users/developer/Documents/finanzas/banca/Banamex/Explora/2026/04.pdf")
+    private var exploraPDF: URL? {
+        FixtureLoader.optionalURL("04.pdf")
     }
 
     @Test("Detects Banamex Priority checking statement")
     func detectsBanamexPriority() throws {
-        guard FileManager.default.fileExists(atPath: priorityPDF.path) else { return }
+        guard let priorityPDF else { return }
         let data = try Data(contentsOf: priorityPDF)
         let detection = Detector.detect(data: data, fileExtension: "pdf")
 
@@ -33,7 +33,7 @@ struct BanamexParserTests {
 
     @Test("Parses Banamex Priority movements and balances")
     func parsesBanamexPriority() async throws {
-        guard FileManager.default.fileExists(atPath: priorityPDF.path) else { return }
+        guard let priorityPDF else { return }
         let data = try Data(contentsOf: priorityPDF)
         let sections = try await parser.parseSections(data: data)
 
@@ -52,7 +52,7 @@ struct BanamexParserTests {
 
     @Test("Detects Banamex Explora credit-card statement")
     func detectsBanamexExplora() throws {
-        guard FileManager.default.fileExists(atPath: exploraPDF.path) else { return }
+        guard let exploraPDF else { return }
         let data = try Data(contentsOf: exploraPDF)
         let detection = Detector.detect(data: data, fileExtension: "pdf")
 
@@ -62,7 +62,7 @@ struct BanamexParserTests {
 
     @Test("Parses Banamex Explora statement metadata and transactions")
     func parsesBanamexExplora() async throws {
-        guard FileManager.default.fileExists(atPath: exploraPDF.path) else { return }
+        guard let exploraPDF else { return }
         let data = try Data(contentsOf: exploraPDF)
         let sections = try await parser.parseSections(data: data)
 

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-16
+
+### Added
+
+- **Retirement-aware data semantics.** Accounts now store retirement subtype, liquidity, dashboard inclusion, and tax-tracking metadata for PPR, AFORE, employer retirement plans, and other retirement accounts.
+- **Movement vs treatment classification.** Transactions now separate how money moves from how the app reports it, so retirement contributions can remain transfers without inflating regular Income, Expenses, or Cash Flow.
+- **Migration and backup compatibility.** Existing stores and schema 1 backups receive deterministic retirement/investment defaults while preserving regular account behavior.
+
+### Changed
+
+- **Dashboard classification.** Existing Income, Expenses, and Cash Flow calculations now consume the central transaction classifier; no dashboard redesign or retirement UI cards were added in this release.
+
 ## [0.4.0] - 2026-06-16
 
 ### Changed

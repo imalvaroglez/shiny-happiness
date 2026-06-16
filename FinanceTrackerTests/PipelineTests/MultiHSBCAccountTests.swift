@@ -18,7 +18,7 @@ struct MultiHSBCAccountTests {
     }
 
     private func loadFixture(_ filename: String) throws -> String {
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/\(filename)")
+        let url = FixtureLoader.url("\(filename)")
         return try String(contentsOf: url, encoding: .utf8)
     }
 

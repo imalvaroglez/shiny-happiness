@@ -4,6 +4,7 @@ import SwiftData
 enum ManualAccountKind: String, CaseIterable, Identifiable {
     case debit
     case investment
+    case retirement
     case creditCard
     case loan
 
@@ -13,6 +14,7 @@ enum ManualAccountKind: String, CaseIterable, Identifiable {
         switch self {
         case .debit: .checking
         case .investment: .investment
+        case .retirement: .retirement
         case .creditCard: .creditCard
         case .loan: .loan
         }
@@ -22,6 +24,7 @@ enum ManualAccountKind: String, CaseIterable, Identifiable {
         switch self {
         case .debit: "Debit"
         case .investment: "Investment"
+        case .retirement: "Retirement"
         case .creditCard: "Credit Card"
         case .loan: "Loan"
         }
@@ -78,6 +81,12 @@ enum AccountCreationService {
         openingAmount: Decimal,
         creditLimit: Decimal?,
         tintHex: String?,
+        retirementKind: RetirementKind? = nil,
+        liquidity: AccountLiquidity? = nil,
+        includeInNetWorth: Bool? = nil,
+        includeInCashFlow: Bool? = nil,
+        includeInRegularIncome: Bool? = nil,
+        taxTrackingEnabled: Bool? = nil,
         openedAt: Date = .now,
         context: ModelContext
     ) throws -> Account {
@@ -97,7 +106,13 @@ enum AccountCreationService {
             openedAt: openedAt,
             creditLimit: kind == .creditCard ? creditLimit : nil,
             tintHex: tintHex,
-            manuallyCreatedAt: .now
+            manuallyCreatedAt: .now,
+            retirementKindRaw: retirementKind?.rawValue,
+            liquidityRaw: liquidity?.rawValue,
+            includeInNetWorth: includeInNetWorth,
+            includeInCashFlow: includeInCashFlow,
+            includeInRegularIncome: includeInRegularIncome,
+            taxTrackingEnabled: taxTrackingEnabled
         )
         context.insert(account)
 
@@ -117,6 +132,27 @@ enum AccountCreationService {
     private static func normalizedOptional(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+extension RetirementKind {
+    var displayName: String {
+        switch self {
+        case .ppr: "PPR"
+        case .afore: "AFORE"
+        case .employerRetirementPlan: "Employer Plan"
+        case .other: "Other Retirement"
+        }
+    }
+}
+
+extension AccountLiquidity {
+    var displayName: String {
+        switch self {
+        case .liquid: "Liquid"
+        case .restricted: "Restricted"
+        case .lockedUntilRetirement: "Locked"
+        }
     }
 }
 
@@ -155,6 +191,7 @@ enum ManualTransactionService {
         signedAmount: Decimal,
         category: Category?,
         flowKindRaw: String? = nil,
+        treatmentKindRaw: String? = nil,
         context: ModelContext
     ) throws -> Transaction {
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -168,11 +205,35 @@ enum ManualTransactionService {
             merchantNormalized: trimmed,
             category: category,
             source: .manual,
-            flowKindRaw: flowKindRaw
+            flowKindRaw: flowKindRaw,
+            movementKindRaw: Transaction.movementKind(
+                from: flowKindRaw.flatMap(TransactionFlowKind.init(rawValue:)) ?? (signedAmount >= 0 ? .income : .expense),
+                amount: signedAmount,
+                isTransfer: false
+            ).rawValue,
+            treatmentKindRaw: treatmentKindRaw ?? defaultTreatmentKind(account: account, description: trimmed).rawValue
         )
         context.insert(tx)
         try context.save()
         return tx
+    }
+
+    private static func defaultTreatmentKind(account: Account, description: String) -> TransactionTreatmentKind {
+        guard account.type == .retirement else { return .regular }
+        let text = description.lowercased()
+        if ["interest", "return", "yield", "gain", "rendimiento", "interes"].contains(where: { text.contains($0) }) {
+            return .investmentReturn
+        }
+        switch account.retirementKind ?? .other {
+        case .ppr:
+            return .retirementContributionUserFunded
+        case .afore:
+            return .statutoryRetirementContribution
+        case .employerRetirementPlan:
+            return .retirementContributionEmployerFunded
+        case .other:
+            return .retirementContributionUserFunded
+        }
     }
 }
 
@@ -203,7 +264,9 @@ enum ManualTransferService {
             category: cats.source,
             isTransfer: true,
             source: .manual,
-            transferGroupID: groupID
+            transferGroupID: groupID,
+            movementKindRaw: TransactionMovementKind.transfer.rawValue,
+            treatmentKindRaw: transferTreatment(source: source, destination: destination).rawValue
         )
         let inflow = Transaction(
             account: destination,
@@ -215,12 +278,28 @@ enum ManualTransferService {
             category: cats.destination,
             isTransfer: true,
             source: .manual,
-            transferGroupID: groupID
+            transferGroupID: groupID,
+            movementKindRaw: TransactionMovementKind.transfer.rawValue,
+            treatmentKindRaw: transferTreatment(source: source, destination: destination).rawValue
         )
         context.insert(outflow)
         context.insert(inflow)
         try context.save()
         return (outflow, inflow)
+    }
+
+    private static func transferTreatment(source: Account, destination: Account) -> TransactionTreatmentKind {
+        guard destination.type == .retirement else { return .regular }
+        switch destination.retirementKind ?? .other {
+        case .ppr:
+            return .retirementContributionUserFunded
+        case .afore:
+            return .statutoryRetirementContribution
+        case .employerRetirementPlan:
+            return .retirementContributionEmployerFunded
+        case .other:
+            return .retirementContributionUserFunded
+        }
     }
 
     private static func transferCategories(source: Account, destination: Account, context: ModelContext) -> (source: Category?, destination: Category?) {

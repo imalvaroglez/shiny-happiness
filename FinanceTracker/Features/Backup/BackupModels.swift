@@ -24,6 +24,12 @@ struct AccountSnapshot: Codable {
     var paymentDayOfMonth: Int?
     var tintHex: String?
     var manuallyCreatedAt: Date?
+    var retirementKindRaw: String?
+    var liquidityRaw: String?
+    var includeInNetWorth: Bool?
+    var includeInCashFlow: Bool?
+    var includeInRegularIncome: Bool?
+    var taxTrackingEnabled: Bool?
     var lastModifiedAt: Date
 }
 
@@ -56,6 +62,8 @@ struct TransactionSnapshot: Codable {
     var transferGroupID: UUID?
     var installmentPlanId: UUID?
     var flowKindRaw: String?
+    var movementKindRaw: String?
+    var treatmentKindRaw: String?
     var lastModifiedAt: Date
     var deletedAt: Date?
 }

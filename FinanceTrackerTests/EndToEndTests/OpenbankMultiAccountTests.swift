@@ -23,7 +23,7 @@ struct OpenbankMultiAccountTests {
 
     private func ingestOpenbankPDF(context: ModelContext) async -> IngestReport {
         let pipeline = IngestPipeline(context: context)
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        let url = FixtureLoader.url("01.pdf")
         let reports = await pipeline.ingest(files: [url])
         return reports[0]
     }
@@ -140,8 +140,8 @@ struct OpenbankMultiAccountTests {
         SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let pipeline = IngestPipeline(context: context)
-        let url1 = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
-        let url2 = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/02.pdf")
+        let url1 = FixtureLoader.url("01.pdf")
+        let url2 = FixtureLoader.url("02.pdf")
         _ = await pipeline.ingest(files: [url1, url2])
 
         let accounts = try context.fetch(FetchDescriptor<Account>())
@@ -161,7 +161,7 @@ struct OpenbankMultiAccountTests {
         SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let pipeline = IngestPipeline(context: context)
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        let url = FixtureLoader.url("01.pdf")
         _ = await pipeline.ingest(files: [url])
 
         let transactions = try context.fetch(FetchDescriptor<Transaction>())

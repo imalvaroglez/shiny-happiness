@@ -30,9 +30,8 @@ struct EndToEndPDFTests {
         let context = container.mainContext
         let pipeline = IngestPipeline(context: context)
 
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/201901.pdf")
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let url = FixtureLoader.optionalURL("201901.pdf") else { return }
         let reports = await pipeline.ingest(files: [url])
 
         #expect(reports.count == 1)
@@ -60,7 +59,7 @@ struct EndToEndPDFTests {
         let context = container.mainContext
         let pipeline = IngestPipeline(context: context)
 
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        let url = FixtureLoader.url("01.pdf")
         let reports = await pipeline.ingest(files: [url])
 
         #expect(reports.count == 1)

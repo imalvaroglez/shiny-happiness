@@ -311,6 +311,11 @@ struct TransactionDetailSheet: View {
             default: amountToStore = abs(draftAbsoluteAmount)
             }
             transaction.flowKindRaw = draftFlowKind.rawValue
+            transaction.movementKindRaw = Transaction.movementKind(
+                from: draftFlowKind,
+                amount: amountToStore,
+                isTransfer: transaction.isTransfer
+            ).rawValue
         } else {
             amountToStore = draftSignedAmount
         }

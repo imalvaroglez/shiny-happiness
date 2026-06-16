@@ -31,7 +31,7 @@ struct IngestPipelineTests {
         let context = container.mainContext
         let pipeline = IngestPipeline(context: context)
 
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        let url = FixtureLoader.url("01.pdf")
         let reports = await pipeline.ingest(files: [url])
 
         #expect(reports.count == 1)
@@ -57,9 +57,8 @@ struct IngestPipelineTests {
         let context = container.mainContext
         let pipeline = IngestPipeline(context: context)
 
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/202302.pdf")
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let url = FixtureLoader.optionalURL("202302.pdf") else { return }
         let reports = await pipeline.ingest(files: [url])
 
         #expect(reports.count == 1)
@@ -71,7 +70,7 @@ struct IngestPipelineTests {
         let context = container.mainContext
         let pipeline = IngestPipeline(context: context)
 
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        let url = FixtureLoader.url("01.pdf")
 
         let firstReports = await pipeline.ingest(files: [url])
         #expect(firstReports[0].newTransactions > 0)
@@ -87,7 +86,7 @@ struct IngestPipelineTests {
         let context = container.mainContext
         let pipeline = IngestPipeline(context: context)
 
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        let url = FixtureLoader.url("01.pdf")
         _ = await pipeline.ingest(files: [url])
 
         let descriptor = FetchDescriptor<Account>()
@@ -104,7 +103,7 @@ struct IngestPipelineTests {
         let context = container.mainContext
         let pipeline = IngestPipeline(context: context)
 
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        let url = FixtureLoader.url("01.pdf")
         _ = await pipeline.ingest(files: [url])
         _ = await pipeline.ingest(files: [url])
 
@@ -134,9 +133,8 @@ struct IngestPipelineTests {
         let context = container.mainContext
         let pipeline = IngestPipeline(context: context)
 
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/GitHub/shiny-happiness/samples/201901.pdf")
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let url = FixtureLoader.optionalURL("201901.pdf") else { return }
         let reports = await pipeline.ingest(files: [url])
 
         #expect(reports.count == 1)
@@ -150,8 +148,7 @@ struct IngestPipelineTests {
 
     @Test("Duplicate statement import repairs stale non-nil metadata")
     func duplicateStatementRepairsMetadata() async throws {
-        let url = URL(fileURLWithPath: "/Users/developer/Documents/finanzas/banca/amex/Estados de cuenta/12_abr_2026_-_11_may_2026.pdf")
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let url = FixtureLoader.optionalURL("12_abr_2026_-_11_may_2026.pdf") else { return }
 
         let container = try makeContainer()
         let context = container.mainContext
