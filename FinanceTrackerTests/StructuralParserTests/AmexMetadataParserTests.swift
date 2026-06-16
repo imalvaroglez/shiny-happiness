@@ -168,8 +168,7 @@ struct AmexMetadataParserTests {
 
     @Test("Parses May 2026 Gold Elite PDF metadata")
     func parsesMayGoldElitePDFMetadata() async throws {
-        let url = URL(fileURLWithPath: "/Users/imalvaroglez/Documents/finanzas/banca/amex/Estados de cuenta/12_abr_2026_-_11_may_2026.pdf")
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let url = FixtureLoader.optionalURL("12_abr_2026_-_11_may_2026.pdf") else { return }
 
         let sections = try await parser.parseSections(data: Data(contentsOf: url))
         let section = try #require(sections.first)
@@ -188,8 +187,7 @@ struct AmexMetadataParserTests {
 
     @Test("Parses March 2026 Gold Elite PDF metadata")
     func parsesMarchGoldElitePDFMetadata() async throws {
-        let url = URL(fileURLWithPath: "/Users/imalvaroglez/Documents/finanzas/banca/amex/Estados de cuenta/202603.pdf")
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let url = FixtureLoader.optionalURL("202603.pdf") else { return }
 
         let sections = try await parser.parseSections(data: Data(contentsOf: url))
         let section = try #require(sections.first)

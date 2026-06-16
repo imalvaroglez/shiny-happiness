@@ -8,7 +8,7 @@ struct PastedHsbc2NowParserTests {
 
     private var fixture: String {
         get throws {
-            let url = URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/2026-05-08_HSBC_2Now_paste.txt")
+            let url = FixtureLoader.url("2026-05-08_HSBC_2Now_paste.txt")
             return try String(contentsOf: url, encoding: .utf8)
         }
     }

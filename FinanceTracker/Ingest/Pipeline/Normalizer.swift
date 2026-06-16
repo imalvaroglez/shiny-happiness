@@ -12,7 +12,13 @@ struct Normalizer {
             merchantNormalized: raw.merchantNormalized,
             fxRateToBase: raw.fxRateToBase,
             isTransfer: raw.isTransfer,
-            cardLast4: raw.cardLast4
+            cardLast4: raw.cardLast4,
+            movementKindRaw: Transaction.movementKind(
+                from: raw.isTransfer ? .transfer : (raw.amount >= 0 ? .income : .expense),
+                amount: raw.amount,
+                isTransfer: raw.isTransfer
+            ).rawValue,
+            treatmentKindRaw: TransactionTreatmentKind.regular.rawValue
         )
     }
 

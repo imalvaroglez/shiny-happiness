@@ -31,6 +31,7 @@ final class DashboardViewModel {
     var scope: DashboardScope = .consolidated
 
     private var context: ModelContext?
+    private let transactionClassifier = TransactionClassifier()
 
     func setPeriod(_ kind: DashboardPeriodKind, customRange: DateRange? = nil, now: Date = .now) {
         periodKind = kind
@@ -90,19 +91,8 @@ final class DashboardViewModel {
         return fetched.filter { validIDs.contains($0.account?.id ?? UUID()) }
     }
 
-    /// Returns `true` when the transaction should NOT contribute to income/expense
-    /// aggregates: duplicates, transfers, credit-card payments (both sides cancel),
-    /// and the synthesized "original purchase" rows of MSI installments — those last
-    /// ones are excluded because their cash impact is realized through monthly
-    /// installments, which are separate transactions.
     private func excludedFromCashFlow(_ tx: Transaction) -> Bool {
-        if tx.isDuplicate { return true }
-        if tx.isTransfer { return true }
-        if tx.category?.kind == .transfer { return true }
-        if tx.category?.kind == .creditCardPayment { return true }
-        if tx.account?.type.isLiability == true && tx.amount > 0 { return true }
-        if isOwnAccountMovement(tx) { return true }
-        return isSynthesizedMSIPurchase(tx)
+        !transactionClassifier.classify(transaction: tx).countsAsOperatingCashFlow
     }
 
     private func isSynthesizedMSIPurchase(_ tx: Transaction) -> Bool {
@@ -110,18 +100,6 @@ final class DashboardViewModel {
             return true
         }
         return false
-    }
-
-    private static let ownAccountPatterns: [String] = [
-        "(?i)PAGO\\s+RECIBIDO\\s+DE\\s+STP\\s+POR\\s+ORDEN\\s+DE\\s+ALVARO",
-        "(?i)recibida\\s+(de\\s+la\\s+)?cuenta\\s+0728\\s+BANAMEX",
-        "(?i)PAGO\\s+INTERBANCARIO\\s+PAGO\\s+RECIBIDO\\s+DE.*STP.*ALVARO",
-    ]
-
-    private func isOwnAccountMovement(_ tx: Transaction) -> Bool {
-        Self.ownAccountPatterns.contains {
-            tx.descriptionRaw.range(of: $0, options: .regularExpression) != nil
-        }
     }
 
     // MARK: - Consolidated
@@ -283,14 +261,15 @@ final class DashboardViewModel {
         var hasIncludedTransaction = false
 
         for tx in transactions {
-            if excludedFromCashFlow(tx) { continue }
+            let classification = transactionClassifier.classify(transaction: tx)
+            guard classification.countsAsRegularIncome || classification.countsAsRegularExpense else { continue }
             let bucketStart = period.bucket.start(for: tx.postedAt, calendar: calendar)
             guard grouped[bucketStart] != nil else { continue }
             hasIncludedTransaction = true
             let existing = grouped[bucketStart] ?? (0, 0)
-            if tx.amount > 0 {
+            if classification.countsAsRegularIncome {
                 grouped[bucketStart] = (existing.income + tx.amount, existing.expenses)
-            } else {
+            } else if classification.countsAsRegularExpense {
                 grouped[bucketStart] = (existing.income, existing.expenses + tx.amount)
             }
         }
@@ -338,8 +317,7 @@ final class DashboardViewModel {
         categoryMap[uncategorizedKey] = uncategorizedSentinel
 
         for tx in transactions {
-            if excludedFromCashFlow(tx) { continue }
-            guard tx.amount < 0 else { continue }
+            guard transactionClassifier.classify(transaction: tx).countsAsRegularExpense else { continue }
             let key: ObjectIdentifier
             if let cat = tx.category, cat.deletedAt == nil {
                 key = ObjectIdentifier(cat)
@@ -359,8 +337,9 @@ final class DashboardViewModel {
         var income: Decimal = 0
         var expenses: Decimal = 0
         for tx in transactions {
-            if excludedFromCashFlow(tx) { continue }
-            if tx.amount > 0 { income += tx.amount } else { expenses += tx.amount }
+            let classification = transactionClassifier.classify(transaction: tx)
+            if classification.countsAsRegularIncome { income += tx.amount }
+            if classification.countsAsRegularExpense { expenses += tx.amount }
         }
         return (income, expenses)
     }
@@ -369,6 +348,7 @@ final class DashboardViewModel {
         var total: Decimal = 0
         for tx in transactions {
             guard !tx.isDuplicate else { continue }
+            guard !transactionClassifier.classify(transaction: tx).countsAsInvestmentReturn else { continue }
             if tx.category?.name == "Interest" && tx.amount > 0 {
                 total += tx.amount
             }
@@ -391,7 +371,8 @@ final class DashboardViewModel {
 
     private func computeNetWorth(context: ModelContext, period: DashboardPeriodContext) -> (current: Decimal, series: [NetWorthPoint], summaries: [AccountSummary]) {
         let accountsDescriptor = FetchDescriptor<Account>(sortBy: [SortDescriptor(\.nickname)])
-        let accounts = (try? context.fetch(accountsDescriptor)) ?? []
+        let accounts = ((try? context.fetch(accountsDescriptor)) ?? [])
+            .filter(\.effectiveIncludeInNetWorth)
 
         let resolutionsByAccount = Dictionary(uniqueKeysWithValues: accounts.map { account in
             (account.id, AccountBalanceResolver.resolution(account: account, asOf: period.effectiveNetWorthDate, context: context))

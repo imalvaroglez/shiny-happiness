@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    private static let schemaVersion = 1
+    private static let schemaVersion = 2
     private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -104,7 +104,7 @@ enum BackupArchive {
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard manifest.schemaVersion == schemaVersion else {
+        guard manifest.schemaVersion == 1 || manifest.schemaVersion == schemaVersion else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
 
@@ -323,6 +323,12 @@ enum BackupArchive {
             obj.statement = snap.statementId.flatMap { statementMap[$0] }
             obj.category = snap.categoryId.flatMap { categoryMap[$0] }
             obj.installmentPlan = snap.installmentPlanId.flatMap { installmentPlanMap[$0] }
+            if obj.movementKindRaw == nil {
+                obj.movementKindRaw = Transaction.movementKind(from: obj.flowKind, amount: obj.amount, isTransfer: obj.isTransfer).rawValue
+            }
+            if obj.treatmentKindRaw == nil {
+                obj.treatmentKindRaw = inferredBackupTreatmentKind(obj).rawValue
+            }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
         for snap in pendingImportsSnap {
@@ -363,6 +369,24 @@ enum BackupArchive {
         }
         return map
     }
+
+    private static func inferredBackupTreatmentKind(_ transaction: Transaction) -> TransactionTreatmentKind {
+        guard transaction.account?.type == .retirement else { return .regular }
+        let text = "\(transaction.descriptionRaw) \(transaction.category?.name ?? "")".lowercased()
+        if ["interest", "return", "yield", "gain", "rendimiento", "interes"].contains(where: { text.contains($0) }) {
+            return .investmentReturn
+        }
+        switch transaction.account?.retirementKind ?? .other {
+        case .ppr:
+            return .retirementContributionUserFunded
+        case .afore:
+            return .statutoryRetirementContribution
+        case .employerRetirementPlan:
+            return .retirementContributionEmployerFunded
+        case .other:
+            return .retirementContributionUserFunded
+        }
+    }
 }
 
 private enum RestoreError: LocalizedError {
@@ -390,8 +414,15 @@ extension Account {
             statementDayOfMonth: snap.statementDayOfMonth,
             paymentDayOfMonth: snap.paymentDayOfMonth,
             tintHex: snap.tintHex,
-            manuallyCreatedAt: snap.manuallyCreatedAt
+            manuallyCreatedAt: snap.manuallyCreatedAt,
+            retirementKindRaw: snap.retirementKindRaw,
+            liquidityRaw: snap.liquidityRaw,
+            includeInNetWorth: snap.includeInNetWorth,
+            includeInCashFlow: snap.includeInCashFlow,
+            includeInRegularIncome: snap.includeInRegularIncome,
+            taxTrackingEnabled: snap.taxTrackingEnabled
         )
+        applyBackupMetadataDefaults(from: snap)
     }
 
     func apply(_ snap: AccountSnapshot) {
@@ -407,7 +438,29 @@ extension Account {
         paymentDayOfMonth = snap.paymentDayOfMonth
         tintHex = snap.tintHex
         manuallyCreatedAt = snap.manuallyCreatedAt
+        applyBackupMetadataDefaults(from: snap)
         lastModifiedAt = snap.lastModifiedAt
+    }
+
+    private func applyBackupMetadataDefaults(from snap: AccountSnapshot) {
+        let kind = snap.retirementKindRaw.flatMap(RetirementKind.init(rawValue:)) ?? inferredBackupRetirementKind
+        retirementKindRaw = kind?.rawValue
+        liquidityRaw = snap.liquidityRaw ?? Account.defaultLiquidity(type: type, retirementKind: kind).rawValue
+        includeInNetWorth = snap.includeInNetWorth ?? true
+        includeInCashFlow = snap.includeInCashFlow ?? (type == .retirement ? false : true)
+        includeInRegularIncome = snap.includeInRegularIncome ?? (type == .retirement ? false : true)
+        taxTrackingEnabled = snap.taxTrackingEnabled ?? (kind == .ppr)
+    }
+
+    private var inferredBackupRetirementKind: RetirementKind? {
+        guard type == .retirement else { return nil }
+        let text = "\(institution) \(nickname) \(accountNumber ?? "")".lowercased()
+        if text.contains("ppr") { return .ppr }
+        if text.contains("afore") { return .afore }
+        if text.contains("employer") || text.contains("empresa") || text.contains("plan") {
+            return .employerRetirementPlan
+        }
+        return .other
     }
 }
 
@@ -427,6 +480,12 @@ extension AccountSnapshot {
             paymentDayOfMonth: account.paymentDayOfMonth,
             tintHex: account.tintHex,
             manuallyCreatedAt: account.manuallyCreatedAt,
+            retirementKindRaw: account.retirementKindRaw,
+            liquidityRaw: account.liquidityRaw,
+            includeInNetWorth: account.includeInNetWorth,
+            includeInCashFlow: account.includeInCashFlow,
+            includeInRegularIncome: account.includeInRegularIncome,
+            taxTrackingEnabled: account.taxTrackingEnabled,
             lastModifiedAt: account.lastModifiedAt
         )
     }
@@ -552,7 +611,9 @@ extension Transaction {
             cardLast4: snap.cardLast4,
             source: snap.source.flatMap { TransactionSource(rawValue: $0) } ?? .imported,
             transferGroupID: snap.transferGroupID,
-            flowKindRaw: snap.flowKindRaw
+            flowKindRaw: snap.flowKindRaw,
+            movementKindRaw: snap.movementKindRaw,
+            treatmentKindRaw: snap.treatmentKindRaw
         )
         deletedAt = snap.deletedAt
     }
@@ -570,6 +631,8 @@ extension Transaction {
         source = snap.source.flatMap { TransactionSource(rawValue: $0) } ?? .imported
         transferGroupID = snap.transferGroupID
         flowKindRaw = snap.flowKindRaw
+        movementKindRaw = snap.movementKindRaw
+        treatmentKindRaw = snap.treatmentKindRaw
         deletedAt = snap.deletedAt
         lastModifiedAt = snap.lastModifiedAt
     }
@@ -595,6 +658,8 @@ extension TransactionSnapshot {
             transferGroupID: transaction.transferGroupID,
             installmentPlanId: transaction.installmentPlan?.id,
             flowKindRaw: transaction.flowKindRaw,
+            movementKindRaw: transaction.movementKindRaw,
+            treatmentKindRaw: transaction.treatmentKindRaw,
             lastModifiedAt: transaction.lastModifiedAt,
             deletedAt: transaction.deletedAt
         )

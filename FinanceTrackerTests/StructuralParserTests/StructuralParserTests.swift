@@ -17,7 +17,7 @@ struct StructuralParserTests {
     // MARK: - Openbank Mexico (Grid Layout)
 
     private var openbankPDF: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        FixtureLoader.url("01.pdf")
     }
 
     @Test("Parses Openbank PDF (grid layout) and extracts transactions")
@@ -63,14 +63,14 @@ struct StructuralParserTests {
 
     // MARK: - Amex Mexico (Flow Layout)
 
-    private var amexPDF: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/201901.pdf")
+    private var amexPDF: URL? {
+        FixtureLoader.optionalURL("201901.pdf")
     }
 
     @Test("Parses Amex PDF (flow layout) and extracts transactions")
     func parsesAmexPDF() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: amexPDF.path) else { return }
+        guard let amexPDF else { return }
         let data = try Data(contentsOf: amexPDF)
         let transactions = try await parser.parse(data: data)
 
@@ -86,7 +86,7 @@ struct StructuralParserTests {
     @Test("Amex transactions have valid dates in reasonable range")
     func amexDatesValid() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: amexPDF.path) else { return }
+        guard let amexPDF else { return }
         let data = try Data(contentsOf: amexPDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
@@ -103,7 +103,7 @@ struct StructuralParserTests {
     @Test("Amex detects credit transactions (payments)")
     func amexCreditTransactions() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: amexPDF.path) else { return }
+        guard let amexPDF else { return }
         let data = try Data(contentsOf: amexPDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
@@ -115,7 +115,7 @@ struct StructuralParserTests {
     @Test("Amex detects charge transactions")
     func amexChargeTransactions() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: amexPDF.path) else { return }
+        guard let amexPDF else { return }
         let data = try Data(contentsOf: amexPDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
@@ -126,14 +126,14 @@ struct StructuralParserTests {
 
     // MARK: - Banorte POR Ti (Flow Layout with DD/MM dates)
 
-    private var banortePDF: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/EdoCta 202208.pdf")
+    private var banortePDF: URL? {
+        FixtureLoader.optionalURL("EdoCta 202208.pdf")
     }
 
     @Test("Parses Banorte POR Ti PDF and extracts transactions")
     func parsesBanortePDF() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: banortePDF.path) else { return }
+        guard let banortePDF else { return }
         let data = try Data(contentsOf: banortePDF)
         let transactions = try await parser.parse(data: data)
 
@@ -149,7 +149,7 @@ struct StructuralParserTests {
     @Test("Banorte transactions have valid dates in 2022 range")
     func banorteDatesValid() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: banortePDF.path) else { return }
+        guard let banortePDF else { return }
         let data = try Data(contentsOf: banortePDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
@@ -166,7 +166,7 @@ struct StructuralParserTests {
     @Test("Banorte detects payment (positive amount with trailing minus)")
     func banortePaymentDetected() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: banortePDF.path) else { return }
+        guard let banortePDF else { return }
         let data = try Data(contentsOf: banortePDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
@@ -178,7 +178,7 @@ struct StructuralParserTests {
     @Test("Banorte detects charges (negative amounts)")
     func banorteChargesDetected() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: banortePDF.path) else { return }
+        guard let banortePDF else { return }
         let data = try Data(contentsOf: banortePDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
@@ -189,14 +189,14 @@ struct StructuralParserTests {
 
     // MARK: - Suburbia (Line-based with DD/MM dates)
 
-    private var suburbiaPDF: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/201607 Suburbia.pdf")
+    private var suburbiaPDF: URL? {
+        FixtureLoader.optionalURL("201607 Suburbia.pdf")
     }
 
     @Test("Parses Suburbia PDF and extracts transactions")
     func parsesSuburbiaPDF() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: suburbiaPDF.path) else { return }
+        guard let suburbiaPDF else { return }
         let data = try Data(contentsOf: suburbiaPDF)
         let transactions = try await parser.parse(data: data)
 
@@ -211,7 +211,7 @@ struct StructuralParserTests {
     @Test("Suburbia transactions have valid dates in 2016 range")
     func suburbiaDatesValid() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: suburbiaPDF.path) else { return }
+        guard let suburbiaPDF else { return }
         let data = try Data(contentsOf: suburbiaPDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
@@ -228,7 +228,7 @@ struct StructuralParserTests {
     @Test("Suburbia detects payments (negative amounts)")
     func suburbiaPaymentsDetected() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: suburbiaPDF.path) else { return }
+        guard let suburbiaPDF else { return }
         let data = try Data(contentsOf: suburbiaPDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
@@ -239,14 +239,14 @@ struct StructuralParserTests {
 
     // MARK: - DiDi Cuenta (Multi-line)
 
-    private var didiPDF: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/julio.pdf")
+    private var didiPDF: URL? {
+        FixtureLoader.optionalURL("julio.pdf")
     }
 
     @Test("Parses DiDi Cuenta PDF without crashing")
     func parsesDidiPDF() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: didiPDF.path) else { return }
+        guard let didiPDF else { return }
         let data = try Data(contentsOf: didiPDF)
         let transactions = try await parser.parse(data: data)
         #expect(transactions.allSatisfy { $0.currency == "MXN" })
@@ -254,14 +254,14 @@ struct StructuralParserTests {
 
     // MARK: - CETES/CI Banco (Investment)
 
-    private var cetesPDF: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/202102.pdf")
+    private var cetesPDF: URL? {
+        FixtureLoader.optionalURL("202102.pdf")
     }
 
     @Test("Parses CETES PDF without crashing")
     func parsesCetesPDF() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: cetesPDF.path) else { return }
+        guard let cetesPDF else { return }
         let data = try Data(contentsOf: cetesPDF)
         let transactions = try await parser.parse(data: data)
         #expect(transactions.allSatisfy { $0.currency == "MXN" })
@@ -269,14 +269,14 @@ struct StructuralParserTests {
 
     // MARK: - Skandia (Retirement/Pension)
 
-    private var skandiaPDF: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/2023.pdf")
+    private var skandiaPDF: URL? {
+        FixtureLoader.optionalURL("2023.pdf")
     }
 
     @Test("Parses Skandia PDF without crashing")
     func parsesSkandiaPDF() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: skandiaPDF.path) else { return }
+        guard let skandiaPDF else { return }
         let data = try Data(contentsOf: skandiaPDF)
         let transactions = try await parser.parse(data: data)
         #expect(transactions.allSatisfy { $0.currency == "MXN" })
@@ -284,14 +284,14 @@ struct StructuralParserTests {
 
     // MARK: - DiDi/Stori (Wallet)
 
-    private var didiStoriPDF: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/202509.pdf")
+    private var didiStoriPDF: URL? {
+        FixtureLoader.optionalURL("202509.pdf")
     }
 
     @Test("Parses DiDi/Stori PDF without crashing")
     func parsesDidiStoriPDF() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: didiStoriPDF.path) else { return }
+        guard let didiStoriPDF else { return }
         let data = try Data(contentsOf: didiStoriPDF)
         let transactions = try await parser.parse(data: data)
         #expect(transactions.allSatisfy { $0.currency == "MXN" })

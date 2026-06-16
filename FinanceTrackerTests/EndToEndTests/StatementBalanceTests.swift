@@ -16,7 +16,7 @@ struct StatementBalanceTests {
     }
 
     private var openbankPDF: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        FixtureLoader.url("01.pdf")
     }
 
     @Test("Extracts closing balance from each account section")
@@ -50,7 +50,7 @@ struct StatementBalanceTests {
 
     @Test("March PDF has correct closing balance for Apartado")
     func marchClosingBalance() async throws {
-        let url = URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/03.pdf")
+        let url = FixtureLoader.url("03.pdf")
         guard FileManager.default.fileExists(atPath: url.path) else { return }
 
         let data = try Data(contentsOf: url)
@@ -63,7 +63,7 @@ struct StatementBalanceTests {
 
     @Test("February PDF has correct closing balance for Apartado")
     func februaryClosingBalance() async throws {
-        let url = URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/02.pdf")
+        let url = FixtureLoader.url("02.pdf")
         guard FileManager.default.fileExists(atPath: url.path) else { return }
 
         let data = try Data(contentsOf: url)
@@ -101,7 +101,7 @@ struct StatementBalancePersistenceTests {
         SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let pipeline = IngestPipeline(context: context)
-        let url = URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        let url = FixtureLoader.url("01.pdf")
         let reports = await pipeline.ingest(files: [url])
         #expect(reports[0].newTransactions > 0)
 
@@ -127,9 +127,9 @@ struct StatementBalancePersistenceTests {
 
         let pipeline = IngestPipeline(context: context)
         let urls = [
-            URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/01.pdf"),
-            URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/02.pdf"),
-            URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/03.pdf"),
+            FixtureLoader.url("01.pdf"),
+            FixtureLoader.url("02.pdf"),
+            FixtureLoader.url("03.pdf"),
         ]
         let reports = await pipeline.ingest(files: urls)
         #expect(reports.allSatisfy { $0.newTransactions > 0 || $0.errors.isEmpty })

@@ -14,7 +14,7 @@ struct OpenbankMexicoParserTests {
     }
 
     private var sampleDataURL: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/01.pdf")
+        FixtureLoader.url("01.pdf")
     }
 
     private var fixtureExists: Bool {

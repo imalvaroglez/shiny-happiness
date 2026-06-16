@@ -20,6 +20,8 @@ final class Transaction: LastModifiedTracking {
     var transferGroupID: UUID?
     @Relationship(deleteRule: .nullify, inverse: \InstallmentPlan.installments) var installmentPlan: InstallmentPlan?
     var flowKindRaw: String? = nil
+    var movementKindRaw: String?
+    var treatmentKindRaw: String?
     var lastModifiedAt: Date = Date.now
     var deletedAt: Date? = nil
 
@@ -40,7 +42,9 @@ final class Transaction: LastModifiedTracking {
         source: TransactionSource = .imported,
         transferGroupID: UUID? = nil,
         installmentPlan: InstallmentPlan? = nil,
-        flowKindRaw: String? = nil
+        flowKindRaw: String? = nil,
+        movementKindRaw: String? = nil,
+        treatmentKindRaw: String? = nil
     ) {
         self.id = id
         self.account = account
@@ -59,6 +63,8 @@ final class Transaction: LastModifiedTracking {
         self.transferGroupID = transferGroupID
         self.installmentPlan = installmentPlan
         self.flowKindRaw = flowKindRaw
+        self.movementKindRaw = movementKindRaw
+        self.treatmentKindRaw = treatmentKindRaw
     }
 
     var categoryName: String {
@@ -79,5 +85,29 @@ final class Transaction: LastModifiedTracking {
             return .charge
         }
         return amount >= 0 ? .income : .expense
+    }
+
+    var movementKind: TransactionMovementKind {
+        if let raw = movementKindRaw, let kind = TransactionMovementKind(rawValue: raw) {
+            return kind
+        }
+        return Self.movementKind(from: flowKind, amount: amount, isTransfer: isTransfer)
+    }
+
+    var treatmentKind: TransactionTreatmentKind {
+        if let raw = treatmentKindRaw, let kind = TransactionTreatmentKind(rawValue: raw) {
+            return kind
+        }
+        return .regular
+    }
+
+    static func movementKind(from flowKind: TransactionFlowKind, amount: Decimal, isTransfer: Bool) -> TransactionMovementKind {
+        if isTransfer { return .transfer }
+        switch flowKind {
+        case .income: return .income
+        case .expense, .charge: return .expense
+        case .transfer, .payment: return .transfer
+        case .cardCredit: return .adjustment
+        }
     }
 }

@@ -32,13 +32,13 @@ struct DashboardSnapshotTests {
 
     private var hsbcFixture: String {
         get throws {
-            let url = URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/2026-05-08_HSBC_2Now_paste.txt")
+            let url = FixtureLoader.url("2026-05-08_HSBC_2Now_paste.txt")
             return try String(contentsOf: url, encoding: .utf8)
         }
     }
 
     private var openbankFixturePath: String {
-        "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/01.pdf"
+        FixtureLoader.url("01.pdf").path
     }
 
     private func skipIfFixtureMissing(_ path: String) -> Bool {

@@ -241,6 +241,50 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                 }
 
+                if account.type == .retirement {
+                    Picker("Retirement", selection: Binding(
+                        get: { account.retirementKind ?? .other },
+                        set: { account.retirementKind = $0 }
+                    )) {
+                        ForEach(RetirementKind.allCases, id: \.self) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+                    .labelsHidden()
+                }
+
+                if account.type == .retirement || account.type == .investment {
+                    Picker("Liquidity", selection: Binding(
+                        get: { account.liquidity },
+                        set: { account.liquidity = $0 }
+                    )) {
+                        ForEach(AccountLiquidity.allCases, id: \.self) { value in
+                            Text(value.displayName).tag(value)
+                        }
+                    }
+                    .labelsHidden()
+
+                    Toggle("Include in Net Worth", isOn: Binding(
+                        get: { account.effectiveIncludeInNetWorth },
+                        set: { account.includeInNetWorth = $0 }
+                    ))
+                    Toggle("Include in Cash Flow", isOn: Binding(
+                        get: { account.effectiveIncludeInCashFlow },
+                        set: { account.includeInCashFlow = $0 }
+                    ))
+                    Toggle("Include in Income", isOn: Binding(
+                        get: { account.effectiveIncludeInRegularIncome },
+                        set: { account.includeInRegularIncome = $0 }
+                    ))
+                }
+
+                if account.type == .retirement {
+                    Toggle("Tax Tracking", isOn: Binding(
+                        get: { account.taxTrackingEnabled ?? (account.retirementKind == .ppr) },
+                        set: { account.taxTrackingEnabled = $0 }
+                    ))
+                }
+
                 Button {
                     balanceSnapshotAccount = account
                 } label: {
@@ -571,10 +615,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Dashboard charts now feel more compact and intentional across every period.",
-        "Cash Flow groups sparse months instead of stretching them across empty space.",
-        "Net Worth labels now use clean currency formatting without scientific notation.",
-        "Hover tooltips and selected points now feel more polished and easier to read.",
+        "Retirement accounts can now store PPR, AFORE, employer plan, and liquidity details.",
+        "Transfers into retirement accounts stay transfers while becoming trackable retirement activity.",
+        "Retirement and restricted investment activity no longer inflates regular Income or Cash Flow.",
+        "Backups now preserve the new retirement and transaction classification metadata.",
     ]
 
     private var lastBackupDate: String? {

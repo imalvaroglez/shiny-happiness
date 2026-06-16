@@ -130,25 +130,24 @@ struct PastedHsbc2NowParser {
 
     func parseHeader(lines: [String]) -> Header {
         var h = Header(fallbackYear: Calendar.current.component(.year, from: .now))
-        let joined = lines.joined(separator: "\n")
-
-        if let m = joined.firstMatch(of: /(\d{1,2})-([A-Za-zñÑáéíóúÁÉÍÓÚ]{3})-(\d{4})\s*al\s*(\d{1,2})-([A-Za-zñÑáéíóúÁÉÍÓÚ]{3})-(\d{4})/) {
-            h.periodStart = parseSpanishDate("\(m.1)-\(m.2)-\(m.3)")
-            h.periodEnd = parseSpanishDate("\(m.4)-\(m.5)-\(m.6)")
-            if let e = h.periodEnd {
-                h.fallbackYear = Calendar.current.component(.year, from: e)
-            }
-        }
-
-        if let m = joined.firstMatch(of: /(?i)l[ií]mite de pago[^\n]*?(\d{1,2})-([A-Za-zñÑáéíóúÁÉÍÓÚ]{3})-(\d{4})/) {
-            h.paymentDueDate = parseSpanishDate("\(m.1)-\(m.2)-\(m.3)")
-        }
 
         for (idx, line) in lines.enumerated() {
+            if h.periodStart == nil, let period = parsePeriodRange(in: line) {
+                h.periodStart = period.start
+                h.periodEnd = period.end
+                if let e = h.periodEnd {
+                    h.fallbackYear = Calendar.current.component(.year, from: e)
+                }
+            }
+            if h.paymentDueDate == nil,
+               line.localizedCaseInsensitiveContains("límite de pago") || line.localizedCaseInsensitiveContains("limite de pago") {
+                h.paymentDueDate = parseFirstDateToken(in: line)
+            }
             if h.paymentForNoInterest == nil, line.range(of: "PAGO PARA NO GENERAR", options: .caseInsensitive) != nil {
                 h.paymentForNoInterest = findAmountNear(lines: lines, around: idx)
             }
-            if h.minimumPayment == nil, line.range(of: #"Pago m[ií]nimo"#, options: .regularExpression) != nil {
+            if h.minimumPayment == nil,
+               line.localizedCaseInsensitiveContains("Pago mínimo") || line.localizedCaseInsensitiveContains("Pago minimo") {
                 if line.range(of: "compras y", options: .caseInsensitive) == nil && line.range(of: "cargos diferidos", options: .caseInsensitive) == nil {
                     h.minimumPayment = findAmountNear(lines: lines, around: idx)
                 }
@@ -159,7 +158,8 @@ struct PastedHsbc2NowParser {
             if h.totalBalance == nil, line.range(of: "Saldo deudor total", options: .caseInsensitive) != nil {
                 h.totalBalance = findAmountNear(lines: lines, around: idx)
             }
-            if h.creditLimit == nil, line.range(of: #"L[ií]mite de cr[eé]dito"#, options: .regularExpression) != nil {
+            if h.creditLimit == nil,
+               line.localizedCaseInsensitiveContains("Límite de crédito") || line.localizedCaseInsensitiveContains("Limite de credito") {
                 h.creditLimit = findAmountNear(lines: lines, around: idx)
             }
             if h.interestCharged == nil, line.range(of: "Monto de intereses", options: .caseInsensitive) != nil {
@@ -171,12 +171,33 @@ struct PastedHsbc2NowParser {
             if h.ivaCharged == nil, line.range(of: "IVA de intereses", options: .caseInsensitive) != nil {
                 h.ivaCharged = findAmountNear(lines: lines, around: idx)
             }
-            if h.titularCardLast4 == nil, let m = line.firstMatch(of: /Tarjeta\s+titular\s+\d{12}(\d{4})/) {
-                h.titularCardLast4 = String(m.1)
+            if h.titularCardLast4 == nil,
+               line.localizedCaseInsensitiveContains("Tarjeta titular"),
+               let cardNumber = line.split(whereSeparator: \.isWhitespace).first(where: { $0.allSatisfy(\.isNumber) && $0.count >= 4 }) {
+                h.titularCardLast4 = String(cardNumber.suffix(4))
             }
         }
 
         return h
+    }
+
+    private func parsePeriodRange(in line: String) -> (start: Date, end: Date)? {
+        let parts = line.components(separatedBy: " al ")
+        guard parts.count == 2,
+              let start = parseSpanishDate(parts[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+              let end = parseSpanishDate(parts[1].trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return nil
+        }
+        return (start, end)
+    }
+
+    private func parseFirstDateToken(in line: String) -> Date? {
+        let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",;:()"))
+        return line
+            .components(separatedBy: separators)
+            .lazy
+            .compactMap { parseSpanishDate($0) }
+            .first
     }
 
     /// Find the first parseable amount in a line near `idx`. Returns the absolute value
@@ -186,13 +207,38 @@ struct PastedHsbc2NowParser {
         for offset in [0, 1, 2, -1, -2] {
             let i = idx + offset
             guard i >= 0, i < lines.count else { continue }
-            if let m = lines[i].matches(of: /\$\s*(\d[\d,]*(?:\.\d{1,2})?)/).last {
-                if let v = parseAmountBody(String(m.1)) {
-                    return v
-                }
+            if let amount = amountBodies(in: lines[i]).last,
+               let value = parseAmountBody(amount) {
+                return value
             }
         }
         return nil
+    }
+
+    private func amountBodies(in line: String) -> [String] {
+        var bodies: [String] = []
+        var remainder = line[line.startIndex...]
+        while let dollar = remainder.firstIndex(of: "$") {
+            var index = remainder.index(after: dollar)
+            while index < remainder.endIndex, remainder[index].isWhitespace {
+                index = remainder.index(after: index)
+            }
+            let start = index
+            while index < remainder.endIndex {
+                let char = remainder[index]
+                if char.isNumber || char == "," || char == "." || char == " " {
+                    index = remainder.index(after: index)
+                } else {
+                    break
+                }
+            }
+            let body = String(remainder[start..<index]).trimmingCharacters(in: .whitespaces)
+            if !body.isEmpty {
+                bodies.append(body)
+            }
+            remainder = index < remainder.endIndex ? remainder[index...] : remainder[remainder.endIndex...]
+        }
+        return bodies
     }
 
     // MARK: - MSI installments

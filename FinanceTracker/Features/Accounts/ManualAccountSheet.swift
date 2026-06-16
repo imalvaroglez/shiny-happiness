@@ -16,6 +16,12 @@ struct ManualAccountSheet: View {
     @State private var creditLimit: Decimal = 0
     @State private var openingDate = Date.now
     @State private var tint = Color.accentColor
+    @State private var retirementKind: RetirementKind = .ppr
+    @State private var liquidity: AccountLiquidity = .restricted
+    @State private var includeInNetWorth = true
+    @State private var includeInCashFlow = false
+    @State private var includeInRegularIncome = false
+    @State private var taxTrackingEnabled = true
     @State private var errorMessage: String?
 
     var body: some View {
@@ -88,6 +94,12 @@ struct ManualAccountSheet: View {
                     }
                 }
 
+                if kind == .retirement {
+                    retirementMetadataRows
+                } else if kind == .investment {
+                    investmentMetadataRows
+                }
+
                 Divider().padding(.leading, 132)
                 row("Color") {
                     ColorPicker("", selection: $tint)
@@ -122,6 +134,53 @@ struct ManualAccountSheet: View {
             if name.isEmpty {
                 name = kind.displayName
             }
+            applyDefaults(for: kind)
+        }
+    }
+
+    private var retirementMetadataRows: some View {
+        Group {
+            Divider().padding(.leading, 132)
+            row("Retirement") {
+                Picker("Retirement", selection: $retirementKind) {
+                    ForEach(RetirementKind.allCases, id: \.self) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
+                }
+                .labelsHidden()
+                .onChange(of: retirementKind) { applyRetirementDefaults() }
+            }
+            metadataFlagRows
+        }
+    }
+
+    private var investmentMetadataRows: some View {
+        Group {
+            Divider().padding(.leading, 132)
+            metadataFlagRows
+        }
+    }
+
+    private var metadataFlagRows: some View {
+        Group {
+            row("Liquidity") {
+                Picker("Liquidity", selection: $liquidity) {
+                    ForEach(AccountLiquidity.allCases, id: \.self) { value in
+                        Text(value.displayName).tag(value)
+                    }
+                }
+                .labelsHidden()
+            }
+            Divider().padding(.leading, 132)
+            row("Net Worth") { Toggle("", isOn: $includeInNetWorth).labelsHidden() }
+            Divider().padding(.leading, 132)
+            row("Cash Flow") { Toggle("", isOn: $includeInCashFlow).labelsHidden() }
+            Divider().padding(.leading, 132)
+            row("Income") { Toggle("", isOn: $includeInRegularIncome).labelsHidden() }
+            if kind == .retirement {
+                Divider().padding(.leading, 132)
+                row("Tax Tracking") { Toggle("", isOn: $taxTrackingEnabled).labelsHidden() }
+            }
         }
     }
 
@@ -147,6 +206,12 @@ struct ManualAccountSheet: View {
                 openingAmount: openingAmount,
                 creditLimit: creditLimit > 0 ? creditLimit : nil,
                 tintHex: tint.hexString,
+                retirementKind: kind == .retirement ? retirementKind : nil,
+                liquidity: kind == .retirement || kind == .investment ? liquidity : nil,
+                includeInNetWorth: kind == .retirement || kind == .investment ? includeInNetWorth : nil,
+                includeInCashFlow: kind == .retirement || kind == .investment ? includeInCashFlow : nil,
+                includeInRegularIncome: kind == .retirement || kind == .investment ? includeInRegularIncome : nil,
+                taxTrackingEnabled: kind == .retirement ? taxTrackingEnabled : nil,
                 openedAt: openingDate,
                 context: modelContext
             )
@@ -155,5 +220,32 @@ struct ManualAccountSheet: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func applyDefaults(for kind: ManualAccountKind) {
+        switch kind {
+        case .retirement:
+            applyRetirementDefaults()
+        case .investment:
+            liquidity = .restricted
+            includeInNetWorth = true
+            includeInCashFlow = false
+            includeInRegularIncome = false
+            taxTrackingEnabled = false
+        default:
+            liquidity = .liquid
+            includeInNetWorth = true
+            includeInCashFlow = true
+            includeInRegularIncome = kind.isLiability ? false : true
+            taxTrackingEnabled = false
+        }
+    }
+
+    private func applyRetirementDefaults() {
+        liquidity = Account.defaultLiquidity(type: .retirement, retirementKind: retirementKind)
+        includeInNetWorth = true
+        includeInCashFlow = false
+        includeInRegularIncome = false
+        taxTrackingEnabled = retirementKind == .ppr
     }
 }

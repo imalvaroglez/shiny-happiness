@@ -3,8 +3,15 @@ import SwiftData
 
 @main
 struct FinanceTrackerApp: App {
+    private let modelContainer: ModelContainer
+
     init() {
         StoreFileResetService.performHardResetIfNeeded()
+        do {
+            modelContainer = try AppSchema.makeContainer()
+        } catch {
+            fatalError("Failed to open FinanceTracker store: \(error)")
+        }
     }
 
     var body: some Scene {
@@ -14,20 +21,6 @@ struct FinanceTrackerApp: App {
                 DashboardView()
             }
         }
-        // Must list every @Model the app reads or writes. Missing models silently
-        // create a "shadow" empty container at runtime — paste imports lose
-        // PendingImport rows, MSI plans never link, and learning hooks have nowhere
-        // to persist. Keep this list in sync with `AppContainer.swift`.
-        .modelContainer(for: [
-            Account.self,
-            AccountBalanceSnapshot.self,
-            Transaction.self,
-            Statement.self,
-            Category.self,
-            CategoryRule.self,
-            InstallmentPlan.self,
-            PendingImport.self,
-            SignRecoveryHint.self,
-        ])
+        .modelContainer(modelContainer)
     }
 }

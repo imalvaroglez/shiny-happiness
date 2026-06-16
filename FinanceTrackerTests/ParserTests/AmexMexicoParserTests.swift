@@ -13,14 +13,14 @@ struct AmexMexicoParserTests {
         Account(institution: "American Express Mexico", type: .creditCard, currency: "MXN")
     }
 
-    var sampleDataURL: URL {
-        URL(fileURLWithPath: "/Users/imalvaroglez/Documents/GitHub/shiny-happiness/samples/201901.pdf")
+    var sampleDataURL: URL? {
+        FixtureLoader.optionalURL("201901.pdf")
     }
 
     @Test("Detects Amex from PDF data")
     func detectsAmex() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: sampleDataURL.path) else { return }
+        guard let sampleDataURL else { return }
         let data = try Data(contentsOf: sampleDataURL)
         let result = Detector.detect(data: data, fileExtension: "pdf")
         #expect(result.issuer == .amexMexico)
@@ -31,7 +31,7 @@ struct AmexMexicoParserTests {
     @Test("Parses Amex PDF without crashing (encrypted/restricted PDFs handled)")
     func parsesWithoutCrashing() async throws {
         // SKIPPED: fixture PDF not in samples/
-        guard FileManager.default.fileExists(atPath: sampleDataURL.path) else { return }
+        guard let sampleDataURL else { return }
         let data = try Data(contentsOf: sampleDataURL)
         let transactions = try await parser.parse(data: data)
         for tx in transactions {
