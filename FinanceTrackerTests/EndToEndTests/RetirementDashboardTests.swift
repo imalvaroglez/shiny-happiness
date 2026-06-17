@@ -237,11 +237,9 @@ struct RetirementDashboardTests {
     // These assert BreakdownSheet's static predicate helpers directly — they
     // exercise the predicate functions, not the rendered SwiftUI sheet. The
     // divergence cases build fixtures the OLD hand-rolled category-kind filter
-    // would have INCLUDED, but the classifier-backed helper EXCLUDES, proving
-    // the drilldown matches the headline totals, not the stale filter. The
+    // would have INCLUDED, but the classifier-backed helper EXCLUDES. The
     // positive case confirms the same helpers still INCLUDE ordinary regular
-    // rows, so the classifier can't silently over-exclude. If BreakdownSheet
-    // regressed to the old filters, the divergence cases would fail.
+    // rows, guarding the predicate behavior against over-exclusion.
 
     /// Manual checking-account transaction with an ordinary (non-transfer,
     /// non-creditCardPayment) category, so the old filters' category-kind clauses

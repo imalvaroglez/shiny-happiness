@@ -309,10 +309,9 @@ extension BreakdownSheet {
     /// Drill-down predicates. These mirror the `TransactionClassifier` gates the
     /// headline totals use (DashboardViewModel), so the rows behind a number
     /// always match the number — even when a treatment changes what counts.
-    /// Exposed as static functions and covered by direct unit tests on the
-    /// predicates (both include and exclude paths) so the sheet can't silently
-    /// drift back to the old hand-rolled category-kind filters. The tests
-    /// exercise these predicate functions, not the rendered SwiftUI sheet.
+    /// Exposed as static functions and covered by direct unit tests on both the
+    /// include and exclude paths. The tests exercise predicate behavior, not
+    /// the rendered SwiftUI sheet or its call-site wiring.
     private static let classifier = TransactionClassifier()
 
     static func includesInIncomeBreakdown(_ tx: Transaction) -> Bool {
