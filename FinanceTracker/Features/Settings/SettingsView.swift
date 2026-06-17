@@ -241,6 +241,17 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                 }
 
+                if account.type == .investment || account.type == .retirement {
+                    Picker("Classification", selection: Binding(
+                        get: { account.type },
+                        set: { account.setInvestmentRetirementClassification($0) }
+                    )) {
+                        Text("Investment").tag(AccountType.investment)
+                        Text("Retirement").tag(AccountType.retirement)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 if account.type == .retirement {
                     Picker("Retirement type", selection: Binding(
                         get: { account.retirementKind ?? .other },
@@ -622,7 +633,7 @@ struct SettingsView: View {
         "The Net Worth card now splits out Liquid Net Worth and Retirement Assets at a glance.",
         "The Net Worth breakdown groups accounts into Liabilities, Retirement, Liquid, and Other sections with subtotals.",
         "Manual transactions can be tagged with a treatment (retirement contribution, employer-funded, investment return, fee, valuation adjustment).",
-        "Retirement account settings now read more clearly for PPR, AFORE, and employer plans.",
+        "Existing investment accounts can now be reclassified as retirement accounts in Settings.",
     ]
 
     private var lastBackupDate: String? {
