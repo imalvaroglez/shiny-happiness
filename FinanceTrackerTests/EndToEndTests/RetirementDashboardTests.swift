@@ -234,11 +234,14 @@ struct RetirementDashboardTests {
 
     // MARK: - Treatment-aware drilldown predicates
     //
-    // These assert BreakdownSheet's static predicate helpers directly. Each
-    // fixture is built so the OLD hand-rolled category-kind filter would have
-    // INCLUDED the row, but the classifier-backed helper EXCLUDES it — proving
-    // the drilldown now matches the headline totals, not the stale filter.
-    // If BreakdownSheet regressed to the old filters, these would fail.
+    // These assert BreakdownSheet's static predicate helpers directly — they
+    // exercise the predicate functions, not the rendered SwiftUI sheet. The
+    // divergence cases build fixtures the OLD hand-rolled category-kind filter
+    // would have INCLUDED, but the classifier-backed helper EXCLUDES, proving
+    // the drilldown matches the headline totals, not the stale filter. The
+    // positive case confirms the same helpers still INCLUDE ordinary regular
+    // rows, so the classifier can't silently over-exclude. If BreakdownSheet
+    // regressed to the old filters, the divergence cases would fail.
 
     /// Manual checking-account transaction with an ordinary (non-transfer,
     /// non-creditCardPayment) category, so the old filters' category-kind clauses
@@ -348,5 +351,47 @@ struct RetirementDashboardTests {
         #expect(tx.amount > 0)
         // Classifier-backed helper excludes it.
         #expect(BreakdownSheet.includesInInterestBreakdown(tx) == false)
+    }
+
+    @Test("Regular transactions are included by every treatment-aware drilldown predicate")
+    func regularTransactionsIncluded() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        // Regular income → Income breakdown + Cash Flow (income direction).
+        let income = manualTx(amount: 500,
+                              movement: .income,
+                              treatment: .regular,
+                              in: context)
+        // Regular Interest-category income → Interest Earned.
+        let interestCat = FinanceTracker.Category(name: "Interest", kind: .income)
+        context.insert(interestCat)
+        let interest = manualTx(amount: 25,
+                                movement: .income,
+                                treatment: .regular,
+                                category: interestCat,
+                                in: context)
+        // Regular expense → Expenses, Category Spending, and Cash Flow (expense direction).
+        let expenseCat = FinanceTracker.Category(name: "Groceries", kind: .expense)
+        context.insert(expenseCat)
+        let expense = manualTx(amount: -75,
+                               movement: .expense,
+                               treatment: .regular,
+                               category: expenseCat,
+                               in: context)
+        try context.save()
+
+        // All fixtures share date()'s default (2026-06-01), so one bucket start covers them.
+        let bucket = DashboardBucket.month
+        let start = bucket.start(for: income.postedAt)
+
+        #expect(BreakdownSheet.includesInIncomeBreakdown(income))
+        #expect(BreakdownSheet.includesInCashFlowPeriodBreakdown(income, bucket: bucket, start: start))
+
+        #expect(BreakdownSheet.includesInExpensesBreakdown(expense))
+        #expect(BreakdownSheet.includesInCategorySpendingBreakdown(expense, category: expenseCat))
+        #expect(BreakdownSheet.includesInCashFlowPeriodBreakdown(expense, bucket: bucket, start: start))
+
+        #expect(BreakdownSheet.includesInInterestBreakdown(interest))
     }
 }
