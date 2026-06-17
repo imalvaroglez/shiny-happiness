@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **Drilldown regression coverage.** Added direct unit tests for the `BreakdownSheet` drilldown predicates covering both the include path (regular income, expenses, category spending, interest) and the exclude path (special treatments), so the classifier-backed drilldowns cannot silently stop matching the headline totals.
+- **Drilldown regression coverage.** Added direct unit tests for the `BreakdownSheet` drilldown predicates covering both the include path (regular income, expenses, category spending, interest) and the exclude path (special treatments).
 
 ## [0.5.0] - 2026-06-16
 
