@@ -438,4 +438,67 @@ struct RetirementDashboardTests {
 
         #expect(BreakdownSheet.includesInInterestBreakdown(interest))
     }
+
+    // MARK: - Retirement Balance Change card
+
+    @Test("Retirement balance change includes contributions between visible endpoints")
+    func retirementBalanceChangeIncludesContributions() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let openingDate = date(2026, 1, 1)
+        let afore = Account(
+            institution: "AFORE",
+            type: .retirement,
+            openedAt: openingDate,
+            retirementKindRaw: RetirementKind.afore.rawValue
+        )
+        context.insert(afore)
+        context.insert(AccountBalanceSnapshot(account: afore, date: openingDate, amount: 4_000, kind: .manualOpening))
+        context.insert(Transaction(
+            account: afore,
+            postedAt: date(2026, 6, 1),
+            amount: 1_000,
+            descriptionRaw: "Employer retirement contribution",
+            isTransfer: true,
+            source: .manual,
+            treatmentKindRaw: TransactionTreatmentKind.retirementContributionEmployerFunded.rawValue
+        ))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.scope = .account(afore.id)
+        viewModel.configure(context: context)
+
+        guard case .asset(let snap) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot for retirement account"); return
+        }
+
+        #expect(snap.balanceOverTime.count >= 2, "Expected a resolved balance series, got \(snap.balanceOverTime.count) points")
+        #expect(snap.balanceChange == 1_000, "Balance change should be final − first (5000 − 4000), got \(snap.balanceChange)")
+        let pct = try #require(snap.balanceChangePercentage, "Expected a percentage when ≥2 points and nonzero start")
+        #expect(abs(pct - 25.0) < 0.01, "Percentage should be +25.0%, got \(pct)")
+    }
+
+    @Test("Retirement account with no balance history shows zero change without a percentage")
+    func insufficientHistoryShowsZeroChangeWithoutPercentage() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let ppr = Account(institution: "PPR", type: .retirement, retirementKindRaw: RetirementKind.ppr.rawValue)
+        context.insert(ppr)
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.scope = .account(ppr.id)
+        viewModel.configure(context: context)
+
+        guard case .asset(let snap) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot for retirement account"); return
+        }
+
+        // No resolved balance history → the card must degrade to zero change,
+        // no percentage (it cannot divide an unknown starting balance).
+        #expect(snap.balanceOverTime.isEmpty, "Expected no resolved balance points")
+        #expect(snap.balanceChange == 0)
+        #expect(snap.balanceChangePercentage == nil)
+    }
 }

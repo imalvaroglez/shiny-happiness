@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-17
+
+### Changed
+
+- **Retirement dashboard card.** The fourth summary card on retirement accounts (AFORE / PPR / employer plans) now shows Balance Change — observed period movement with a signed percentage, derived from the Balance Over Time series — instead of Interest Earned. Other asset accounts are unchanged.
+
 ## [0.6.0] - 2026-06-17
 
 ### Added

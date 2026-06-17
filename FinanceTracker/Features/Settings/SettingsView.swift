@@ -630,10 +630,9 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "The Net Worth card now splits out Liquid Net Worth and Retirement Assets at a glance.",
-        "The Net Worth breakdown groups accounts into Liabilities, Retirement, Liquid, and Other sections with subtotals.",
-        "Manual transactions can be tagged with a treatment (retirement contribution, employer-funded, investment return, fee, valuation adjustment).",
-        "Existing investment accounts can now be reclassified as retirement accounts in Settings.",
+        "Retirement dashboards now show Balance Change instead of Interest Earned.",
+        "Balance Change follows the selected period with an amount and signed percentage.",
+        "Other asset accounts keep their existing interest reporting.",
     ]
 
     private var lastBackupDate: String? {
