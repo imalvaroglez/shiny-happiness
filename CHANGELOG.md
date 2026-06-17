@@ -19,6 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Retirement account settings copy.** Retirement type, tax tracking, and regular-income inclusion labels are clearer for PPR, AFORE, and employer plans.
 - No core-calculation change: Total Net Worth, Income, Expenses, and Cash Flow math are unchanged.
 
+### Fixed
+
+- **Drilldown regression coverage.** Added direct unit tests for the `BreakdownSheet` drilldown predicates covering both the include path (regular income, expenses, category spending, interest) and the exclude path (special treatments), so the classifier-backed drilldowns cannot silently stop matching the headline totals.
+
+## [0.5.0] - 2026-06-16
+
 ### Added
 
 - **Retirement-aware data semantics.** Accounts now store retirement subtype, liquidity, dashboard inclusion, and tax-tracking metadata for PPR, AFORE, employer retirement plans, and other retirement accounts.
