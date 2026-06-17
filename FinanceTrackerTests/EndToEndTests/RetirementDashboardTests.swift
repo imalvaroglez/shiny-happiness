@@ -3,6 +3,9 @@ import Foundation
 import SwiftData
 @testable import FinanceTracker
 
+// `Category` is ambiguous in the test target (AppSchema also defines one),
+// so refer to the app model via its qualified name `FinanceTracker.Category`.
+
 /// 0.6.0 retirement-aware dashboard math and breakdown partitioning.
 ///
 /// The Liquid Net Worth / Retirement Assets formulas live inline in
@@ -19,6 +22,13 @@ struct RetirementDashboardTests {
         components.day = day
         components.timeZone = TimeZone(identifier: "America/Mexico_City")
         return Calendar(identifier: .gregorian).date(from: components)!
+    }
+
+    private func makeContainer() throws -> ModelContainer {
+        try ModelContainer(
+            for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, isStoredInMemoryOnly: true)]
+        )
     }
 
     private func summary(
@@ -166,9 +176,7 @@ struct RetirementDashboardTests {
         let originalFlow = tx.flowKindRaw
         let originalMovement = tx.movementKindRaw
 
-        // Mirror TransactionDetailSheet.save()'s treatment write exactly.
-        let draft: TransactionTreatmentKind = .retirementContributionUserFunded
-        tx.treatmentKindRaw = draft == .regular ? nil : draft.rawValue
+        tx.setReportingTreatment(.retirementContributionUserFunded)
         try context.save()
 
         #expect(tx.treatmentKind == .retirementContributionUserFunded)
@@ -196,8 +204,7 @@ struct RetirementDashboardTests {
         )
         context.insert(tx)
 
-        let draft: TransactionTreatmentKind = .regular
-        tx.treatmentKindRaw = draft == .regular ? nil : draft.rawValue
+        tx.setReportingTreatment(.regular)
         try context.save()
 
         #expect(tx.treatmentKindRaw == nil)
@@ -223,5 +230,123 @@ struct RetirementDashboardTests {
             let s = summary(type: account.type, latestBalance: 1000, liquidity: account.liquidity, retirementKind: account.retirementKind)
             #expect(AccountSummarySection.bucket(for: s) == .retirement)
         }
+    }
+
+    // MARK: - Treatment-aware drilldown predicates
+    //
+    // These assert BreakdownSheet's static predicate helpers directly. Each
+    // fixture is built so the OLD hand-rolled category-kind filter would have
+    // INCLUDED the row, but the classifier-backed helper EXCLUDES it — proving
+    // the drilldown now matches the headline totals, not the stale filter.
+    // If BreakdownSheet regressed to the old filters, these would fail.
+
+    /// Manual checking-account transaction with an ordinary (non-transfer,
+    /// non-creditCardPayment) category, so the old filters' category-kind clauses
+    /// never exclude it; category is nil unless overridden.
+    private func manualTx(
+        amount: Decimal,
+        movement: TransactionMovementKind,
+        treatment: TransactionTreatmentKind,
+        isTransfer: Bool = false,
+        category: FinanceTracker.Category? = nil,
+        in context: ModelContext
+    ) -> Transaction {
+        let account = Account(institution: "Checking", type: .checking)
+        context.insert(account)
+        let tx = Transaction(
+            account: account,
+            postedAt: date(),
+            amount: amount,
+            descriptionRaw: "Fixture transaction",
+            category: category,
+            isTransfer: isTransfer,
+            source: .manual,
+            movementKindRaw: movement.rawValue,
+            treatmentKindRaw: treatment == .regular ? nil : treatment.rawValue
+        )
+        context.insert(tx)
+        return tx
+    }
+
+    @Test("Income drilldown excludes an investment-return income transaction")
+    func incomeExcludesInvestmentReturn() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let tx = manualTx(amount: 500,
+                          movement: .income,
+                          treatment: .investmentReturn,
+                          in: context)
+        try context.save()
+
+        // Old filter would include (amount > 0; category kind nil → not transfer/creditCardPayment).
+        #expect(tx.amount > 0)
+        #expect(tx.category?.kind != .transfer && tx.category?.kind != .creditCardPayment)
+        // Classifier-backed helper excludes it.
+        #expect(BreakdownSheet.includesInIncomeBreakdown(tx) == false)
+    }
+
+    @Test("Expenses and category-spending drilldowns exclude a fee expense transaction")
+    func expensesExcludeFee() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let cat = FinanceTracker.Category(name: "Brokerage", kind: .expense)
+        context.insert(cat)
+        let tx = manualTx(amount: -75,
+                          movement: .expense,
+                          treatment: .fee,
+                          category: cat,
+                          in: context)
+        try context.save()
+
+        // Old filter would include (amount < 0; the old category-spending filter
+        // didn't even check kind). Classifier-backed helpers exclude it.
+        #expect(tx.amount < 0)
+        #expect(BreakdownSheet.includesInExpensesBreakdown(tx) == false)
+        #expect(BreakdownSheet.includesInCategorySpendingBreakdown(tx, category: cat) == false)
+    }
+
+    @Test("Cash-flow drilldown excludes a retirement-contribution income transaction that is not a transfer")
+    func cashFlowExcludesRetirementContribution() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let tx = manualTx(amount: 1000,
+                          movement: .income,
+                          treatment: .retirementContributionUserFunded,
+                          isTransfer: false,
+                          in: context)
+        try context.save()
+
+        // Bucket start chosen so the transaction's date lands inside the bucket.
+        let bucket = DashboardBucket.month
+        let start = bucket.start(for: tx.postedAt)
+
+        // Old filter would include (bucket matches; category kind nil → not
+        // transfer/creditCardPayment; isTransfer false). This is the divergent
+        // case — a plain transfer is excluded by BOTH old and new.
+        #expect(bucket.matches(tx.postedAt, start))
+        #expect(tx.isTransfer == false)
+        #expect(tx.category?.kind != .transfer && tx.category?.kind != .creditCardPayment)
+        // Classifier-backed helper excludes it because of the treatment.
+        #expect(BreakdownSheet.includesInCashFlowPeriodBreakdown(tx, bucket: bucket, start: start) == false)
+    }
+
+    @Test("Interest drilldown excludes an Interest-category investment-return transaction")
+    func interestExcludesInvestmentReturn() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let interest = FinanceTracker.Category(name: "Interest", kind: .income)
+        context.insert(interest)
+        let tx = manualTx(amount: 25,
+                          movement: .income,
+                          treatment: .investmentReturn,
+                          category: interest,
+                          in: context)
+        try context.save()
+
+        // Old filter would include (category name "Interest"; amount > 0).
+        #expect(tx.category?.name == "Interest")
+        #expect(tx.amount > 0)
+        // Classifier-backed helper excludes it.
+        #expect(BreakdownSheet.includesInInterestBreakdown(tx) == false)
     }
 }
