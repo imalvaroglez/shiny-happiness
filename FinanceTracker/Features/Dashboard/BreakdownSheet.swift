@@ -105,6 +105,37 @@ enum NetWorthBreakdownCopy {
     }
 }
 
+/// Pure, testable grouping of an `AccountSummary` into the four Net Worth
+/// breakdown buckets. Order is significant and matches the dashboard's
+/// partition invariants: liabilities take priority over everything, then
+/// retirement type (so a restricted/locked retirement account lands here, not
+/// in Other Assets), then liquidity, then the residual "other" bucket.
+/// Returns `nil` for accounts with insufficient balance history — those are
+/// excluded from subtotals and shown separately.
+enum AccountSummarySection: Int, CaseIterable {
+    case liabilities = 0
+    case retirement = 1
+    case liquidAssets = 2
+    case otherAssets = 3
+
+    var title: String {
+        switch self {
+        case .liabilities: "Liabilities"
+        case .retirement: "Retirement Assets"
+        case .liquidAssets: "Liquid Assets"
+        case .otherAssets: "Other Assets"
+        }
+    }
+
+    static func bucket(for summary: AccountSummary) -> AccountSummarySection? {
+        guard summary.balanceSourceKind != .insufficientHistory else { return nil }
+        if summary.isLiability { return .liabilities }
+        if summary.type == .retirement { return .retirement }
+        if summary.liquidity == .liquid { return .liquidAssets }
+        return .otherAssets
+    }
+}
+
 /// Renders the rows behind an aggregate. The user can see exactly which records
 /// produced each headline number.
 struct BreakdownSheet: View {
@@ -152,35 +183,69 @@ struct BreakdownSheet: View {
     // MARK: - Variants
 
     private func accountsBreakdown(summaries: [AccountSummary], period: DashboardPeriodContext) -> some View {
-        let total = summaries.reduce(Decimal.zero) { partial, summary in
-            summary.balanceSourceKind == .insufficientHistory ? partial : partial + summary.latestBalance
-        }
         let hasInsufficientHistory = summaries.contains { $0.balanceSourceKind == .insufficientHistory }
+        let knownSummaries = summaries.filter { $0.balanceSourceKind != .insufficientHistory }
+        let insufficientSummaries = summaries.filter { $0.balanceSourceKind == .insufficientHistory }
+        let bucketed = Dictionary(grouping: knownSummaries) { AccountSummarySection.bucket(for: $0) ?? .otherAssets }
+        let total = knownSummaries.reduce(Decimal.zero) { $0 + $1.latestBalance }
         return List {
             Section {
                 Text(NetWorthBreakdownCopy.subtitle(for: period))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                Text("Retirement assets are included in Total Net Worth but excluded from Liquid Net Worth.")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
             }
-            ForEach(summaries) { s in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(s.displayName)
-                        Text(s.institution).font(.caption).foregroundStyle(.secondary)
-                        Text(NetWorthBreakdownCopy.sourceText(s))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+            ForEach(AccountSummarySection.allCases.sorted { $0.rawValue < $1.rawValue }, id: \.self) { section in
+                if let rows = bucketed[section], !rows.isEmpty {
+                    Section {
+                        ForEach(rows) { s in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(s.displayName)
+                                    Text(s.institution).font(.caption).foregroundStyle(.secondary)
+                                    Text(NetWorthBreakdownCopy.sourceText(s))
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                Spacer()
+                                Text(MoneyFormat.string(s.latestBalance, code: s.currency))
+                                    .font(.body.bold().monospacedDigit())
+                                    .foregroundStyle(s.latestBalance >= 0 ? .green : .red)
+                            }
+                        }
+                    } header: {
+                        let subtotal = rows.reduce(Decimal.zero) { $0 + $1.latestBalance }
+                        HStack {
+                            Text(section.title).font(.caption.weight(.semibold))
+                            Spacer()
+                            Text(MoneyFormat.string(subtotal))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(subtotal >= 0 ? .green : .red)
+                        }
                     }
-                    Spacer()
-                    if s.balanceSourceKind == .insufficientHistory {
-                        Text("Insufficient history")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(MoneyFormat.string(s.latestBalance, code: s.currency))
-                            .font(.body.bold().monospacedDigit())
-                            .foregroundStyle(s.latestBalance >= 0 ? .green : .red)
+                }
+            }
+            if hasInsufficientHistory {
+                Section {
+                    ForEach(insufficientSummaries) { s in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(s.displayName)
+                                Text(s.institution).font(.caption).foregroundStyle(.secondary)
+                                Text(NetWorthBreakdownCopy.sourceText(s))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            Text("Insufficient history")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                } header: {
+                    Text("Insufficient history").font(.caption.weight(.semibold))
                 }
             }
             Section {

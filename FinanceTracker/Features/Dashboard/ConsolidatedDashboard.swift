@@ -37,7 +37,12 @@ struct ConsolidatedDashboard: View {
 
     private var summaryCards: some View {
         HStack(spacing: 16) {
-            SummaryCard(title: "Net Worth", amount: snapshot.netWorth, currencyCode: snapshot.currencyCode) {
+            SummaryCard(
+                title: "Net Worth",
+                amount: snapshot.netWorth,
+                currencyCode: snapshot.currencyCode,
+                subtitle: "Liquid \(MoneyFormat.string(snapshot.liquidNetWorth, code: snapshot.currencyCode))  ·  Retirement \(MoneyFormat.string(snapshot.retirementAssets, code: snapshot.currencyCode))"
+            ) {
                 breakdown = .netWorth(period: snapshot.period, accounts: snapshot.accountSummaries)
             }
             SummaryCard(title: "Income", amount: snapshot.totalIncome, currencyCode: snapshot.currencyCode, tint: .green) {
