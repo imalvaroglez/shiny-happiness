@@ -708,7 +708,9 @@ private enum DashboardPreviewFixtures {
                     utilizationPercent: nil
                 )
             ],
-            totalTransactions: cashFlow.count
+            totalTransactions: cashFlow.count,
+            retirementAssets: 0,
+            liquidNetWorth: finalNetWorth
         )
     }
 

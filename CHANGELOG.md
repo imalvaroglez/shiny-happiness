@@ -6,7 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-06-16
+## [0.6.0] - 2026-06-17
+
+### Added
+
+- **Retirement-aware dashboard visibility.** The consolidated Net Worth card now shows Liquid Net Worth and Retirement Assets as secondary values alongside Total Net Worth.
+- **Grouped Net Worth breakdown.** The Net Worth drill-down groups accounts into Liabilities, Retirement Assets, Liquid Assets, and Other Assets sections with per-section subtotals; accounts with insufficient balance history are shown separately and excluded from the total.
+- **Transaction treatment editing.** Manual transactions (including transfers) can be tagged with a treatment (retirement contribution, employer-funded, statutory, investment return, fee, valuation adjustment) that affects only reporting — it never changes the underlying account movement or transfer status.
+
+### Changed
+
+- **Retirement account settings copy.** Retirement type, tax tracking, and regular-income inclusion labels are clearer for PPR, AFORE, and employer plans.
+- No core-calculation change: Total Net Worth, Income, Expenses, and Cash Flow math are unchanged.
 
 ### Added
 
