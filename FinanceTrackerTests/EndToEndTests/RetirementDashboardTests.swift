@@ -95,6 +95,52 @@ struct RetirementDashboardTests {
         #expect(liquidNetWorth(summaries) + retirementAssets(summaries) != netWorth(summaries))
     }
 
+    @Test("Reclassifying a locked investment moves its balance from Other to Retirement")
+    func reclassificationUpdatesDashboardBreakdown() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let checking = Account(institution: "Bank", type: .checking)
+        let investment = Account(
+            institution: "Pension Provider",
+            type: .investment,
+            liquidityRaw: AccountLiquidity.lockedUntilRetirement.rawValue
+        )
+        context.insert(checking)
+        context.insert(investment)
+        context.insert(AccountBalanceSnapshot(account: checking, date: date(), amount: 1_000, kind: .manualOpening))
+        context.insert(AccountBalanceSnapshot(account: investment, date: date(), amount: 5_000, kind: .manualOpening))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        viewModel.configure(context: context)
+
+        guard case .consolidated(let before) = viewModel.snapshot else {
+            Issue.record("Expected consolidated dashboard")
+            return
+        }
+        let beforeSummary = try #require(before.accountSummaries.first { $0.id == investment.id })
+        #expect(before.netWorth == 6_000)
+        #expect(before.liquidNetWorth == 1_000)
+        #expect(before.retirementAssets == 0)
+        #expect(AccountSummarySection.bucket(for: beforeSummary) == .otherAssets)
+
+        investment.setInvestmentRetirementClassification(.retirement)
+        investment.retirementKind = .afore
+        try context.save()
+        viewModel.refresh()
+
+        guard case .consolidated(let after) = viewModel.snapshot else {
+            Issue.record("Expected refreshed consolidated dashboard")
+            return
+        }
+        let afterSummary = try #require(after.accountSummaries.first { $0.id == investment.id })
+        #expect(after.netWorth == before.netWorth)
+        #expect(after.liquidNetWorth == before.liquidNetWorth)
+        #expect(after.retirementAssets == 5_000)
+        #expect(AccountSummarySection.bucket(for: afterSummary) == .retirement)
+    }
+
     @Test("Insufficient-history retirement row contributes zero to retirement assets")
     func insufficientHistoryRetirement() throws {
         let summaries = [

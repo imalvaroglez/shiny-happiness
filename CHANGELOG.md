@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **Drilldown regression coverage.** Added direct unit tests for the `BreakdownSheet` drilldown predicates covering both the include path (regular income, expenses, category spending, interest) and the exclude path (special treatments).
+- **Existing retirement account classification.** Investment accounts restored from older backups can now be explicitly reclassified as retirement accounts in Settings without changing balances or transaction history.
 
 ## [0.5.0] - 2026-06-16
 
