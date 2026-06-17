@@ -802,6 +802,9 @@ struct SummaryCard: View {
     let amount: Decimal
     var currencyCode: String = "MXN"
     var tint: Color? = nil
+    /// Optional compact secondary line under the amount (e.g. the Net Worth
+    /// card's "Liquid … · Retirement …" split). `nil` on the other cards.
+    var subtitle: String? = nil
     /// Optional drill-down action. When provided the card is tappable.
     var onTap: (() -> Void)? = nil
 
@@ -822,6 +825,11 @@ struct SummaryCard: View {
                         .font(.title2.bold())
                         .monospacedDigit()
                         .foregroundStyle(resolvedTint)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding()

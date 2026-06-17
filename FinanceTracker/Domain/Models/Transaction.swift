@@ -101,6 +101,14 @@ final class Transaction: LastModifiedTracking {
         return .regular
     }
 
+    /// Reporting-only treatment assignment. Stores `.regular` as `nil` to keep
+    /// persisted data quiet, and never touches flow/movement/transfer — those
+    /// are orthogonal to how a transaction is *reported* on the dashboard. The
+    /// detail sheet and any test go through here so the contract can't drift.
+    func setReportingTreatment(_ kind: TransactionTreatmentKind) {
+        treatmentKindRaw = kind == .regular ? nil : kind.rawValue
+    }
+
     static func movementKind(from flowKind: TransactionFlowKind, amount: Decimal, isTransfer: Bool) -> TransactionMovementKind {
         if isTransfer { return .transfer }
         switch flowKind {

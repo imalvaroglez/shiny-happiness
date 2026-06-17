@@ -125,6 +125,22 @@ extension Account {
         includeInRegularIncome ?? Self.defaultIncludeInRegularIncome(type: type)
     }
 
+    func setInvestmentRetirementClassification(_ newType: AccountType) {
+        switch (type, newType) {
+        case (.investment, .retirement):
+            type = .retirement
+            retirementKindRaw = RetirementKind.other.rawValue
+            applyRetirementDefaultsForCurrentKind()
+        case (.retirement, .investment):
+            type = .investment
+            retirementKindRaw = nil
+            taxTrackingEnabled = false
+        default:
+            return
+        }
+        touch()
+    }
+
     func applyRetirementDefaultsForCurrentKind() {
         guard type == .retirement else { return }
         let kind = retirementKind ?? .other

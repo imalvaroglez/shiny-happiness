@@ -241,8 +241,19 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                 }
 
+                if account.type == .investment || account.type == .retirement {
+                    Picker("Classification", selection: Binding(
+                        get: { account.type },
+                        set: { account.setInvestmentRetirementClassification($0) }
+                    )) {
+                        Text("Investment").tag(AccountType.investment)
+                        Text("Retirement").tag(AccountType.retirement)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 if account.type == .retirement {
-                    Picker("Retirement", selection: Binding(
+                    Picker("Retirement type", selection: Binding(
                         get: { account.retirementKind ?? .other },
                         set: { account.retirementKind = $0 }
                     )) {
@@ -251,6 +262,10 @@ struct SettingsView: View {
                         }
                     }
                     .labelsHidden()
+
+                    Text("Retirement accounts are included in Total Net Worth but excluded from regular Cash Flow by default.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
 
                 if account.type == .retirement || account.type == .investment {
@@ -272,14 +287,14 @@ struct SettingsView: View {
                         get: { account.effectiveIncludeInCashFlow },
                         set: { account.includeInCashFlow = $0 }
                     ))
-                    Toggle("Include in Income", isOn: Binding(
+                    Toggle("Include in Regular Income", isOn: Binding(
                         get: { account.effectiveIncludeInRegularIncome },
                         set: { account.includeInRegularIncome = $0 }
                     ))
                 }
 
                 if account.type == .retirement {
-                    Toggle("Tax Tracking", isOn: Binding(
+                    Toggle("Track for PPR/tax purposes", isOn: Binding(
                         get: { account.taxTrackingEnabled ?? (account.retirementKind == .ppr) },
                         set: { account.taxTrackingEnabled = $0 }
                     ))
@@ -615,10 +630,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Retirement accounts can now store PPR, AFORE, employer plan, and liquidity details.",
-        "Transfers into retirement accounts stay transfers while becoming trackable retirement activity.",
-        "Retirement and restricted investment activity no longer inflates regular Income or Cash Flow.",
-        "Backups now preserve the new retirement and transaction classification metadata.",
+        "The Net Worth card now splits out Liquid Net Worth and Retirement Assets at a glance.",
+        "The Net Worth breakdown groups accounts into Liabilities, Retirement, Liquid, and Other sections with subtotals.",
+        "Manual transactions can be tagged with a treatment (retirement contribution, employer-funded, investment return, fee, valuation adjustment).",
+        "Existing investment accounts can now be reclassified as retirement accounts in Settings.",
     ]
 
     private var lastBackupDate: String? {

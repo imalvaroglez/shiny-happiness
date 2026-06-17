@@ -42,6 +42,64 @@ struct RetirementSemanticsTests {
         #expect(!investment.effectiveIncludeInRegularIncome)
     }
 
+    @Test("Investment and retirement reclassification updates account metadata only")
+    func investmentRetirementReclassification() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(
+            institution: "Broker",
+            type: .investment,
+            liquidityRaw: AccountLiquidity.lockedUntilRetirement.rawValue
+        )
+        let transaction = Transaction(
+            account: account,
+            postedAt: date(),
+            amount: 1_000,
+            descriptionRaw: "Existing deposit",
+            movementKindRaw: TransactionMovementKind.income.rawValue,
+            treatmentKindRaw: TransactionTreatmentKind.regular.rawValue
+        )
+        context.insert(account)
+        context.insert(transaction)
+        try context.save()
+
+        account.lastModifiedAt = .distantPast
+        account.setInvestmentRetirementClassification(.retirement)
+
+        #expect(account.type == .retirement)
+        #expect(account.retirementKind == .other)
+        #expect(account.liquidity == .restricted)
+        #expect(account.effectiveIncludeInNetWorth)
+        #expect(!account.effectiveIncludeInCashFlow)
+        #expect(!account.effectiveIncludeInRegularIncome)
+        #expect(account.taxTrackingEnabled == false)
+        #expect(account.lastModifiedAt > .distantPast)
+        #expect(transaction.account?.id == account.id)
+        #expect(transaction.amount == 1_000)
+        #expect(transaction.treatmentKind == .regular)
+
+        account.liquidity = .lockedUntilRetirement
+        account.includeInNetWorth = false
+        account.includeInCashFlow = true
+        account.includeInRegularIncome = true
+        account.taxTrackingEnabled = true
+        account.setInvestmentRetirementClassification(.investment)
+
+        #expect(account.type == .investment)
+        #expect(account.retirementKind == nil)
+        #expect(account.liquidity == .lockedUntilRetirement)
+        #expect(!account.effectiveIncludeInNetWorth)
+        #expect(account.effectiveIncludeInCashFlow)
+        #expect(account.effectiveIncludeInRegularIncome)
+        #expect(account.taxTrackingEnabled == false)
+        #expect(transaction.account?.id == account.id)
+        #expect(transaction.amount == 1_000)
+        #expect(transaction.treatmentKind == .regular)
+
+        account.setInvestmentRetirementClassification(.checking)
+        #expect(account.type == .investment)
+    }
+
     @Test("Salary and expense stay regular cash flow")
     func regularSalaryAndExpense() throws {
         let account = Account(institution: "Bank", type: .checking)
