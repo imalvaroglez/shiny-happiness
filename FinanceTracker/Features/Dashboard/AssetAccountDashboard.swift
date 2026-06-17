@@ -36,6 +36,22 @@ struct AssetAccountDashboard: View {
             SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), currencyCode: snapshot.currencyCode, tint: .red) {
                 breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses)
             }
+            fourthSummaryCard
+        }
+    }
+
+    /// Retirement accounts show observed balance movement for the period
+    /// (matches the Balance Over Time chart) instead of Interest Earned;
+    /// every other asset account keeps Interest Earned.
+    @ViewBuilder private var fourthSummaryCard: some View {
+        if snapshot.account.type == .retirement {
+            SummaryCard(
+                title: "Balance Change",
+                amount: snapshot.balanceChange,
+                currencyCode: snapshot.currencyCode,
+                subtitle: snapshot.balanceChangePercentage.map { String(format: "%+.1f%%", $0) }
+            )
+        } else {
             SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, currencyCode: snapshot.currencyCode, tint: .mint) {
                 breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
             }
@@ -136,4 +152,44 @@ struct AssetAccountDashboard: View {
             }
         }
     }
+}
+
+#Preview("Retirement Balance Change") {
+    let calendar = Calendar(identifier: .gregorian)
+    let end = Date.now
+    let start = calendar.date(byAdding: .month, value: -3, to: end) ?? end
+
+    AssetAccountDashboard(snapshot: AssetAccountSnapshot(
+        period: DashboardPeriodContext(
+            kind: .custom,
+            dateRange: DateRange(start: start, end: end),
+            effectiveNetWorthDate: end,
+            chartDomain: start...end,
+            plotDomain: start...end,
+            bucket: .month
+        ),
+        account: DashboardAccountIdentity(
+            id: UUID(),
+            displayName: "AFORE Retirement",
+            institution: "AFORE",
+            type: .retirement,
+            currency: "MXN",
+            tintHex: nil,
+            creditLimit: nil
+        ),
+        currentBalance: 5_000,
+        balanceOverTime: [
+            NetWorthPoint(month: start, balance: 4_000),
+            NetWorthPoint(month: calendar.date(byAdding: .month, value: 1, to: start) ?? start, balance: 4_500),
+            NetWorthPoint(month: calendar.date(byAdding: .month, value: 2, to: start) ?? start, balance: 4_800),
+            NetWorthPoint(month: end, balance: 5_000)
+        ],
+        monthlyCashFlow: [],
+        spendingByCategory: [],
+        totalIncome: 0,
+        totalExpenses: 0,
+        totalInterestEarned: 0,
+        recentTransactions: [],
+        totalTransactions: 0
+    ))
 }

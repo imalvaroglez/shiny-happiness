@@ -108,6 +108,26 @@ struct AssetAccountSnapshot {
     let totalTransactions: Int
 
     var currencyCode: String { account.currency }
+
+    /// Observed balance movement across the selected period: final visible
+    /// resolved balance minus the first. Includes contributions, withdrawals,
+    /// and returns — it mirrors the Balance Over Time chart, not investment
+    /// return. Zero when there is no resolved history.
+    var balanceChange: Decimal {
+        guard let first = balanceOverTime.first, let last = balanceOverTime.last else { return 0 }
+        return last.balance - first.balance
+    }
+
+    /// Signed percentage equivalent of `balanceChange` against the first
+    /// visible balance. `nil` when there are fewer than two points or the
+    /// starting balance is zero (would divide by zero).
+    var balanceChangePercentage: Double? {
+        guard balanceOverTime.count >= 2,
+              let first = balanceOverTime.first,
+              let last = balanceOverTime.last,
+              first.balance != 0 else { return nil }
+        return (((last.balance - first.balance) / abs(first.balance)) as NSDecimalNumber).doubleValue * 100
+    }
 }
 
 // MARK: - Liability (credit cards)
