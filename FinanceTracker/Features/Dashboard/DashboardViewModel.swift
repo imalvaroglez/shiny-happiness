@@ -114,7 +114,7 @@ final class DashboardViewModel {
         let interestEarned = computeInterestEarned(transactions)
         let interestCharged = computeInterestCharged(transactions)
 
-        let (netWorth, netWorthSeries, accountSummaries) = computeNetWorth(context: context, period: period)
+        let (netWorth, netWorthSeries, accountSummaries, retirementAssets, liquidNetWorth) = computeNetWorth(context: context, period: period)
 
         return ConsolidatedSnapshot(
             period: period,
@@ -128,7 +128,9 @@ final class DashboardViewModel {
             totalInterestCharged: interestCharged,
             recentTransactions: transactions,
             accountSummaries: accountSummaries,
-            totalTransactions: transactions.count
+            totalTransactions: transactions.count,
+            retirementAssets: retirementAssets,
+            liquidNetWorth: liquidNetWorth
         )
     }
 
@@ -369,7 +371,7 @@ final class DashboardViewModel {
 
     // MARK: - Net worth + balance series + account summaries
 
-    private func computeNetWorth(context: ModelContext, period: DashboardPeriodContext) -> (current: Decimal, series: [NetWorthPoint], summaries: [AccountSummary]) {
+    private func computeNetWorth(context: ModelContext, period: DashboardPeriodContext) -> (current: Decimal, series: [NetWorthPoint], summaries: [AccountSummary], retirementAssets: Decimal, liquidNetWorth: Decimal) {
         let accountsDescriptor = FetchDescriptor<Account>(sortBy: [SortDescriptor(\.nickname)])
         let accounts = ((try? context.fetch(accountsDescriptor)) ?? [])
             .filter(\.effectiveIncludeInNetWorth)
@@ -413,12 +415,24 @@ final class DashboardViewModel {
                 balanceSourceKind: resolution.sourceKind,
                 balanceSourceDate: resolution.sourceDate,
                 creditLimit: account.creditLimit,
-                utilizationPercent: util
+                utilizationPercent: util,
+                liquidity: account.liquidity,
+                retirementKind: account.retirementKind
             )
         }
 
+        // Liquid Net Worth and Retirement Assets use the same insufficient-history
+        // guard as `current` above: accounts we can't resolve are excluded.
+        let knownSummaries = summaries.filter { $0.balanceSourceKind != .insufficientHistory }
+        let retirementAssets = knownSummaries
+            .filter { $0.type == .retirement }
+            .reduce(Decimal(0)) { $0 + $1.latestBalance }
+        let liquidNetWorth = knownSummaries
+            .filter { $0.isLiability || (!$0.isLiability && $0.type != .retirement && $0.liquidity == .liquid) }
+            .reduce(Decimal(0)) { $0 + $1.latestBalance }
+
         let series = computeMonthlyNetWorth(context: context, accounts: accounts, period: period)
-        return (current, series, summaries)
+        return (current, series, summaries, retirementAssets, liquidNetWorth)
     }
 
     private func computeMonthlyNetWorth(context: ModelContext, accounts: [Account], period: DashboardPeriodContext) -> [NetWorthPoint] {

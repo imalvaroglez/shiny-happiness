@@ -54,6 +54,14 @@ struct AccountSummary: Identifiable, Hashable {
     let creditLimit: Decimal?
     /// `abs(latestBalance) / creditLimit` if available; `nil` otherwise.
     let utilizationPercent: Double?
+    /// Liquidity classification at snapshot time. Defaults to `.liquid` so the
+    /// synthesized memberwise initializer stays compatible with the existing
+    /// 11-argument call sites (DashboardView preview, DashboardViewModel, tests).
+    var liquidity: AccountLiquidity = .liquid
+    /// Retirement subtype, if the account is a retirement account; nil otherwise.
+    var retirementKind: RetirementKind? = nil
+    /// True when the account's type is an inherent liability (credit card / loan).
+    var isLiability: Bool { type.isLiability }
 }
 
 struct ConsolidatedSnapshot {
@@ -69,6 +77,10 @@ struct ConsolidatedSnapshot {
     let recentTransactions: [Transaction]
     let accountSummaries: [AccountSummary]
     let totalTransactions: Int
+    /// Σ latestBalance over retirement-type accounts (gross; no liability offset).
+    let retirementAssets: Decimal
+    /// Σ of liquid non-retirement asset balances + liability balances (already negative).
+    let liquidNetWorth: Decimal
 
     /// Most common currency across the user's accounts; used for the consolidated
     /// summary cards. Falls back to "MXN" when no accounts exist yet.

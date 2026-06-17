@@ -105,6 +105,37 @@ enum NetWorthBreakdownCopy {
     }
 }
 
+/// Pure, testable grouping of an `AccountSummary` into the four Net Worth
+/// breakdown buckets. Order is significant and matches the dashboard's
+/// partition invariants: liabilities take priority over everything, then
+/// retirement type (so a restricted/locked retirement account lands here, not
+/// in Other Assets), then liquidity, then the residual "other" bucket.
+/// Returns `nil` for accounts with insufficient balance history — those are
+/// excluded from subtotals and shown separately.
+enum AccountSummarySection: Int, CaseIterable {
+    case liabilities = 0
+    case retirement = 1
+    case liquidAssets = 2
+    case otherAssets = 3
+
+    var title: String {
+        switch self {
+        case .liabilities: "Liabilities"
+        case .retirement: "Retirement Assets"
+        case .liquidAssets: "Liquid Assets"
+        case .otherAssets: "Other Assets"
+        }
+    }
+
+    static func bucket(for summary: AccountSummary) -> AccountSummarySection? {
+        guard summary.balanceSourceKind != .insufficientHistory else { return nil }
+        if summary.isLiability { return .liabilities }
+        if summary.type == .retirement { return .retirement }
+        if summary.liquidity == .liquid { return .liquidAssets }
+        return .otherAssets
+    }
+}
+
 /// Renders the rows behind an aggregate. The user can see exactly which records
 /// produced each headline number.
 struct BreakdownSheet: View {
@@ -130,57 +161,87 @@ struct BreakdownSheet: View {
         case .netWorth(let period, let summaries):
             accountsBreakdown(summaries: summaries, period: period)
         case .income(let txs, let total):
-            transactionsBreakdown(transactions: txs.filter { $0.amount > 0 && $0.category?.kind != .transfer && $0.category?.kind != .creditCardPayment }, total: total, signed: false)
+            transactionsBreakdown(transactions: txs.filter { Self.includesInIncomeBreakdown($0) }, total: total, signed: false)
         case .expenses(let txs, let total):
-            transactionsBreakdown(transactions: txs.filter { $0.amount < 0 && $0.category?.kind != .transfer && $0.category?.kind != .creditCardPayment }, total: total, signed: true)
+            transactionsBreakdown(transactions: txs.filter { Self.includesInExpensesBreakdown($0) }, total: total, signed: true)
         case .interest(let txs, let total):
-            transactionsBreakdown(transactions: txs.filter { $0.category?.name == "Interest" && $0.amount > 0 }, total: total, signed: false)
+            transactionsBreakdown(transactions: txs.filter { Self.includesInInterestBreakdown($0) }, total: total, signed: false)
         case .cashFlowPeriod(let start, let bucket, let txs):
             transactionsBreakdown(
-                transactions: txs.filter {
-                    bucket.matches($0.postedAt, start)
-                        && $0.category?.kind != .transfer
-                        && $0.category?.kind != .creditCardPayment
-                },
+                transactions: txs.filter { Self.includesInCashFlowPeriodBreakdown($0, bucket: bucket, start: start) },
                 total: nil, signed: nil
             )
         case .categorySpending(let cat, let total, let txs):
-            transactionsBreakdown(transactions: txs.filter { $0.category?.id == cat.id && $0.amount < 0 }, total: total, signed: true)
+            transactionsBreakdown(transactions: txs.filter { Self.includesInCategorySpendingBreakdown($0, category: cat) }, total: total, signed: true)
         }
     }
 
     // MARK: - Variants
 
     private func accountsBreakdown(summaries: [AccountSummary], period: DashboardPeriodContext) -> some View {
-        let total = summaries.reduce(Decimal.zero) { partial, summary in
-            summary.balanceSourceKind == .insufficientHistory ? partial : partial + summary.latestBalance
-        }
         let hasInsufficientHistory = summaries.contains { $0.balanceSourceKind == .insufficientHistory }
+        let knownSummaries = summaries.filter { $0.balanceSourceKind != .insufficientHistory }
+        let insufficientSummaries = summaries.filter { $0.balanceSourceKind == .insufficientHistory }
+        let bucketed = Dictionary(grouping: knownSummaries) { AccountSummarySection.bucket(for: $0) ?? .otherAssets }
+        let total = knownSummaries.reduce(Decimal.zero) { $0 + $1.latestBalance }
         return List {
             Section {
                 Text(NetWorthBreakdownCopy.subtitle(for: period))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                Text("Retirement assets are included in Total Net Worth but excluded from Liquid Net Worth.")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
             }
-            ForEach(summaries) { s in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(s.displayName)
-                        Text(s.institution).font(.caption).foregroundStyle(.secondary)
-                        Text(NetWorthBreakdownCopy.sourceText(s))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+            ForEach(AccountSummarySection.allCases.sorted { $0.rawValue < $1.rawValue }, id: \.self) { section in
+                if let rows = bucketed[section], !rows.isEmpty {
+                    Section {
+                        ForEach(rows) { s in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(s.displayName)
+                                    Text(s.institution).font(.caption).foregroundStyle(.secondary)
+                                    Text(NetWorthBreakdownCopy.sourceText(s))
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                Spacer()
+                                Text(MoneyFormat.string(s.latestBalance, code: s.currency))
+                                    .font(.body.bold().monospacedDigit())
+                                    .foregroundStyle(s.latestBalance >= 0 ? .green : .red)
+                            }
+                        }
+                    } header: {
+                        let subtotal = rows.reduce(Decimal.zero) { $0 + $1.latestBalance }
+                        HStack {
+                            Text(section.title).font(.caption.weight(.semibold))
+                            Spacer()
+                            Text(MoneyFormat.string(subtotal))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(subtotal >= 0 ? .green : .red)
+                        }
                     }
-                    Spacer()
-                    if s.balanceSourceKind == .insufficientHistory {
-                        Text("Insufficient history")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(MoneyFormat.string(s.latestBalance, code: s.currency))
-                            .font(.body.bold().monospacedDigit())
-                            .foregroundStyle(s.latestBalance >= 0 ? .green : .red)
+                }
+            }
+            if hasInsufficientHistory {
+                Section {
+                    ForEach(insufficientSummaries) { s in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(s.displayName)
+                                Text(s.institution).font(.caption).foregroundStyle(.secondary)
+                                Text(NetWorthBreakdownCopy.sourceText(s))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            Text("Insufficient history")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                } header: {
+                    Text("Insufficient history").font(.caption.weight(.semibold))
                 }
             }
             Section {
@@ -241,5 +302,40 @@ struct BreakdownSheet: View {
                 }
             }
         }
+    }
+}
+
+extension BreakdownSheet {
+    /// Drill-down predicates. These mirror the `TransactionClassifier` gates the
+    /// headline totals use (DashboardViewModel), so the rows behind a number
+    /// always match the number — even when a treatment changes what counts.
+    /// Exposed as static functions and covered by direct unit tests on both the
+    /// include and exclude paths. The tests exercise predicate behavior, not
+    /// the rendered SwiftUI sheet or its call-site wiring.
+    private static let classifier = TransactionClassifier()
+
+    static func includesInIncomeBreakdown(_ tx: Transaction) -> Bool {
+        classifier.classify(transaction: tx).countsAsRegularIncome
+    }
+
+    static func includesInExpensesBreakdown(_ tx: Transaction) -> Bool {
+        classifier.classify(transaction: tx).countsAsRegularExpense
+    }
+
+    static func includesInInterestBreakdown(_ tx: Transaction) -> Bool {
+        !tx.isDuplicate
+            && !classifier.classify(transaction: tx).countsAsInvestmentReturn
+            && tx.category?.name == "Interest"
+            && tx.amount > 0
+    }
+
+    static func includesInCashFlowPeriodBreakdown(_ tx: Transaction, bucket: DashboardBucket, start: Date) -> Bool {
+        bucket.matches(tx.postedAt, start)
+            && classifier.classify(transaction: tx).countsAsOperatingCashFlow
+    }
+
+    static func includesInCategorySpendingBreakdown(_ tx: Transaction, category: Category) -> Bool {
+        tx.category?.id == category.id
+            && classifier.classify(transaction: tx).countsAsRegularExpense
     }
 }

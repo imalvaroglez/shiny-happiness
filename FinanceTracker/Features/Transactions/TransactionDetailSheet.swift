@@ -19,6 +19,7 @@ struct TransactionDetailSheet: View {
     @State private var draftAbsoluteAmount: Decimal
     @State private var draftSignedAmount: Decimal
     @State private var draftFlowKind: TransactionFlowKind
+    @State private var draftTreatmentKind: TransactionTreatmentKind
     @State private var draftCategory: Category?
     @State private var showingCategoryPicker = false
 
@@ -40,6 +41,7 @@ struct TransactionDetailSheet: View {
         _draftAbsoluteAmount = State(initialValue: abs(transaction.amount))
         _draftSignedAmount = State(initialValue: transaction.amount)
         _draftFlowKind = State(initialValue: transaction.flowKind)
+        _draftTreatmentKind = State(initialValue: transaction.treatmentKind)
         _draftCategory = State(initialValue: transaction.category)
     }
 
@@ -164,6 +166,11 @@ struct TransactionDetailSheet: View {
             }
             panelDivider
 
+            if transaction.source == .manual {
+                treatmentRow
+                panelDivider
+            }
+
             categoryRow
 
             if let account = transaction.account {
@@ -192,6 +199,34 @@ struct TransactionDetailSheet: View {
             }
             .pickerStyle(.segmented)
             .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    @ViewBuilder
+    private var treatmentRow: some View {
+        VStack(spacing: 6) {
+            editRow("Treatment") {
+                Picker("Treatment", selection: $draftTreatmentKind) {
+                    ForEach(TransactionTreatmentKind.allCases, id: \.self) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("Treatment changes how this transaction is counted in Income, Expenses, and Cash Flow reporting. It does not change the underlying account movement or transfer status.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.trailing)
+                if transaction.isTransfer {
+                    Text("This transaction remains a transfer for Income, Expenses, and Cash Flow.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+            .padding(.horizontal, 14)
         }
     }
 
@@ -324,6 +359,9 @@ struct TransactionDetailSheet: View {
         transaction.descriptionRaw = draftDescription
         transaction.merchantNormalized = draftDescription
         transaction.amount = amountToStore
+        // Treatment is reporting-only: store `.regular` as nil to keep data quiet,
+        // and never touch flow/movement/transfer here.
+        transaction.setReportingTreatment(draftTreatmentKind)
 
         if categoryDidChange, let newCategory = draftCategory {
             transaction.category = newCategory
