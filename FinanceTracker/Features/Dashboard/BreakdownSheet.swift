@@ -161,22 +161,18 @@ struct BreakdownSheet: View {
         case .netWorth(let period, let summaries):
             accountsBreakdown(summaries: summaries, period: period)
         case .income(let txs, let total):
-            transactionsBreakdown(transactions: txs.filter { $0.amount > 0 && $0.category?.kind != .transfer && $0.category?.kind != .creditCardPayment }, total: total, signed: false)
+            transactionsBreakdown(transactions: txs.filter { Self.includesInIncomeBreakdown($0) }, total: total, signed: false)
         case .expenses(let txs, let total):
-            transactionsBreakdown(transactions: txs.filter { $0.amount < 0 && $0.category?.kind != .transfer && $0.category?.kind != .creditCardPayment }, total: total, signed: true)
+            transactionsBreakdown(transactions: txs.filter { Self.includesInExpensesBreakdown($0) }, total: total, signed: true)
         case .interest(let txs, let total):
-            transactionsBreakdown(transactions: txs.filter { $0.category?.name == "Interest" && $0.amount > 0 }, total: total, signed: false)
+            transactionsBreakdown(transactions: txs.filter { Self.includesInInterestBreakdown($0) }, total: total, signed: false)
         case .cashFlowPeriod(let start, let bucket, let txs):
             transactionsBreakdown(
-                transactions: txs.filter {
-                    bucket.matches($0.postedAt, start)
-                        && $0.category?.kind != .transfer
-                        && $0.category?.kind != .creditCardPayment
-                },
+                transactions: txs.filter { Self.includesInCashFlowPeriodBreakdown($0, bucket: bucket, start: start) },
                 total: nil, signed: nil
             )
         case .categorySpending(let cat, let total, let txs):
-            transactionsBreakdown(transactions: txs.filter { $0.category?.id == cat.id && $0.amount < 0 }, total: total, signed: true)
+            transactionsBreakdown(transactions: txs.filter { Self.includesInCategorySpendingBreakdown($0, category: cat) }, total: total, signed: true)
         }
     }
 
@@ -306,5 +302,39 @@ struct BreakdownSheet: View {
                 }
             }
         }
+    }
+}
+
+extension BreakdownSheet {
+    /// Drill-down predicates. These mirror the `TransactionClassifier` gates the
+    /// headline totals use (DashboardViewModel), so the rows behind a number
+    /// always match the number — even when a treatment changes what counts.
+    /// Exposed and tested directly so the sheet can't silently drift back to the
+    /// old hand-rolled category-kind filters.
+    private static let classifier = TransactionClassifier()
+
+    static func includesInIncomeBreakdown(_ tx: Transaction) -> Bool {
+        classifier.classify(transaction: tx).countsAsRegularIncome
+    }
+
+    static func includesInExpensesBreakdown(_ tx: Transaction) -> Bool {
+        classifier.classify(transaction: tx).countsAsRegularExpense
+    }
+
+    static func includesInInterestBreakdown(_ tx: Transaction) -> Bool {
+        !tx.isDuplicate
+            && !classifier.classify(transaction: tx).countsAsInvestmentReturn
+            && tx.category?.name == "Interest"
+            && tx.amount > 0
+    }
+
+    static func includesInCashFlowPeriodBreakdown(_ tx: Transaction, bucket: DashboardBucket, start: Date) -> Bool {
+        bucket.matches(tx.postedAt, start)
+            && classifier.classify(transaction: tx).countsAsOperatingCashFlow
+    }
+
+    static func includesInCategorySpendingBreakdown(_ tx: Transaction, category: Category) -> Bool {
+        tx.category?.id == category.id
+            && classifier.classify(transaction: tx).countsAsRegularExpense
     }
 }

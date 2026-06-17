@@ -361,7 +361,7 @@ struct TransactionDetailSheet: View {
         transaction.amount = amountToStore
         // Treatment is reporting-only: store `.regular` as nil to keep data quiet,
         // and never touch flow/movement/transfer here.
-        transaction.treatmentKindRaw = draftTreatmentKind == .regular ? nil : draftTreatmentKind.rawValue
+        transaction.setReportingTreatment(draftTreatmentKind)
 
         if categoryDidChange, let newCategory = draftCategory {
             transaction.category = newCategory
