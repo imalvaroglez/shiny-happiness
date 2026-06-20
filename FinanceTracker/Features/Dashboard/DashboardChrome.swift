@@ -390,9 +390,6 @@ struct DashboardPeriodBarGroup: Identifiable, Equatable {
     let secondMagnitude: Decimal
     let isPlaceholder: Bool
 
-    var maxMagnitude: Decimal {
-        firstMagnitude >= secondMagnitude ? firstMagnitude : secondMagnitude
-    }
 }
 
 enum DashboardPeriodBarGroupBuilder {

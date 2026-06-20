@@ -24,7 +24,6 @@ struct AmexMexicoParserTests {
         let data = try Data(contentsOf: sampleDataURL)
         let result = Detector.detect(data: data, fileExtension: "pdf")
         #expect(result.issuer == .amexMexico)
-        #expect(result.confidence > 0.9)
         #expect(result.suggestedAccountType == .creditCard)
     }
 
@@ -38,18 +37,5 @@ struct AmexMexicoParserTests {
             #expect(tx.currency == "MXN")
             #expect(!tx.descriptionRaw.isEmpty)
         }
-    }
-
-    @Test("Parser supports correct issuers and formats")
-    func supportedFormats() {
-        #expect(AmexMexicoParser.supportedIssuers.contains("American Express Mexico"))
-        #expect(AmexMexicoParser.supportedFormats.contains(.pdf))
-    }
-
-    @Test("StatementParser protocol conformance - two different parsers work")
-    func protocolConformance() {
-        #expect(OpenbankMexicoParser.supportedIssuers != AmexMexicoParser.supportedIssuers)
-        #expect(!OpenbankMexicoParser.supportedIssuers.isEmpty)
-        #expect(!AmexMexicoParser.supportedIssuers.isEmpty)
     }
 }

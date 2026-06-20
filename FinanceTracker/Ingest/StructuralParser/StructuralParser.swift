@@ -3,9 +3,6 @@ import PDFKit
 import os
 
 struct StructuralParser: StatementParser {
-    static var supportedIssuers: [String] { [] }
-    static var supportedFormats: [FileFormat] { [.pdf] }
-
     private let vocabulary: HeaderVocabulary
     private let normalizer: SemanticNormalizer
     private let columnDetector: ColumnDetector
@@ -608,10 +605,6 @@ struct StructuralParser: StatementParser {
         amountAfterColonLabel(in: text, label: label)
     }
 
-    private func exactColonDate(in text: String, label: String) -> Date? {
-        dateAfterColonLabel(in: text, label: label)
-    }
-
     private func amountAfterColonLabel(in text: String, label: String) -> Decimal? {
         let escaped = NSRegularExpression.escapedPattern(for: label)
         let pattern = #"(?i)"# + escaped + #"\s*:\s*\d*\s*(?:[^$\d\n]{0,40})?\$?\s*([\d,]+\.\d{2})"#
@@ -883,27 +876,6 @@ struct StructuralParser: StatementParser {
         }
 
         return transactions
-    }
-
-    private func extractDateWithoutAmount(from line: String, context: StatementContext?) -> (String, String)? {
-        let segments = splitByDates(line)
-        guard let first = segments.first else { return nil }
-
-        let datePattern = #"^(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s+(.+)$"#
-        guard let regex = try? NSRegularExpression(pattern: datePattern) else { return nil }
-        let range = NSRange(first.startIndex..., in: first)
-        guard let match = regex.firstMatch(in: first, range: range) else { return nil }
-
-        guard let dateRange = Range(match.range(at: 1), in: first),
-              let descRange = Range(match.range(at: 2), in: first) else { return nil }
-
-        let dateStr = String(first[dateRange])
-        let desc = String(first[descRange])
-
-        guard normalizer.parseDate(dateStr, context: context) != nil else { return nil }
-        guard !desc.isEmpty else { return nil }
-
-        return (dateStr, desc)
     }
 
     private func detectConvention(from headerLine: String) -> String? {

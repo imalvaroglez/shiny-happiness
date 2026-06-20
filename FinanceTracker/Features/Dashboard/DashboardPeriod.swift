@@ -132,15 +132,6 @@ struct DashboardPeriodContext: Sendable {
         intervals(calendar: calendar).first { $0.bucketStart == bucketStart }
     }
 
-    func barRange(forBucketStart bucketStart: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> ClosedRange<Date> {
-        guard let interval = interval(forBucketStart: bucketStart, calendar: calendar) else {
-            return bucketStart...bucketStart
-        }
-        let insetStart = calendar.midpoint(from: interval.start, to: interval.center(calendar: calendar))
-        let insetEnd = calendar.midpoint(from: interval.center(calendar: calendar), to: interval.end)
-        return insetStart...insetEnd
-    }
-
     func barXValue(forBucketStart bucketStart: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> Date {
         interval(forBucketStart: bucketStart, calendar: calendar)?.center(calendar: calendar) ?? bucketStart
     }
@@ -304,19 +295,6 @@ private extension Calendar {
     func endOfDay(for date: Date) -> Date {
         let start = startOfDay(for: date)
         return self.date(byAdding: DateComponents(day: 1, second: -1), to: start)!
-    }
-
-    func previousBucketStart(for date: Date, bucket: DashboardBucket) -> Date {
-        switch bucket {
-        case .day:
-            return self.date(byAdding: .day, value: -1, to: date)!
-        case .week:
-            return self.date(byAdding: .weekOfYear, value: -1, to: date)!
-        case .month:
-            return self.date(byAdding: .month, value: -1, to: date)!
-        case .year:
-            return self.date(byAdding: .year, value: -1, to: date)!
-        }
     }
 
     func midpoint(from start: Date, to end: Date) -> Date {

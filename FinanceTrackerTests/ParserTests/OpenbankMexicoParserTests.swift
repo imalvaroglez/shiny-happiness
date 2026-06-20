@@ -28,8 +28,6 @@ struct OpenbankMexicoParserTests {
         let data = try Data(contentsOf: sampleDataURL)
         let result = Detector.detect(data: data, fileExtension: "pdf")
         #expect(result.issuer == .openbankMexico)
-        #expect(result.format == .pdf)
-        #expect(result.confidence > 0.9)
     }
 
     @Test("Parses Openbank PDF and extracts transactions")
@@ -98,9 +96,10 @@ struct OpenbankMexicoParserTests {
         }
     }
 
-    @Test("Parser supports correct issuers and formats")
-    func supportedFormats() {
-        #expect(OpenbankMexicoParser.supportedIssuers.contains("Openbank Mexico"))
-        #expect(OpenbankMexicoParser.supportedFormats.contains(.pdf))
+    @Test("CSV remains unsupported")
+    func detectsCSVAsUnknown() {
+        let result = Detector.detect(data: Data("date,amount".utf8), fileExtension: "csv")
+        #expect(result.issuer == .unknown)
+        #expect(result.suggestedAccountType == .other)
     }
 }

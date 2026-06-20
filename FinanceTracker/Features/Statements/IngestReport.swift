@@ -8,10 +8,6 @@ struct IngestReport: Sendable {
     var uncategorizedCount: Int
     var errors: [IngestError]
 
-    var totalProcessed: Int {
-        newTransactions + duplicateTransactions + errorCount
-    }
-
     init(
         fileName: String,
         newTransactions: Int = 0,

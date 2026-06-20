@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-06-20
+
+### Changed
+
+- **Internal cleanup.** Removed unused parser metadata, layout-learning prototypes, and dead helpers without changing app behavior, financial calculations, or stored data.
+
 ## [0.6.1] - 2026-06-17
 
 ### Changed

@@ -191,11 +191,6 @@ enum AccountBalanceResolver {
             .sorted { $0.month < $1.month }
     }
 
-    static func latestAnchor(accountId: UUID, context: ModelContext) -> AccountBalanceAnchor? {
-        allAnchors(accountId: accountId, context: context)
-            .max { $0.date < $1.date }
-    }
-
     static func allAnchors(accountId: UUID, context: ModelContext) -> [AccountBalanceAnchor] {
         let statements = fetchStatements(accountId: accountId, context: context)
         let snapshots = fetchSnapshots(accountId: accountId, context: context)

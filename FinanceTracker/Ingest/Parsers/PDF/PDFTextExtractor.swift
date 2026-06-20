@@ -59,16 +59,4 @@ struct PDFTextExtractor {
             return TableRow(y: y, cells: cells)
         }
     }
-
-    static func extractAllText(from document: PDFDocument) -> String {
-        var result = ""
-        for pageIndex in 0..<document.pageCount {
-            guard let page = document.page(at: pageIndex) else { continue }
-            if let text = page.string {
-                result += text
-                result += "\n"
-            }
-        }
-        return result
-    }
 }

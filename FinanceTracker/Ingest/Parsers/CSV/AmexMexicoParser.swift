@@ -2,9 +2,6 @@ import Foundation
 import PDFKit
 
 struct AmexMexicoParser: StatementParser, Sendable {
-    static var supportedIssuers: [String] { ["American Express Mexico"] }
-    static var supportedFormats: [FileFormat] { [.pdf] }
-
     private let spanishDateFormatter: DateFormatter
     private let slashDateFormatter: DateFormatter
 

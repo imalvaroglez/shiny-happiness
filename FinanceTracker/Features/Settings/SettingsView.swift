@@ -629,11 +629,7 @@ struct SettingsView: View {
         }
     }
 
-    private static let latestReleaseHighlights: [String] = [
-        "Retirement dashboards now show Balance Change instead of Interest Earned.",
-        "Balance Change follows the selected period with an amount and signed percentage.",
-        "Other asset accounts keep their existing interest reporting.",
-    ]
+    private static let latestReleaseHighlights: [String] = []
 
     private var lastBackupDate: String? {
         let fm = FileManager.default

@@ -18,10 +18,6 @@ struct AppBackdrop: View {
 
     // Palette tuned for both color schemes. Both modes stay low-saturation so
     // charts and category colors remain readable.
-    private static var coolDeep: Color {
-        Color(light: Color(hex: "C7D5EC") ?? .blue,
-              dark:  Color(hex: "1A2D4A") ?? .blue)
-    }
     private static var coolMid: Color {
         Color(light: Color(hex: "DBE4F3") ?? .blue,
               dark:  Color(hex: "2A4570") ?? .blue)
@@ -33,10 +29,6 @@ struct AppBackdrop: View {
     private static var warmMid: Color {
         Color(light: Color(hex: "F3E5D4") ?? .orange,
               dark:  Color(hex: "4A3A28") ?? .orange)
-    }
-    private static var warmDeep: Color {
-        Color(light: Color(hex: "ECD9BD") ?? .orange,
-              dark:  Color(hex: "6B5340") ?? .orange)
     }
 }
 
