@@ -7,7 +7,6 @@ struct MonthlyCashFlow: Identifiable {
     let expenses: Decimal
     var id: Date { month }
     var savings: Decimal { income + expenses }
-    var savingsRate: Decimal { income == 0 ? 0 : (income + expenses) / income * 100 }
 }
 
 struct CategorySpending: Identifiable {
@@ -89,10 +88,6 @@ final class DashboardViewModel {
         let fetched = (try? context.fetch(descriptor)) ?? []
         let validIDs = Set(accounts.map(\.id))
         return fetched.filter { validIDs.contains($0.account?.id ?? UUID()) }
-    }
-
-    private func excludedFromCashFlow(_ tx: Transaction) -> Bool {
-        !transactionClassifier.classify(transaction: tx).countsAsOperatingCashFlow
     }
 
     private func isSynthesizedMSIPurchase(_ tx: Transaction) -> Bool {

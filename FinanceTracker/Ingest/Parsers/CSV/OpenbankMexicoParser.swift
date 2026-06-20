@@ -2,9 +2,6 @@ import Foundation
 import PDFKit
 
 struct OpenbankMexicoParser: StatementParser, Sendable {
-    static var supportedIssuers: [String] { ["Openbank Mexico"] }
-    static var supportedFormats: [FileFormat] { [.pdf] }
-
     private let dateFormatter: DateFormatter
 
     init() {

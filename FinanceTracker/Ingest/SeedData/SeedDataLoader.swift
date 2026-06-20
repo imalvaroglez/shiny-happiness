@@ -274,44 +274,4 @@ struct SeedDataLoader {
             Logger.app.error("Failed to load category rules: \(error)")
         }
     }
-
-    private static let incomingTransferPatterns: [(pattern: String, targetCategory: String)] = [
-        ("(?i)PAGO\\s+RECIBIDO\\s+DE\\s+STP\\s+POR\\s+ORDEN\\s+DE\\s+ALVARO", "Transfers.To Own Accounts"),
-        ("(?i)recibida\\s+(de\\s+la\\s+)?cuenta\\s+0728\\s+BANAMEX", "Transfers.To Own Accounts"),
-        ("(?i)PAGO\\s+INTERBANCARIO\\s+PAGO\\s+RECIBIDO\\s+DE.*STP.*ALVARO", "Credit Card Payments.Card Payment Received"),
-    ]
-
-    private static func repairIncomingTransferCategories(context: ModelContext, categoriesByName: [String: Category]) {
-        let descriptor = FetchDescriptor<Transaction>(
-            predicate: #Predicate<Transaction> { $0.deletedAt == nil }
-        )
-        let transactions: [Transaction]
-        do {
-            transactions = try context.fetch(descriptor)
-        } catch {
-            Logger.app.warning("Transfer repair: skipped — could not fetch transactions: \(error)")
-            return
-        }
-        var repaired = 0
-
-        for tx in transactions {
-            let kind = tx.category?.kind
-            guard kind == .income || kind == .expense else { continue }
-
-            for (pattern, targetName) in incomingTransferPatterns {
-                if tx.descriptionRaw.range(of: pattern, options: .regularExpression) != nil {
-                    if let target = categoriesByName[targetName], target.deletedAt == nil {
-                        tx.category = target
-                        tx.touch()
-                        repaired += 1
-                    }
-                    break
-                }
-            }
-        }
-
-        if repaired > 0 {
-            Logger.app.info("Transfer repair: recategorized \(repaired) incoming own-account transfer(s)")
-        }
-    }
 }

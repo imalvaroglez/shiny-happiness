@@ -69,20 +69,3 @@ struct GlassCard<Content: View>: View {
             .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
-
-/// Convenience wrapper for capsule-shaped glass chips (e.g. category badges).
-/// Picks up `scopedTint` for a faint border.
-struct GlassChip<Content: View>: View {
-    @ViewBuilder var content: () -> Content
-    @Environment(\.scopedTint) private var scopedTint
-
-    var body: some View {
-        content()
-            .background(.thinMaterial, in: Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(scopedTint.opacity(0.15), lineWidth: 0.5)
-                    .allowsHitTesting(false)
-            )
-    }
-}

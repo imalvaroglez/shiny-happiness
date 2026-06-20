@@ -48,8 +48,4 @@ final class PendingImport: LastModifiedTracking {
         self.createdAt = createdAt
         self.matchedDeletedTransactionId = matchedDeletedTransactionId
     }
-
-    var isResolved: Bool {
-        resolvedTransaction != nil
-    }
 }
