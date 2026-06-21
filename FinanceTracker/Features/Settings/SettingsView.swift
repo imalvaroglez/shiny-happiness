@@ -34,6 +34,9 @@ struct SettingsView: View {
     @State private var isRestoring = false
     @State private var backupStatus = ""
     @State private var resetErrorMessage: String?
+    @State private var pendingRestoreURL: URL?
+    @State private var pendingRestoreStrategy: RestoreStrategy = .mergeKeepingNewer
+    @State private var restoreErrorMessage: String?
 
     @State private var accountDeletionTarget: AccountDeletionTarget?
     @State private var showingAddAccount = false
@@ -118,6 +121,25 @@ struct SettingsView: View {
             Button("OK") { resetErrorMessage = nil }
         } message: {
             Text(resetErrorMessage ?? "An unknown error occurred.")
+        }
+        .alert("Restore from backup?", isPresented: Binding(
+            get: { pendingRestoreURL != nil },
+            set: { if !$0 { pendingRestoreURL = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { pendingRestoreURL = nil }
+            Button(pendingRestoreStrategy == .replaceAll ? "Replace All" : "Merge", role: .destructive) {
+                confirmRestore()
+            }
+        } message: {
+            Text(restoreConfirmationMessage)
+        }
+        .alert("Restore Error", isPresented: Binding(
+            get: { restoreErrorMessage != nil },
+            set: { if !$0 { restoreErrorMessage = nil } }
+        )) {
+            Button("OK") { restoreErrorMessage = nil }
+        } message: {
+            Text(restoreErrorMessage ?? "An unknown error occurred.")
         }
         .alert("Category Error", isPresented: Binding(
             get: { categoryErrorMessage != nil },
@@ -558,8 +580,19 @@ struct SettingsView: View {
                 HStack(spacing: 12) {
                     Button("Export backup…") { exportBackup() }
                         .disabled(isExporting)
-                    Button("Restore from backup…") { restoreBackup() }
-                        .disabled(isRestoring)
+                    Button {
+                        restoreBackup()
+                    } label: {
+                        if isRestoring {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Restoring…")
+                            }
+                        } else {
+                            Text("Restore from backup…")
+                        }
+                    }
+                    .disabled(isRestoring)
                     Button("Reveal in Finder") { revealBackupsFolder() }
                 }
 
@@ -689,20 +722,37 @@ struct SettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard url.pathExtension == "ftbackup",
               FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path) else {
-            backupStatus = "Restore failed: choose a .ftbackup bundle"
+            restoreErrorMessage = "That isn't a valid backup. Choose a .ftbackup bundle exported by FinanceTracker."
             return
         }
+        // Stage the restore and ask the user to confirm — naming the strategy
+        // and warning that replaceAll overwrites everything. Restore never starts
+        // without this confirmation.
+        pendingRestoreStrategy = hasFinancialRows ? .mergeKeepingNewer : .replaceAll
+        pendingRestoreURL = url
+    }
+
+    private func confirmRestore() {
+        guard let url = pendingRestoreURL else { return }
+        let strategy = pendingRestoreStrategy
+        pendingRestoreURL = nil
         isRestoring = true
         Task {
             do {
-                let strategy: RestoreStrategy = hasFinancialRows ? .mergeKeepingNewer : .replaceAll
                 try await BackupArchive.restore(from: url, into: modelContext, strategy: strategy)
-                backupStatus = "Restore complete"
+                backupStatus = strategy == .replaceAll ? "Restore complete — existing data was replaced." : "Restore complete — newer rows were kept."
             } catch {
-                backupStatus = "Restore failed: \(error.localizedDescription)"
+                restoreErrorMessage = "Restore failed: \(error.localizedDescription)"
             }
             isRestoring = false
         }
+    }
+
+    private var restoreConfirmationMessage: String {
+        if pendingRestoreStrategy == .replaceAll {
+            return "This will permanently replace ALL accounts, transactions, and history with the contents of this backup. Existing data will be lost. This cannot be undone."
+        }
+        return "This will merge the backup into your data, keeping the newer version of any row that exists in both. Your existing data is preserved."
     }
 
     private var hasFinancialRows: Bool {

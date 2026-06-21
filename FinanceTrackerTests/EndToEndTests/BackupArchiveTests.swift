@@ -245,4 +245,29 @@ struct BackupArchiveTests {
         #expect(transaction.treatmentKind == .retirementContributionUserFunded)
         #expect(!TransactionClassifier().classify(transaction: transaction).countsAsRegularIncome)
     }
+
+    @Test("Restore throws on an unsupported schema instead of completing silently")
+    func restoreSurfacesErrorOnUnsupportedSchema() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bad-schema-\(UUID()).ftbackup", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(BackupManifest(
+            schemaVersion: 999,
+            createdAt: .now,
+            appVersion: "0.0.0",
+            modelCounts: [:],
+            contentHashes: [:]
+        )).write(to: tmp.appendingPathComponent("manifest.json"))
+
+        let target = try makeContainer()
+        // The trust contract: a failed restore must throw so the caller can
+        // surface an error. It must never report a silent "complete".
+        await #expect(throws: (any Error).self) {
+            try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        }
+    }
 }
