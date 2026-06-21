@@ -157,6 +157,7 @@ struct ImportView: View {
 
 private struct ReportRow: View {
     let report: IngestReport
+    @State private var showingErrors = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -193,9 +194,93 @@ private struct ReportRow: View {
                     .padding(.vertical, 3)
                     .background(Capsule().fill(Color.orange.opacity(0.12)))
             }
+
+            if report.errorCount > 0 {
+                Text("\(report.errorCount) error\(report.errorCount == 1 ? "" : "s")")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.red.opacity(0.12)))
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if report.errorCount > 0 { showingErrors = true }
+        }
+        .help(report.errorCount > 0 ? "View error details" : "")
+        .sheet(isPresented: $showingErrors) {
+            ImportErrorSheet(fileName: report.fileName, errors: report.errors)
+        }
+    }
+}
+
+private struct ImportErrorSheet: View {
+    let fileName: String
+    let errors: [IngestError]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Import errors")
+                        .font(.headline)
+                    Text(fileName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+
+            Divider()
+
+            if errors.isEmpty {
+                Text("No error details recorded.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(errors.enumerated()), id: \.offset) { index, error in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    if let row = error.row {
+                                        Text("Row \(row)")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text(error.message)
+                                        .font(.callout)
+                                }
+                                if let detail = error.detail {
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            if index < errors.count - 1 {
+                                Divider().padding(.leading, 16)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 440, minHeight: 280)
     }
 }
 
