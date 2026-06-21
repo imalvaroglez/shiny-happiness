@@ -255,72 +255,9 @@ struct SettingsView: View {
                     ))
                 }
 
-                if account.type == .creditCard {
-                    TextField("Credit limit", value: Binding(
-                        get: { account.creditLimit ?? 0 },
-                        set: { account.creditLimit = $0 }
-                    ), format: .currency(code: account.currency))
-                    .textFieldStyle(.roundedBorder)
-                }
-
-                if account.type == .investment || account.type == .retirement {
-                    Picker("Classification", selection: Binding(
-                        get: { account.type },
-                        set: { account.setInvestmentRetirementClassification($0) }
-                    )) {
-                        Text("Investment").tag(AccountType.investment)
-                        Text("Retirement").tag(AccountType.retirement)
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                if account.type == .retirement {
-                    Picker("Retirement type", selection: Binding(
-                        get: { account.retirementKind ?? .other },
-                        set: { account.retirementKind = $0 }
-                    )) {
-                        ForEach(RetirementKind.allCases, id: \.self) { kind in
-                            Text(kind.displayName).tag(kind)
-                        }
-                    }
-                    .labelsHidden()
-
-                    Text("Retirement accounts are included in Total Net Worth but excluded from regular Cash Flow by default.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                if account.type == .retirement || account.type == .investment {
-                    Picker("Liquidity", selection: Binding(
-                        get: { account.liquidity },
-                        set: { account.liquidity = $0 }
-                    )) {
-                        ForEach(AccountLiquidity.allCases, id: \.self) { value in
-                            Text(value.displayName).tag(value)
-                        }
-                    }
-                    .labelsHidden()
-
-                    Toggle("Include in Net Worth", isOn: Binding(
-                        get: { account.effectiveIncludeInNetWorth },
-                        set: { account.includeInNetWorth = $0 }
-                    ))
-                    Toggle("Include in Cash Flow", isOn: Binding(
-                        get: { account.effectiveIncludeInCashFlow },
-                        set: { account.includeInCashFlow = $0 }
-                    ))
-                    Toggle("Include in Regular Income", isOn: Binding(
-                        get: { account.effectiveIncludeInRegularIncome },
-                        set: { account.includeInRegularIncome = $0 }
-                    ))
-                }
-
-                if account.type == .retirement {
-                    Toggle("Track for PPR/tax purposes", isOn: Binding(
-                        get: { account.taxTrackingEnabled ?? (account.retirementKind == .ppr) },
-                        set: { account.taxTrackingEnabled = $0 }
-                    ))
-                }
+                // High-impact (financial-identity) fields edit through an explicit
+                // Save/Cancel draft model — never persisted silently on toggle.
+                AccountFinancialFieldsEditor(account: account)
 
                 Button {
                     balanceSnapshotAccount = account
