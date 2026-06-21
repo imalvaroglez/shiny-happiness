@@ -10,6 +10,7 @@ struct ApplyToSimilarView: View {
 
     @State private var matchingTransactions: [Transaction] = []
     @State private var selectedIDs: Set<UUID> = []
+    @State private var saveError: String?
 
     private var selectedCount: Int { selectedIDs.count }
 
@@ -116,22 +117,29 @@ struct ApplyToSimilarView: View {
     }
 
     private var footer: some View {
-        HStack {
-            Button("Just This One") {
-                dismiss()
+        VStack(spacing: 8) {
+            if let saveError {
+                Text(saveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .keyboardShortcut(.cancelAction)
-
-            Spacer()
-
-            if keyword != nil && !matchingTransactions.isEmpty {
-                Button("Apply to Selected (\(selectedCount))") {
-                    applySelected()
+            HStack {
+                Button("Just This One") {
                     dismiss()
                 }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.glassProminent)
-                .disabled(selectedCount == 0)
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                if keyword != nil && !matchingTransactions.isEmpty {
+                    Button("Apply to Selected (\(selectedCount))") {
+                        applySelected()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.glassProminent)
+                    .disabled(selectedCount == 0)
+                }
             }
         }
         .padding(.horizontal, 20)
@@ -162,12 +170,19 @@ struct ApplyToSimilarView: View {
         )
         modelContext.insert(rule)
 
-        for tx in matchingTransactions where selectedIDs.contains(tx.id) {
+        let updated = matchingTransactions.filter { selectedIDs.contains($0.id) }
+        for tx in updated {
             tx.category = category
             tx.touch()
         }
 
-        try? modelContext.save()
+        do {
+            try Persistence.save(modelContext)
+        } catch {
+            saveError = "Couldn't apply to \(updated.count) transaction\(updated.count == 1 ? "" : "s"): \(error.localizedDescription)"
+            return
+        }
+        dismiss()
     }
 
     private static let _mxnFormatter: NumberFormatter = {

@@ -40,6 +40,7 @@ struct TransactionsView: View {
     @State private var showingManualTransaction = false
     @State private var pendingApplyToSimilar: PendingApplyToSimilar?
     @State private var pendingApplyCandidate: PendingApplyToSimilar?
+    @State private var actionError: String?
 
     private var parentCategories: [Category] {
         var seen = Set<String>()
@@ -75,6 +76,7 @@ struct TransactionsView: View {
     }
 
     private func recomputeDisplay() {
+        actionError = nil
         let active = showingRecentlyDeleted ? deletedTransactions : allTransactions
 
         if accounts.isEmpty {
@@ -127,6 +129,14 @@ struct TransactionsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let actionError {
+                Text(actionError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+            }
             TransactionFilterBar(
                 accountFilterID: $accountFilterID,
                 categoryFilter: $categoryFilter,
@@ -275,7 +285,12 @@ struct TransactionsView: View {
     private func softDelete(_ tx: Transaction) {
         tx.deletedAt = Date.now
         tx.touch()
-        try? modelContext.save()
+        do {
+            try Persistence.save(modelContext)
+        } catch {
+            actionError = "Couldn't delete transaction: \(error.localizedDescription)"
+            return
+        }
         fetchTransactions()
         recomputeDisplay()
     }
@@ -283,7 +298,12 @@ struct TransactionsView: View {
     private func restore(_ tx: Transaction) {
         tx.deletedAt = nil
         tx.touch()
-        try? modelContext.save()
+        do {
+            try Persistence.save(modelContext)
+        } catch {
+            actionError = "Couldn't restore transaction: \(error.localizedDescription)"
+            return
+        }
         fetchTransactions()
         recomputeDisplay()
     }

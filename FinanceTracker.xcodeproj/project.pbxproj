@@ -136,6 +136,7 @@
 		D81D3721DF4E349BB6094C14 /* CategoryManagementActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A597EF9FEFE3473730377F78 /* CategoryManagementActions.swift */; };
 		D8284B1BD4C4A66666B4665A /* 2026-05-08_Estado_de_cuenta.pdf in Resources */ = {isa = PBXBuildFile; fileRef = E65F09DCD06CFDDA6DBBDDAD /* 2026-05-08_Estado_de_cuenta.pdf */; };
 		DCBA7F670AEBDCBA9F807D2F /* category_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 258ACDAAC6B78C5485F65FCB /* category_rules.json */; };
+		DCF011CC45698B5433A28244 /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03324181E65080EE31953DF3 /* Persistence.swift */; };
 		DF35C549A740C53F50C47C0A /* CategorizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F8E6BEB13E160FD7823D67 /* CategorizerTests.swift */; };
 		E0B7636C75F0385A4FBB3534 /* OpenbankMultiAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4A44210612FDD708268A9C6 /* OpenbankMultiAccountTests.swift */; };
 		E4352849FEFC8D21DCC640B3 /* TransactionMovementKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C076B0737FF34068008402B /* TransactionMovementKind.swift */; };
@@ -169,6 +170,7 @@
 /* Begin PBXFileReference section */
 		00B957B16A6A9B1E3B2FE4FE /* BalanceSnapshotSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BalanceSnapshotSheet.swift; sourceTree = "<group>"; };
 		03131945D1AD4F5B0BEE2CA2 /* SourceFileTrackingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFileTrackingTests.swift; sourceTree = "<group>"; };
+		03324181E65080EE31953DF3 /* Persistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Persistence.swift; sourceTree = "<group>"; };
 		04914B517C9B033CAEAC9321 /* DashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViewModel.swift; sourceTree = "<group>"; };
 		084ECD2379C85611D120A356 /* RawTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawTransaction.swift; sourceTree = "<group>"; };
 		0CBF71AEF9F3E8D7AC311F22 /* 01.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = 01.pdf; sourceTree = "<group>"; };
@@ -419,6 +421,7 @@
 			children = (
 				1AE3A402ECAC8EDC5B7D22E7 /* AppDataResetService.swift */,
 				8573C4DA0BD52C0E219ABFF9 /* Logger.swift */,
+				03324181E65080EE31953DF3 /* Persistence.swift */,
 				D86529E2EA3D87647109F8D7 /* StoreFileResetService.swift */,
 			);
 			path = Utilities;
@@ -952,6 +955,7 @@
 				34FB54622AE1EB5EE172476B /* PaymentDetailsSheet.swift in Sources */,
 				52898B3508FAA5913092F631 /* PendingImport.swift in Sources */,
 				371082F70A36D27C5B7DE423 /* PendingReviewSection.swift in Sources */,
+				DCF011CC45698B5433A28244 /* Persistence.swift in Sources */,
 				4327A5360668266C72DCCD84 /* PersistentModel+Touch.swift in Sources */,
 				6B10DFBF6B32F7DB37BB4991 /* RawTransaction.swift in Sources */,
 				A32C65AECBA5FCC6DDECF6E0 /* RetirementKind.swift in Sources */,

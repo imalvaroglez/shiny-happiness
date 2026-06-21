@@ -25,6 +25,7 @@ struct TransactionDetailSheet: View {
 
     @State private var pendingKeyword: String?
     @State private var categoryDidChange = false
+    @State private var saveError: String?
 
     private var isKindEditable: Bool {
         transaction.source == .manual
@@ -50,6 +51,12 @@ struct TransactionDetailSheet: View {
             header
             summaryHeader
             editPanel
+            if let saveError {
+                Text(saveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             footer
         }
         .padding(24)
@@ -376,7 +383,13 @@ struct TransactionDetailSheet: View {
         }
 
         transaction.touch()
-        try? modelContext.save()
+
+        do {
+            try Persistence.save(modelContext)
+        } catch {
+            saveError = "Couldn't save changes: \(error.localizedDescription)"
+            return
+        }
 
         if categoryDidChange, let cat = draftCategory {
             onCategoryAssigned(

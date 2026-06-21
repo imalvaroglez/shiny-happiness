@@ -60,6 +60,7 @@ private struct PendingReviewRow: View {
     @State private var draftAmount: String = ""
     @State private var draftDescription: String = ""
     @State private var didSeed = false
+    @State private var saveError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -99,6 +100,12 @@ private struct PendingReviewRow: View {
                         .buttonStyle(.glassProminent)
                         .disabled(!canResolve)
                 }
+            }
+
+            if let saveError {
+                Text(saveError)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
             }
         }
         .onAppear { seedDraftsIfNeeded() }
@@ -158,7 +165,12 @@ private struct PendingReviewRow: View {
 
         pending.touch()
         txn.touch()
-        try? modelContext.save()
+        do {
+            try Persistence.save(modelContext)
+        } catch {
+            saveError = "Couldn't save changes: \(error.localizedDescription)"
+            return
+        }
         onResolved(txn)
     }
 
@@ -172,7 +184,12 @@ private struct PendingReviewRow: View {
         deleted.touch()
         pending.resolvedTransaction = deleted
         pending.touch()
-        try? modelContext.save()
+        do {
+            try Persistence.save(modelContext)
+        } catch {
+            saveError = "Couldn't save changes: \(error.localizedDescription)"
+            return
+        }
         onResolved(deleted)
     }
 
@@ -191,7 +208,12 @@ private struct PendingReviewRow: View {
             txn.touch()
         }
         pending.touch()
-        try? modelContext.save()
+        do {
+            try Persistence.save(modelContext)
+        } catch {
+            saveError = "Couldn't save changes: \(error.localizedDescription)"
+            return
+        }
     }
 
     private static let _plainFormatter: NumberFormatter = {
