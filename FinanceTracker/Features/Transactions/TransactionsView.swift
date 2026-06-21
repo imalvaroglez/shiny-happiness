@@ -41,6 +41,7 @@ struct TransactionsView: View {
     @State private var pendingApplyToSimilar: PendingApplyToSimilar?
     @State private var pendingApplyCandidate: PendingApplyToSimilar?
     @State private var actionError: String?
+    @State private var txPendingDelete: Transaction?
 
     private var parentCategories: [Category] {
         var seen = Set<String>()
@@ -159,6 +160,22 @@ struct TransactionsView: View {
         }
         .searchable(text: $searchText, prompt: "Search transactions")
         .navigationTitle("Transactions")
+        .confirmationDialog(
+            "Delete this transaction?",
+            isPresented: Binding(
+                get: { txPendingDelete != nil },
+                set: { if !$0 { txPendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let tx = txPendingDelete { softDelete(tx) }
+                txPendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { txPendingDelete = nil }
+        } message: {
+            Text("It will be moved to Recently Deleted. You can restore it from the filter bar's Recently Deleted toggle.")
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -263,7 +280,7 @@ struct TransactionsView: View {
                                         onOpenCategoryPicker: {
                                             editingTransaction = tx
                                         },
-                                        onDelete: { softDelete(tx) },
+                                        onDelete: { txPendingDelete = tx },
                                         onRestore: { restore(tx) },
                                         onApplyToSimilar: { beginApplyToSimilar(tx) }
                                     )
