@@ -7,6 +7,7 @@ import SwiftUI
 struct PasteImportSheet: View {
     @Bindable var viewModel: ImportViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showingExample = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,9 +40,43 @@ struct PasteImportSheet: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { showingExample.toggle() }
+            } label: {
+                Label(showingExample ? "Hide example" : "Show example", systemImage: showingExample ? "chevron.down" : "chevron.right")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+
+            if showingExample {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("HSBC 2Now — copy starting from the “TU PAGO REQUERIDO” header:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(Self.exampleText)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private static let exampleText = """
+    TU PAGO REQUERIDO ESTE PERIODO
+    a) Periodo:
+    …
+    10-Abr-2026 al 09-May-2026
+    d) Fecha límite de pago: 1 sábado, 30-May-2026
+    e) PAGO PARA NO GENERAR INTERESES: 2 $ 30,892.20
+
+    RESUMEN DE CARGOS Y ABONOS DEL PERIODO
+    …
+    """
 
     private var footer: some View {
         HStack(spacing: 12) {
@@ -88,7 +123,7 @@ struct PasteImportSheet: View {
             icon = "doc.text"
             color = .secondary
         } else if detection.issuer == .unknown {
-            label = "Issuer not detected — only HSBC 2Now is supported right now"
+            label = "Couldn't identify this statement. Paste import currently supports HSBC 2Now — make sure you copied from the “TU PAGO REQUERIDO” header down, and tap Show example to compare."
             icon = "questionmark.circle"
             color = .orange
         } else {
