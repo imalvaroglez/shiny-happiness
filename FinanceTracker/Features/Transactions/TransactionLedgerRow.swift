@@ -37,6 +37,17 @@ struct TransactionLedgerRow: View {
 
             categoryChip
 
+            if transaction.isDuplicate {
+                Text("DUPLICATE")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule().fill(Color.orange.opacity(0.12))
+                    )
+            }
+
             Text(MoneyFormat.string(transaction.amount, code: transaction.currency))
                 .font(.callout.weight(.semibold))
                 .monospacedDigit()

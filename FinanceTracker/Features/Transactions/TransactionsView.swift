@@ -32,6 +32,7 @@ struct TransactionsView: View {
     @State private var categoryFilter: CategoryFilter = .all
     @State private var sortMode: TransactionSortMode = .dateDesc
     @State private var showingRecentlyDeleted = false
+    @State private var showingDuplicatesOnly = false
 
     @State private var dayGroups: [TransactionDayGroup] = []
     @State private var lastTxCount: Int = 0
@@ -106,6 +107,10 @@ struct TransactionsView: View {
             result = result.filter { tx in tx.category?.id == id }
         }
 
+        if showingDuplicatesOnly {
+            result = result.filter { $0.isDuplicate }
+        }
+
         if !searchText.isEmpty {
             result = result.filter {
                 $0.descriptionRaw.localizedCaseInsensitiveContains(searchText) ||
@@ -143,7 +148,9 @@ struct TransactionsView: View {
                 categoryFilter: $categoryFilter,
                 sortMode: $sortMode,
                 showingRecentlyDeleted: $showingRecentlyDeleted,
+                showingDuplicatesOnly: $showingDuplicatesOnly,
                 deletedCount: deletedTransactions.count,
+                duplicateCount: allTransactions.filter(\.isDuplicate).count,
                 visibleCount: dayGroups.reduce(0) { $0 + $1.count },
                 accounts: accounts,
                 parentCategories: parentCategories,
@@ -221,6 +228,7 @@ struct TransactionsView: View {
         .onChange(of: searchText) { recomputeDisplay() }
         .onChange(of: sortMode) { recomputeDisplay() }
         .onChange(of: showingRecentlyDeleted) { recomputeDisplay() }
+        .onChange(of: showingDuplicatesOnly) { recomputeDisplay() }
         .onAppear {
             fetchTransactions()
             recomputeDisplay()
@@ -237,6 +245,7 @@ struct TransactionsView: View {
             pendingApplyCandidate = nil
             showingManualTransaction = false
             showingRecentlyDeleted = false
+            showingDuplicatesOnly = false
             searchText = ""
             fetchTransactions()
         }

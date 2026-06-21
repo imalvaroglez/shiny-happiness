@@ -7,7 +7,9 @@ struct TransactionFilterBar: View {
     @Binding var categoryFilter: CategoryFilter
     @Binding var sortMode: TransactionSortMode
     @Binding var showingRecentlyDeleted: Bool
+    @Binding var showingDuplicatesOnly: Bool
     let deletedCount: Int
+    let duplicateCount: Int
     let visibleCount: Int
     let accounts: [Account]
     let parentCategories: [Category]
@@ -115,6 +117,13 @@ struct TransactionFilterBar: View {
                 }
                 .toggleStyle(.switch)
             }
+
+            if duplicateCount > 0 {
+                Toggle(isOn: $showingDuplicatesOnly) {
+                    Label("Duplicates (\(duplicateCount))", systemImage: "doc.on.doc")
+                }
+                .toggleStyle(.switch)
+            }
         }
     }
 
@@ -128,6 +137,9 @@ struct TransactionFilterBar: View {
         }
         if showingRecentlyDeleted {
             filterChip("Deleted")
+        }
+        if showingDuplicatesOnly {
+            filterChip("Duplicates")
         }
     }
 
@@ -145,6 +157,7 @@ struct TransactionFilterBar: View {
         if accountFilterID != nil { count += 1 }
         if categoryFilter != .all { count += 1 }
         if showingRecentlyDeleted { count += 1 }
+        if showingDuplicatesOnly { count += 1 }
         return count
     }
 
