@@ -194,19 +194,16 @@ private struct PendingReviewRow: View {
     }
 
     private func keepDeleted() {
-        pending.resolvedTransaction = Transaction(
-            account: pending.account,
-            statement: pending.statement,
-            postedAt: .now,
-            amount: 0,
-            currency: pending.account?.currency ?? "MXN",
-            descriptionRaw: "Suppressed — kept deleted",
-            source: .pendingResolution
+        // "Keep Deleted": don't restore the matched soft-deleted transaction,
+        // and don't fabricate a replacement row. Mark this pending import
+        // resolved by linking it to the deleted transaction (which stays
+        // deleted), so it drops out of review and the parent refreshes.
+        guard let deletedId = pending.matchedDeletedTransactionId else { return }
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.id == deletedId }
         )
-        if let txn = pending.resolvedTransaction {
-            modelContext.insert(txn)
-            txn.touch()
-        }
+        guard let deleted = (try? modelContext.fetch(descriptor))?.first else { return }
+        pending.resolvedTransaction = deleted
         pending.touch()
         do {
             try Persistence.save(modelContext)
@@ -214,6 +211,7 @@ private struct PendingReviewRow: View {
             saveError = "Couldn't save changes: \(error.localizedDescription)"
             return
         }
+        onResolved(deleted)
     }
 
     private static let _plainFormatter: NumberFormatter = {
