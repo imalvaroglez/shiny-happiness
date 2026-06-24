@@ -80,8 +80,6 @@ targets:
         buildPhase: resources
         excludes:
           - "**/*.swift"
-      - path: samples
-        buildPhase: resources
     dependencies:
       - target: FinanceTracker
     settings:
