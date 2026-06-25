@@ -213,17 +213,52 @@ enum FinanceTrackerSchemaV1: VersionedSchema {
 
 enum FinanceTrackerSchemaV2: VersionedSchema {
     static let versionIdentifier = Schema.Version(0, 5, 0)
-    static var models: [any PersistentModel.Type] { AppSchema.modelTypes }
+    static var models: [any PersistentModel.Type] {
+        [
+            Account.self,
+            AccountBalanceSnapshot.self,
+            Transaction.self,
+            Statement.self,
+            Category.self,
+            CategoryRule.self,
+            InstallmentPlan.self,
+            PendingImport.self,
+            SignRecoveryHint.self,
+        ]
+    }
+}
+
+enum FinanceTrackerSchemaV3: VersionedSchema {
+    static let versionIdentifier = Schema.Version(0, 6, 0)
+    static var models: [any PersistentModel.Type] {
+        [
+            Account.self,
+            AccountBalanceSnapshot.self,
+            Transaction.self,
+            Statement.self,
+            Category.self,
+            CategoryRule.self,
+            InstallmentPlan.self,
+            PendingImport.self,
+            SignRecoveryHint.self,
+            StockPosition.self,
+        ]
+    }
 }
 
 enum FinanceTrackerMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [FinanceTrackerSchemaV1.self, FinanceTrackerSchemaV2.self]
+        [FinanceTrackerSchemaV1.self, FinanceTrackerSchemaV2.self, FinanceTrackerSchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1toV2]
+        [migrateV1toV2, migrateV2toV3]
     }
+
+    private static let migrateV2toV3 = MigrationStage.lightweight(
+        fromVersion: FinanceTrackerSchemaV2.self,
+        toVersion: FinanceTrackerSchemaV3.self
+    )
 
     private static let migrateV1toV2 = MigrationStage.custom(
         fromVersion: FinanceTrackerSchemaV1.self,
@@ -329,6 +364,7 @@ enum AppSchema {
             InstallmentPlan.self,
             PendingImport.self,
             SignRecoveryHint.self,
+            StockPosition.self,
         ]
     }
 
