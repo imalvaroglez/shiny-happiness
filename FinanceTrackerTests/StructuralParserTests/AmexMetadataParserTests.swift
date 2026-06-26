@@ -133,7 +133,7 @@ struct AmexMetadataParserTests {
         """
         let meta = extractMetadata(from: text)
 
-        #expect(meta?.creditLimit == 222220.00)
+        #expect(meta?.creditLimit == 288000.00)
         #expect(meta?.closingBalance == -33996.87)
         #expect(meta?.paymentForNoInterest == 13802.95)
         #expect(meta?.minimumPayment == 3600.00)

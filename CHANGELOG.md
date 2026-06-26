@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-26
+
+### Added
+
+- **Stocks Portfolio.** Track a BMV/US stock portfolio as an investment account with per-stock positions, on-demand DataBursatil price refresh, current value, growth vs cost basis, and Net Worth inclusion through authoritative portfolio valuation snapshots.
+- **DataBursatil token storage.** Settings can now save the API token to Keychain for price refreshes.
+
+### Changed
+
+- **SwiftData/backup portfolio support.** Schema V3 adds `StockPosition`; backup format V3 writes `StockPosition.json`, while V1/V2 backups still restore without positions.
+- **Release checks.** Removed the obsolete dashboard snapshot suite and release-prep gate in favor of focused dashboard coverage.
+- **Release checks.** Missing ignored sample fixtures now skip fixture-specific assertions instead of crashing the full test suite.
+
+### Fixed
+
+- **Stocks Portfolio setup.** Zero-balance investment accounts can now start a stock portfolio, and spaced BMV series like `AMX B`, `CEMEX CPO`, and `GFNORTE O` are normalized for DataBursatil.
+- **Stocks Portfolio refresh.** If DataBursatil returns only some quotes, the dashboard now names the missing tickers while preserving the previous complete valuation.
+- **DataBursatil quotes.** Refresh now accepts DataBursatil's lowercase `bmv`/`biva` response keys and maps known SIC tickers like `VOO` and `IBM` to the required `*` request suffix.
+
 ## [0.6.2] - 2026-06-20
 
 ### Changed

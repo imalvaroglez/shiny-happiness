@@ -13,18 +13,14 @@ struct OpenbankMexicoParserTests {
         Account(institution: "Openbank Mexico", type: .checking, currency: "MXN")
     }
 
-    private var sampleDataURL: URL {
-        FixtureLoader.url("01.pdf")
-    }
-
-    private var fixtureExists: Bool {
-        FileManager.default.fileExists(atPath: sampleDataURL.path)
+    private var sampleDataURL: URL? {
+        FixtureLoader.optionalURL("01.pdf")
     }
 
     // SKIPPED: fixture PDF not in samples/ — re-enable when 202508.pdf is restored
     @Test("Detects Openbank from PDF data")
     func detectsOpenbank() async throws {
-        guard fixtureExists else { return }
+        guard let sampleDataURL else { return }
         let data = try Data(contentsOf: sampleDataURL)
         let result = Detector.detect(data: data, fileExtension: "pdf")
         #expect(result.issuer == .openbankMexico)
@@ -32,7 +28,7 @@ struct OpenbankMexicoParserTests {
 
     @Test("Parses Openbank PDF and extracts transactions")
     func parsesOpenbankPDF() async throws {
-        guard fixtureExists else { return }
+        guard let sampleDataURL else { return }
         let data = try Data(contentsOf: sampleDataURL)
 
         let transactions = try await parser.parse(data: data)
@@ -52,7 +48,7 @@ struct OpenbankMexicoParserTests {
 
     @Test("Transaction amounts are Decimal, never zero for non-empty transactions")
     func amountsAreValid() async throws {
-        guard fixtureExists else { return }
+        guard let sampleDataURL else { return }
         let data = try Data(contentsOf: sampleDataURL)
 
         let transactions = try await parser.parse(data: data)
@@ -64,7 +60,7 @@ struct OpenbankMexicoParserTests {
 
     @Test("Dates are valid and within reasonable range")
     func datesAreValid() async throws {
-        guard fixtureExists else { return }
+        guard let sampleDataURL else { return }
         let data = try Data(contentsOf: sampleDataURL)
 
         let transactions = try await parser.parse(data: data)
@@ -79,7 +75,7 @@ struct OpenbankMexicoParserTests {
 
     @Test("Transfer detection works for SPEI transactions")
     func transferDetection() async throws {
-        guard fixtureExists else { return }
+        guard let sampleDataURL else { return }
         let data = try Data(contentsOf: sampleDataURL)
 
         let transactions = try await parser.parse(data: data)

@@ -180,6 +180,9 @@ final class DashboardViewModel {
         let (income, expenses) = computeTotals(transactions)
         let interestEarned = computeInterestEarned(transactions)
         let balanceSeries = computeBalanceSeries(context: context, accountId: account.id, period: period)
+        let portfolio = account.type == .investment
+            ? Self.buildPortfolioViewData(context: context, account: account, period: period)
+            : nil
 
         return AssetAccountSnapshot(
             period: period,
@@ -192,8 +195,64 @@ final class DashboardViewModel {
             totalExpenses: expenses,
             totalInterestEarned: interestEarned,
             recentTransactions: transactions,
-            totalTransactions: transactions.count
+            totalTransactions: transactions.count,
+            portfolio: portfolio
         )
+    }
+
+    private static func buildPortfolioViewData(
+        context: ModelContext,
+        account: Account,
+        period: DashboardPeriodContext
+    ) -> PortfolioViewData {
+        let active = PortfolioService.activePositions(accountID: account.id, context: context)
+        let resolution = AccountBalanceResolver.resolution(
+            account: account,
+            asOf: period.effectiveNetWorthDate,
+            context: context
+        )
+        let sourceIsValuation = resolution.sourceSnapshotKind == .portfolioValuation
+
+        let currentFingerprint = HoldingsFingerprint.of(active.map { ($0.emisoraSerie, $0.shares, $0.averageCost) })
+        let storedFingerprint = sourceIsValuation
+            ? resolution.sourceSnapshotNote.flatMap { Self.portfolioFingerprint(from: $0) }
+            : nil
+        let matches = storedFingerprint == currentFingerprint
+
+        let totalInvested = active.reduce(Decimal(0)) { $0 + ($1.shares * $1.averageCost) }
+        let totalGrowth: Double?
+        if sourceIsValuation, matches, totalInvested > 0 {
+            totalGrowth = (((resolution.amount - totalInvested) / totalInvested) as NSDecimalNumber).doubleValue * 100
+        } else {
+            totalGrowth = nil
+        }
+
+        return PortfolioViewData(
+            inPortfolioMode: !active.isEmpty,
+            valuationAmount: sourceIsValuation ? resolution.amount : nil,
+            valuationDate: sourceIsValuation ? resolution.sourceDate : nil,
+            sourceIsPortfolioValuation: sourceIsValuation,
+            holdingsFingerprintMatches: matches,
+            totalInvested: totalInvested,
+            totalGrowthPercent: totalGrowth,
+            isPartialOrStale: false,
+            rows: active.map {
+                PortfolioViewData.PositionRow(
+                    id: $0.id,
+                    ticker: $0.emisoraSerie,
+                    name: $0.name,
+                    shares: $0.shares,
+                    averageCost: $0.averageCost,
+                    lastPrice: $0.lastPrice,
+                    lastPriceAt: $0.lastPriceAt
+                )
+            }
+        )
+    }
+
+    private static func portfolioFingerprint(from note: String) -> String? {
+        guard let range = note.range(of: "fp=") else { return nil }
+        return String(note[range.upperBound...])
     }
 
     private func buildLiability(

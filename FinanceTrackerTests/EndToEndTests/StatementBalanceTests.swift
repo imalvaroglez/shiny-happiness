@@ -15,12 +15,13 @@ struct StatementBalanceTests {
         self.parser = p
     }
 
-    private var openbankPDF: URL {
-        FixtureLoader.url("01.pdf")
+    private var openbankPDF: URL? {
+        FixtureLoader.optionalURL("01.pdf")
     }
 
     @Test("Extracts closing balance from each account section")
     func extractsClosingBalances() async throws {
+        guard let openbankPDF else { return }
         let data = try Data(contentsOf: openbankPDF)
         let sections = try await parser.parseSections(data: data)
 
@@ -38,6 +39,7 @@ struct StatementBalanceTests {
 
     @Test("Extracts opening balance from each account section")
     func extractsOpeningBalances() async throws {
+        guard let openbankPDF else { return }
         let data = try Data(contentsOf: openbankPDF)
         let sections = try await parser.parseSections(data: data)
 
@@ -50,8 +52,7 @@ struct StatementBalanceTests {
 
     @Test("March PDF has correct closing balance for Apartado")
     func marchClosingBalance() async throws {
-        let url = FixtureLoader.url("03.pdf")
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let url = FixtureLoader.optionalURL("03.pdf") else { return }
 
         let data = try Data(contentsOf: url)
         let sections = try await parser.parseSections(data: data)
@@ -63,8 +64,7 @@ struct StatementBalanceTests {
 
     @Test("February PDF has correct closing balance for Apartado")
     func februaryClosingBalance() async throws {
-        let url = FixtureLoader.url("02.pdf")
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard let url = FixtureLoader.optionalURL("02.pdf") else { return }
 
         let data = try Data(contentsOf: url)
         let sections = try await parser.parseSections(data: data)
@@ -101,7 +101,7 @@ struct StatementBalancePersistenceTests {
         SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let pipeline = IngestPipeline(context: context)
-        let url = FixtureLoader.url("01.pdf")
+        guard let url = FixtureLoader.optionalURL("01.pdf") else { return }
         let reports = await pipeline.ingest(files: [url])
         #expect(reports[0].newTransactions > 0)
 
@@ -126,11 +126,12 @@ struct StatementBalancePersistenceTests {
         SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let pipeline = IngestPipeline(context: context)
-        let urls = [
-            FixtureLoader.url("01.pdf"),
-            FixtureLoader.url("02.pdf"),
-            FixtureLoader.url("03.pdf"),
-        ]
+        guard
+            let jan = FixtureLoader.optionalURL("01.pdf"),
+            let feb = FixtureLoader.optionalURL("02.pdf"),
+            let mar = FixtureLoader.optionalURL("03.pdf")
+        else { return }
+        let urls = [jan, feb, mar]
         let reports = await pipeline.ingest(files: urls)
         #expect(reports.allSatisfy { $0.newTransactions > 0 || $0.errors.isEmpty })
 

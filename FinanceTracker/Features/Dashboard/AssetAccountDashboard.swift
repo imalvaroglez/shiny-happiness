@@ -6,13 +6,18 @@ import Charts
 struct AssetAccountDashboard: View {
     let snapshot: AssetAccountSnapshot
     var onTransactionTap: ((Transaction) -> Void)? = nil
+    var onRefreshPrices: (() async -> String?)? = nil
+    var onEditPositions: (() -> Void)? = nil
 
     @State private var breakdown: BreakdownRequest? = nil
     @State private var balanceHover: Date? = nil
+    @State private var isRefreshingPrices = false
+    @State private var refreshError: String? = nil
 
     var body: some View {
         VStack(spacing: 20) {
             summaryCards
+            portfolioSection
             if !snapshot.monthlyCashFlow.isEmpty { cashFlowChart }
             if snapshot.balanceOverTime.isEmpty {
                 insufficientBalanceCard
@@ -25,6 +30,156 @@ struct AssetAccountDashboard: View {
         .sheet(item: $breakdown) { req in
             BreakdownSheet(request: req)
         }
+    }
+
+    @ViewBuilder
+    private var portfolioSection: some View {
+        if let portfolio = snapshot.portfolio, portfolio.inPortfolioMode {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Portfolio")
+                            .font(.headline)
+                        if let amount = portfolio.valuationAmount, let date = portfolio.valuationDate {
+                            Text(MoneyFormat.string(amount, code: snapshot.currencyCode))
+                                .font(.title2.bold())
+                                .money()
+                            Text("Valued as of \(date.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("No portfolio valuation for this period")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Button {
+                        refreshPrices()
+                    } label: {
+                        if isRefreshingPrices {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Label("Refresh prices", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(isRefreshingPrices || onRefreshPrices == nil)
+
+                    Button("Edit Positions") {
+                        onEditPositions?()
+                    }
+                    .disabled(onEditPositions == nil)
+                }
+
+                if PortfolioDashboardCopy.showsHoldingsWarning(portfolio: portfolio) {
+                    Text("Holdings changed — refresh prices to update the period valuation and growth.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                if let refreshError {
+                    Text(refreshError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                portfolioSummaryRow(
+                    title: "Total invested",
+                    amount: portfolio.totalInvested,
+                    growth: portfolio.totalGrowthPercent
+                )
+
+                Text("Latest positions / quotes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                positionsList(portfolio.rows)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+
+    private func portfolioSummaryRow(title: String, amount: Decimal, growth: Double?) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(MoneyFormat.string(amount, code: snapshot.currencyCode))
+                .money()
+            if let growth {
+                Text(String(format: "%+.1f%%", growth))
+                    .monospacedDigit()
+                    .foregroundStyle(growth >= 0 ? .green : .red)
+            }
+        }
+        .font(.callout)
+    }
+
+    private func positionsList(_ rows: [PortfolioViewData.PositionRow]) -> some View {
+        VStack(spacing: 0) {
+            portfolioHeaderRow
+            ForEach(rows) { row in
+                Divider()
+                portfolioPositionRow(row)
+            }
+        }
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var portfolioHeaderRow: some View {
+        HStack {
+            Text("Ticker").frame(width: 110, alignment: .leading)
+            Text("Shares").frame(width: 90, alignment: .trailing)
+            Text("Avg cost").frame(width: 120, alignment: .trailing)
+            Text("Last").frame(width: 120, alignment: .trailing)
+            Text("Value").frame(width: 120, alignment: .trailing)
+            Text("Growth").frame(width: 80, alignment: .trailing)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private func portfolioPositionRow(_ row: PortfolioViewData.PositionRow) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.ticker)
+                    .font(.callout.weight(.semibold))
+                if let name = row.name, !name.isEmpty {
+                    Text(name)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 110, alignment: .leading)
+            Text(decimalText(row.shares)).frame(width: 90, alignment: .trailing)
+            Text(MoneyFormat.string(row.averageCost, code: snapshot.currencyCode)).frame(width: 120, alignment: .trailing)
+            Text(row.lastPrice.map { MoneyFormat.string($0, code: snapshot.currencyCode) } ?? "—").frame(width: 120, alignment: .trailing)
+            Text(row.value.map { MoneyFormat.string($0, code: snapshot.currencyCode) } ?? "Not priced").frame(width: 120, alignment: .trailing)
+            Text(row.growthPercent.map { String(format: "%+.1f%%", $0) } ?? "—")
+                .foregroundStyle((row.growthPercent ?? 0) >= 0 ? .green : .red)
+                .frame(width: 80, alignment: .trailing)
+        }
+        .font(.caption.monospacedDigit())
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private func refreshPrices() {
+        guard !isRefreshingPrices, let onRefreshPrices else { return }
+        Task { @MainActor in
+            isRefreshingPrices = true
+            refreshError = nil
+            refreshError = await onRefreshPrices()
+            isRefreshingPrices = false
+        }
+    }
+
+    private func decimalText(_ value: Decimal) -> String {
+        NSDecimalNumber(decimal: value).stringValue
     }
 
     private var summaryCards: some View {
@@ -151,6 +306,35 @@ struct AssetAccountDashboard: View {
                 }
             }
         }
+    }
+}
+
+enum PortfolioDashboardCopy {
+    static func refreshMessage(for outcome: PortfolioPriceRefresher.Outcome) -> String? {
+        switch outcome {
+        case .priced:
+            nil
+        case .partial(let missing):
+            if missing.isEmpty {
+                "Some positions could not be priced. No portfolio valuation was saved."
+            } else {
+                "Some positions could not be priced: \(missing.joined(separator: ", ")). No portfolio valuation was saved."
+            }
+        case .empty:
+            "No active positions to price."
+        case .notAuthenticated:
+            "Add your DataBursatil token in Settings before refreshing prices."
+        case .failed:
+            "Could not refresh prices from DataBursatil."
+        }
+    }
+
+    static func hidesManualActions(portfolio: PortfolioViewData?) -> Bool {
+        portfolio?.inPortfolioMode == true
+    }
+
+    static func showsHoldingsWarning(portfolio: PortfolioViewData) -> Bool {
+        portfolio.inPortfolioMode && !portfolio.holdingsFingerprintMatches
     }
 }
 

@@ -106,6 +106,7 @@ struct AssetAccountSnapshot {
     let totalInterestEarned: Decimal
     let recentTransactions: [Transaction]
     let totalTransactions: Int
+    var portfolio: PortfolioViewData? = nil
 
     var currencyCode: String { account.currency }
 

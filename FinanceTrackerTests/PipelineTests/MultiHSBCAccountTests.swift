@@ -17,8 +17,8 @@ struct MultiHSBCAccountTests {
         return try ModelContainer(for: schema, configurations: [config])
     }
 
-    private func loadFixture(_ filename: String) throws -> String {
-        let url = FixtureLoader.url("\(filename)")
+    private func loadFixture(_ filename: String) throws -> String? {
+        guard let url = FixtureLoader.optionalURL(filename) else { return nil }
         return try String(contentsOf: url, encoding: .utf8)
     }
 
@@ -29,10 +29,12 @@ struct MultiHSBCAccountTests {
         SeedDataLoader.bootstrapIfNeeded(context: context)
         let pipeline = IngestPipeline(context: context)
 
-        _ = await pipeline.ingestPastedText(try loadFixture("2026-05-08_HSBC_2Now_paste.txt"),
-                                            sourceLabel: "HSBC A")
-        _ = await pipeline.ingestPastedText(try loadFixture("2026-05-08_HSBC_2Now_paste_accountB.txt"),
-                                            sourceLabel: "HSBC B")
+        guard
+            let fixtureA = try loadFixture("2026-05-08_HSBC_2Now_paste.txt"),
+            let fixtureB = try loadFixture("2026-05-08_HSBC_2Now_paste_accountB.txt")
+        else { return }
+        _ = await pipeline.ingestPastedText(fixtureA, sourceLabel: "HSBC A")
+        _ = await pipeline.ingestPastedText(fixtureB, sourceLabel: "HSBC B")
 
         let accounts = try context.fetch(FetchDescriptor<Account>())
         let hsbcAccounts = accounts.filter { $0.institution == "HSBC 2Now" }
@@ -51,10 +53,12 @@ struct MultiHSBCAccountTests {
         SeedDataLoader.bootstrapIfNeeded(context: context)
         let pipeline = IngestPipeline(context: context)
 
-        _ = await pipeline.ingestPastedText(try loadFixture("2026-05-08_HSBC_2Now_paste.txt"),
-                                            sourceLabel: "HSBC A")
-        _ = await pipeline.ingestPastedText(try loadFixture("2026-05-08_HSBC_2Now_paste_accountB.txt"),
-                                            sourceLabel: "HSBC B")
+        guard
+            let fixtureA = try loadFixture("2026-05-08_HSBC_2Now_paste.txt"),
+            let fixtureB = try loadFixture("2026-05-08_HSBC_2Now_paste_accountB.txt")
+        else { return }
+        _ = await pipeline.ingestPastedText(fixtureA, sourceLabel: "HSBC A")
+        _ = await pipeline.ingestPastedText(fixtureB, sourceLabel: "HSBC B")
 
         let txns = try context.fetch(FetchDescriptor<Transaction>())
         let byAccount = Dictionary(grouping: txns, by: { $0.account?.accountNumber ?? "?" })

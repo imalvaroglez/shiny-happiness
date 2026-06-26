@@ -24,6 +24,27 @@ struct AccountBalanceResolution {
     let amount: Decimal
     let sourceKind: SourceKind
     let sourceDate: Date?
+    let sourceSnapshotID: UUID?
+    let sourceSnapshotKind: AccountBalanceSnapshotKind?
+    let sourceSnapshotNote: String?
+
+    init(
+        asOf: Date,
+        amount: Decimal,
+        sourceKind: SourceKind,
+        sourceDate: Date?,
+        sourceSnapshotID: UUID? = nil,
+        sourceSnapshotKind: AccountBalanceSnapshotKind? = nil,
+        sourceSnapshotNote: String? = nil
+    ) {
+        self.asOf = asOf
+        self.amount = amount
+        self.sourceKind = sourceKind
+        self.sourceDate = sourceDate
+        self.sourceSnapshotID = sourceSnapshotID
+        self.sourceSnapshotKind = sourceSnapshotKind
+        self.sourceSnapshotNote = sourceSnapshotNote
+    }
 }
 
 @MainActor
@@ -45,6 +66,20 @@ enum AccountBalanceResolver {
         let anchor = anchorsThroughDate.max { $0.date < $1.date }
         let calendar = Calendar(identifier: .gregorian)
 
+        if let anchor,
+           case .manualSnapshot(let snap) = anchor.source,
+           snap.kind == .portfolioValuation {
+            return AccountBalanceResolution(
+                asOf: date,
+                amount: anchor.amount,
+                sourceKind: .exactBalanceSnapshot,
+                sourceDate: anchor.date,
+                sourceSnapshotID: snap.id,
+                sourceSnapshotKind: snap.kind,
+                sourceSnapshotNote: snap.note
+            )
+        }
+
         let hasStatementAnchors = anchors.contains {
             if case .statement = $0.source { return true }
             return false
@@ -58,22 +93,30 @@ enum AccountBalanceResolver {
                 let base = anchor.amount
                 let deltas = transactionsAfter(anchor.date, through: date, accountId: accountId, context: context)
                     .reduce(Decimal(0)) { $0 + $1.amount }
+                let (sourceSnapshotID, sourceSnapshotKind, sourceSnapshotNote) = provenance(for: anchor)
                 return AccountBalanceResolution(
                     asOf: date,
                     amount: base + deltas,
                     sourceKind: deltas == 0 ? balanceSourceKind(for: anchor.date, asOf: date, calendar: calendar) : .reconstructedBalance,
-                    sourceDate: anchor.date
+                    sourceDate: anchor.date,
+                    sourceSnapshotID: sourceSnapshotID,
+                    sourceSnapshotKind: sourceSnapshotKind,
+                    sourceSnapshotNote: sourceSnapshotNote
                 )
             }
 
             let base = anchor?.amount ?? firstAnchor.amount
             let deltas = transactionsFrom(account.openedAt, through: date, accountId: accountId, context: context)
                 .reduce(Decimal(0)) { $0 + $1.amount }
+            let (sourceSnapshotID, sourceSnapshotKind, sourceSnapshotNote) = provenance(for: firstAnchor)
             return AccountBalanceResolution(
                 asOf: date,
                 amount: base + deltas,
                 sourceKind: deltas == 0 ? balanceSourceKind(for: firstAnchor.date, asOf: date, calendar: calendar) : .reconstructedBalance,
-                sourceDate: firstAnchor.date
+                sourceDate: firstAnchor.date,
+                sourceSnapshotID: sourceSnapshotID,
+                sourceSnapshotKind: sourceSnapshotKind,
+                sourceSnapshotNote: sourceSnapshotNote
             )
         }
 
@@ -98,11 +141,15 @@ enum AccountBalanceResolver {
         } else {
             sourceKind = .reconstructedBalance
         }
+        let (sourceSnapshotID, sourceSnapshotKind, sourceSnapshotNote) = provenance(for: anchor)
         return AccountBalanceResolution(
             asOf: date,
             amount: base + deltas,
             sourceKind: sourceKind,
-            sourceDate: anchor?.date
+            sourceDate: anchor?.date,
+            sourceSnapshotID: sourceSnapshotID,
+            sourceSnapshotKind: sourceSnapshotKind,
+            sourceSnapshotNote: sourceSnapshotNote
         )
     }
 
@@ -254,5 +301,10 @@ enum AccountBalanceResolver {
 
     private static func balanceSourceKind(for sourceDate: Date, asOf date: Date, calendar: Calendar) -> AccountBalanceResolution.SourceKind {
         calendar.isDate(sourceDate, inSameDayAs: date) ? .exactBalanceSnapshot : .latestPriorBalanceSnapshot
+    }
+
+    private static func provenance(for anchor: AccountBalanceAnchor?) -> (UUID?, AccountBalanceSnapshotKind?, String?) {
+        guard let anchor, case .manualSnapshot(let snap) = anchor.source else { return (nil, nil, nil) }
+        return (snap.id, snap.kind, snap.note)
     }
 }

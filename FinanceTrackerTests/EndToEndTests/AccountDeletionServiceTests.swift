@@ -8,15 +8,7 @@ import SwiftData
 struct AccountDeletionServiceTests {
 
     private func makeContainer() throws -> ModelContainer {
-        let schema = Schema([
-            Account.self, AccountBalanceSnapshot.self, Transaction.self,
-            Statement.self,
-            Category.self,
-            CategoryRule.self,
-            InstallmentPlan.self,
-            PendingImport.self,
-            SignRecoveryHint.self,
-        ])
+        let schema = AppSchema.schema
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])
     }
@@ -68,11 +60,14 @@ struct AccountDeletionServiceTests {
         )
         context.insert(pending)
 
+        context.insert(StockPosition(account: account, emisoraSerie: "FEMSAUBD", shares: 1, averageCost: 100))
+
         try context.save()
 
         let preview = AccountDeletionService.preview(account: account, context: context)
         #expect(preview.statementCount == 1)
         #expect(preview.transactionCount == 2)
+        #expect(preview.stockPositionCount == 1)
         #expect(preview.pendingImportCount == 1)
         #expect(preview.installmentPlanCount == 1)
 
@@ -81,6 +76,7 @@ struct AccountDeletionServiceTests {
         #expect(try context.fetch(FetchDescriptor<Account>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<Statement>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<StockPosition>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<InstallmentPlan>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<PendingImport>()).isEmpty)
     }
@@ -226,12 +222,14 @@ struct AccountDeletionServiceTests {
             tx.statement = statement
             context.insert(tx)
         }
+        context.insert(StockPosition(account: account, emisoraSerie: "FEMSAUBD", shares: 1, averageCost: 100))
 
         try context.save()
 
         let preview = AccountDeletionService.preview(account: account, context: context)
         #expect(preview.statementCount == 1)
         #expect(preview.transactionCount == 3)
+        #expect(preview.stockPositionCount == 1)
         #expect(preview.pendingImportCount == 0)
         #expect(preview.installmentPlanCount == 0)
 
@@ -240,6 +238,7 @@ struct AccountDeletionServiceTests {
         #expect(try context.fetch(FetchDescriptor<Account>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<Statement>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<StockPosition>()).isEmpty)
     }
 
     @Test("Deletion callbacks can use captured account identity after delete")

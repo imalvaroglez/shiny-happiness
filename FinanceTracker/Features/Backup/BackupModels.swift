@@ -44,6 +44,19 @@ struct AccountBalanceSnapshotSnapshot: Codable {
     var lastModifiedAt: Date
 }
 
+struct StockPositionSnapshot: Codable {
+    var id: UUID
+    var accountId: UUID?
+    var emisoraSerie: String
+    var name: String?
+    var shares: Decimal
+    var averageCost: Decimal
+    var lastPrice: Decimal?
+    var lastPriceAt: Date?
+    var createdAt: Date
+    var lastModifiedAt: Date
+}
+
 struct TransactionSnapshot: Codable {
     var id: UUID
     var accountId: UUID?

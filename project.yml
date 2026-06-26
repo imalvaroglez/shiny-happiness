@@ -40,8 +40,8 @@ targets:
         PRODUCT_NAME: "FinanceTracker"
         PRODUCT_MODULE_NAME: FinanceTracker
         INFOPLIST_KEY_LSMinimumSystemVersion: "26.0"
-        MARKETING_VERSION: "0.6.2"
-        CURRENT_PROJECT_VERSION: "20260620.1"
+        MARKETING_VERSION: "0.7.0"
+        CURRENT_PROJECT_VERSION: "20260626.1"
         CODE_SIGN_ENTITLEMENTS: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_APP_SANDBOX: YES
@@ -80,6 +80,9 @@ targets:
         buildPhase: resources
         excludes:
           - "**/*.swift"
+      - path: samples
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: FinanceTracker
     settings:

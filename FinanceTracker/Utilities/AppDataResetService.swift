@@ -26,6 +26,7 @@ struct AppDataResetService {
     static let allModelTypesInDeleteOrder: [any PersistentModel.Type] = [
         PendingImport.self,
         AccountBalanceSnapshot.self,
+        StockPosition.self,
         Transaction.self,
         CategoryRule.self,
         InstallmentPlan.self,
@@ -38,6 +39,7 @@ struct AppDataResetService {
     static func deletePersistentModels(from context: ModelContext) throws {
         try deleteAllObjects(of: PendingImport.self, from: context)
         try deleteAllObjects(of: AccountBalanceSnapshot.self, from: context)
+        try deleteAllObjects(of: StockPosition.self, from: context)
         try deleteAllObjects(of: Transaction.self, from: context)
         try deleteAllObjects(of: CategoryRule.self, from: context)
         try deleteAllObjects(of: InstallmentPlan.self, from: context)
@@ -64,11 +66,12 @@ struct AppDataResetService {
         let pendingCount = (try? context.fetchCount(FetchDescriptor<PendingImport>())) ?? 0
         let planCount = (try? context.fetchCount(FetchDescriptor<InstallmentPlan>())) ?? 0
         let hintCount = (try? context.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
+        let stockPositionCount = (try? context.fetchCount(FetchDescriptor<StockPosition>())) ?? 0
 
-        let totalOrphans = txCount + stmtCount + snapCount + pendingCount + planCount + hintCount
+        let totalOrphans = txCount + stmtCount + snapCount + pendingCount + planCount + hintCount + stockPositionCount
         guard totalOrphans > 0 else { return .noRepairNeeded }
 
-        logger.info("Repairing incomplete reset: \(totalOrphans) orphan rows (tx=\(txCount), stmt=\(stmtCount), snap=\(snapCount), pending=\(pendingCount), plan=\(planCount), hint=\(hintCount))")
+        logger.info("Repairing incomplete reset: \(totalOrphans) orphan rows (tx=\(txCount), stmt=\(stmtCount), snap=\(snapCount), pending=\(pendingCount), plan=\(planCount), hint=\(hintCount), stock=\(stockPositionCount))")
 
         repairDeleteAll(from: context)
         try? context.save()
@@ -79,10 +82,11 @@ struct AppDataResetService {
         let remainingPending = (try? context.fetchCount(FetchDescriptor<PendingImport>())) ?? 0
         let remainingPlan = (try? context.fetchCount(FetchDescriptor<InstallmentPlan>())) ?? 0
         let remainingHint = (try? context.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
-        let remainingTotal = remainingTx + remainingStmt + remainingSnap + remainingPending + remainingPlan + remainingHint
+        let remainingStockPosition = (try? context.fetchCount(FetchDescriptor<StockPosition>())) ?? 0
+        let remainingTotal = remainingTx + remainingStmt + remainingSnap + remainingPending + remainingPlan + remainingHint + remainingStockPosition
 
         if remainingTotal > 0 {
-            logger.error("Batch repair left \(remainingTotal) rows (tx=\(remainingTx), stmt=\(remainingStmt), snap=\(remainingSnap), pending=\(remainingPending), plan=\(remainingPlan), hint=\(remainingHint)) — requesting hard reset")
+            logger.error("Batch repair left \(remainingTotal) rows (tx=\(remainingTx), stmt=\(remainingStmt), snap=\(remainingSnap), pending=\(remainingPending), plan=\(remainingPlan), hint=\(remainingHint), stock=\(remainingStockPosition)) — requesting hard reset")
             StoreFileResetService.requestHardReset(reason: "Batch repair left \(remainingTotal) rows")
             return .hardResetRequested
         }
@@ -102,6 +106,7 @@ struct AppDataResetService {
         let checks: [(String, Int)] = [
             ("Account", try context.fetchCount(FetchDescriptor<Account>())),
             ("AccountBalanceSnapshot", try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>())),
+            ("StockPosition", try context.fetchCount(FetchDescriptor<StockPosition>())),
             ("Transaction", try context.fetchCount(FetchDescriptor<Transaction>())),
             ("Statement", try context.fetchCount(FetchDescriptor<Statement>())),
             ("CategoryRule", try context.fetchCount(FetchDescriptor<CategoryRule>())),
