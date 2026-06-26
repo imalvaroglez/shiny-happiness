@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Stocks Portfolio.** Track a BMV/US stock portfolio as an investment account with per-stock positions, on-demand DataBursatil price refresh, current value, growth vs cost basis, and Net Worth inclusion through authoritative portfolio valuation snapshots.
+- **DataBursatil token storage.** Settings can now save the API token to Keychain for price refreshes.
+
+### Changed
+
+- **SwiftData/backup portfolio support.** Schema V3 adds `StockPosition`; backup format V3 writes `StockPosition.json`, while V1/V2 backups still restore without positions.
+
 ## [0.6.2] - 2026-06-20
 
 ### Changed
