@@ -34,10 +34,13 @@ struct SettingsView: View {
     @State private var isRestoring = false
     @State private var backupStatus = ""
     @State private var resetErrorMessage: String?
+    @State private var tokenDraft = KeychainTokenStore.token() ?? ""
+    @State private var tokenStatusMessage: String?
 
     @State private var accountDeletionTarget: AccountDeletionTarget?
     @State private var showingAddAccount = false
     @State private var balanceSnapshotAccount: Account?
+    @State private var positionsAccount: Account?
 
     @State private var showingNewCategory = false
     @State private var newCategoryName = ""
@@ -76,6 +79,7 @@ struct SettingsView: View {
             LazyVStack(spacing: 16) {
                 accountsSection
                 categoriesSection
+                dataBursatilSection
                 adaptiveGridRow
                 aboutSection
             }
@@ -150,6 +154,9 @@ struct SettingsView: View {
         }
         .sheet(item: $balanceSnapshotAccount) { account in
             BalanceSnapshotSheet(account: account) {}
+        }
+        .sheet(item: $positionsAccount) { account in
+            PositionsEditSheet(account: account, context: modelContext) {}
         }
     }
 
@@ -291,6 +298,23 @@ struct SettingsView: View {
                         get: { account.effectiveIncludeInRegularIncome },
                         set: { account.includeInRegularIncome = $0 }
                     ))
+
+                    if account.type == .investment {
+                        let canAddPositions = PortfolioService.canAddPositions(account: account, context: modelContext)
+                        Button {
+                            positionsAccount = account
+                        } label: {
+                            Label("Edit Stock Positions", systemImage: "chart.line.uptrend.xyaxis")
+                                .font(.caption)
+                        }
+                        .disabled(!canAddPositions)
+
+                        if !canAddPositions {
+                            Text("Create a separate brokerage account to track stocks.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 if account.type == .retirement {
@@ -571,6 +595,32 @@ struct SettingsView: View {
         }
     }
 
+    private var dataBursatilSection: some View {
+        SectionCard(title: "DataBursatil (BMV prices)") {
+            VStack(alignment: .leading, spacing: 10) {
+                SecureField("API token", text: $tokenDraft)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack(spacing: 12) {
+                    Button("Save") { saveDataBursatilToken() }
+                    Button("Clear", role: .destructive) {
+                        KeychainTokenStore.clear()
+                        tokenDraft = ""
+                        tokenStatusMessage = "Token cleared."
+                    }
+                    Link("Get a token", destination: URL(string: "https://databursatil.com/nuevo_usuario.php")!)
+                }
+
+                if let tokenStatusMessage {
+                    Text(tokenStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(tokenStatusMessage.contains("failed") ? Color.red : Color.secondary)
+                }
+            }
+            .padding(16)
+        }
+    }
+
     private var dataSection: some View {
         SectionCard(title: "Data") {
             VStack(alignment: .leading, spacing: 10) {
@@ -596,6 +646,23 @@ struct SettingsView: View {
             }
         } message: {
             Text("This will permanently delete all accounts, transactions, and categories. Default categories will be recreated. This cannot be undone.")
+        }
+    }
+
+    private func saveDataBursatilToken() {
+        let trimmed = tokenDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            KeychainTokenStore.clear()
+            tokenStatusMessage = "Token cleared."
+            return
+        }
+
+        do {
+            try KeychainTokenStore.setToken(trimmed)
+            tokenDraft = trimmed
+            tokenStatusMessage = "Saved to Keychain."
+        } catch {
+            tokenStatusMessage = "Save failed: \(error.localizedDescription)"
         }
     }
 

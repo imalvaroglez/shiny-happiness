@@ -15,6 +15,7 @@ struct DashboardView: View {
     @State private var balanceSnapshotAccount: Account?
     @State private var editingTransaction: Transaction?
     @State private var showingPaymentDetails = false
+    @State private var showingPositionsSheet = false
     @State private var dataResetGeneration = 0
 
     @Query(sort: \Account.nickname) private var accounts: [Account]
@@ -111,6 +112,13 @@ struct DashboardView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingPositionsSheet) {
+            if let account = selectedAccount {
+                PositionsEditSheet(account: account, context: modelContext) {
+                    viewModel.refresh()
+                }
+            }
+        }
     }
 
     // MARK: - Sidebar
@@ -186,6 +194,7 @@ struct DashboardView: View {
                 showingManualTransaction = false
                 showingImport = false
                 showingAddAccount = false
+                showingPositionsSheet = false
                 viewModel.refresh()
             })
         }
@@ -231,22 +240,42 @@ struct DashboardView: View {
     private var dashboardActions: some View {
         VStack(alignment: .trailing, spacing: 10) {
             if let account = selectedAccount {
-                Button {
-                    showingManualTransaction = true
-                } label: {
-                    Label("Add Transaction", systemImage: "plus.circle")
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                if account.type == .investment {
+                    let canAddPositions = PortfolioService.canAddPositions(account: account, context: modelContext)
+                    Button {
+                        showingPositionsSheet = true
+                    } label: {
+                        Label(selectedAccountInPortfolioMode ? "Edit Stock Positions" : "Add Stock Positions", systemImage: "chart.line.uptrend.xyaxis")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(!canAddPositions)
+                    if !canAddPositions {
+                        Text("Create a separate brokerage account to track stocks.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .buttonStyle(.glass)
-                Button {
-                    balanceSnapshotAccount = account
-                } label: {
-                    Label("Add Balance", systemImage: "chart.line.uptrend.xyaxis")
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+
+                if !selectedAccountInPortfolioMode {
+                    Button {
+                        showingManualTransaction = true
+                    } label: {
+                        Label("Add Transaction", systemImage: "plus.circle")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.glass)
+                    Button {
+                        balanceSnapshotAccount = account
+                    } label: {
+                        Label("Add Balance", systemImage: "chart.line.uptrend.xyaxis")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.glass)
                 }
-                .buttonStyle(.glass)
             }
             Button {
                 showingImport = true
@@ -277,6 +306,13 @@ struct DashboardView: View {
         return accounts.first { $0.id == id }
     }
 
+    private var selectedAccountInPortfolioMode: Bool {
+        if case .asset(let snapshot) = viewModel.snapshot {
+            return PortfolioDashboardCopy.hidesManualActions(portfolio: snapshot.portfolio)
+        }
+        return false
+    }
+
     private func validateAccountSelection() {
         guard case .account(let id) = sidebarSelection else { return }
         guard accounts.contains(where: { $0.id == id }) else {
@@ -298,9 +334,18 @@ struct DashboardView: View {
                 editingTransaction = tx
             })
         case .asset(let snap):
-            AssetAccountDashboard(snapshot: snap, onTransactionTap: { tx in
-                editingTransaction = tx
-            })
+            AssetAccountDashboard(
+                snapshot: snap,
+                onTransactionTap: { tx in
+                    editingTransaction = tx
+                },
+                onRefreshPrices: {
+                    await refreshPortfolioPrices()
+                },
+                onEditPositions: {
+                    showingPositionsSheet = true
+                }
+            )
         case .liability(let snap):
             LiabilityAccountDashboard(
                 snapshot: snap,
@@ -316,6 +361,13 @@ struct DashboardView: View {
         case .empty(let snap):
             emptyState(reason: snap.reason)
         }
+    }
+
+    private func refreshPortfolioPrices() async -> String? {
+        guard let account = selectedAccount, account.type == .investment else { return nil }
+        let outcome = await PortfolioPriceRefresher.refresh(account: account, context: modelContext)
+        viewModel.refresh()
+        return PortfolioDashboardCopy.refreshMessage(for: outcome)
     }
 
     private func emptyState(reason: String) -> some View {
