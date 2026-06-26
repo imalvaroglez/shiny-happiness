@@ -206,7 +206,7 @@ This is a private finance app. Do not commit personal statements, generated stor
 - `CHANGELOG.md` is the detailed technical record for contributors. The About "What's New" copy is product-focused and non-technical.
 - Internal-only, test-only, or refactor-only changes belong in `CHANGELOG.md` but not in About unless users will notice them.
 - Do not ship a version bump unless both `CHANGELOG.md` and the About highlights have been reviewed.
-- Release prep means: bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`, run `xcodegen generate`, run focused dashboard tests when dashboard behavior changed, run `DashboardSnapshotTests`, run the full serial suite, and run a Release build.
+- Release prep means: bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`, run `xcodegen generate`, run focused dashboard tests when dashboard behavior changed, run the full serial suite, and run a Release build.
 - Installing or smoke-testing the production app is a separate explicit step after release prep. It requires confirmation that a fresh, verifiable `.ftbackup` exists and is newer than the latest production data change.
 
 ### Release Hygiene

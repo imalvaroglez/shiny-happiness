@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **SwiftData/backup portfolio support.** Schema V3 adds `StockPosition`; backup format V3 writes `StockPosition.json`, while V1/V2 backups still restore without positions.
+- **Release checks.** Removed the obsolete dashboard snapshot suite and release-prep gate in favor of focused dashboard coverage.
 
 ### Fixed
 

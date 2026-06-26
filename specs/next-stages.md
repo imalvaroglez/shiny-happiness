@@ -60,7 +60,7 @@ as described before editing.
 | `FinanceTracker/Features/Dashboard/AccountIdentity.swift` | Resolves identity color. **S2.3 lives here.** |
 | `FinanceTracker/Ingest/Pipeline/IngestPipeline.swift` | `findOrCreateAccount` at lines 408–449. **S2.1 bug lives here.** |
 | `FinanceTracker/Features/Settings/SettingsView.swift` | Today only a placeholder. **Grows for S2.2 and S1.2 backup UI.** |
-| `FinanceTrackerTests/EndToEndTests/DashboardSnapshotTests.swift` | Stage 3 verification. Extend in S3. |
+| Focused dashboard tests under `FinanceTrackerTests/` | Stage 3 verification. Extend the relevant dashboard suite in S3. |
 | `specs/credit-cards.md` | **Has uncommitted edits on disk.** A rewrite pointing at git history. Commit it as part of housekeeping (§7). |
 | `specs/backlog.md` | Cross off items as you ship them. |
 | `specs/liquid-glass-redesign.md` | Reference only; the chrome layer is already in. |
@@ -220,8 +220,7 @@ In `buildConsolidated`, `buildAsset`, and `buildLiability`:
 
 ### 4.3 — Tests
 
-Extend `FinanceTrackerTests/EndToEndTests/DashboardSnapshotTests.swift`
-with a new `@Test` in the existing suite:
+Extend the relevant focused dashboard test suite with a new `@Test`:
 
 ```swift
 @Test("Interest Earned drill-down sees all matching transactions, not just recent-20")
@@ -305,8 +304,7 @@ Transactions" panels already cap at .prefix(10) at the render site so
 nothing visible changes on the dashboard itself; only the breakdowns
 gain the missing rows.
 
-Adds DashboardSnapshotTests.interestDrilldownIsComplete locking the
-invariant.
+Adds focused dashboard coverage locking the invariant.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 ```
