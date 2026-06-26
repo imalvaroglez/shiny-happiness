@@ -17,6 +17,7 @@
 		1275084F5DF5326C2E3D9E94 /* AccountDeletionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF90BB8B8BA6AA6C4D95B192 /* AccountDeletionServiceTests.swift */; };
 		12A0A265B49384F8908150A2 /* IncomingTransferRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAEDCA80068E4D32773C1FBF /* IncomingTransferRulesTests.swift */; };
 		150B4EFC55A2D5EC565217C4 /* header_vocabulary.json in Resources */ = {isa = PBXBuildFile; fileRef = 45CC98CFD6E5ADACC4120ED2 /* header_vocabulary.json */; };
+		1ABB82C4377F2525012D7413 /* KeychainTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAD06CB6E6BFF5D2DF2B332D /* KeychainTokenStore.swift */; };
 		1BCEC672FB6F471EF4026802 /* HoldingsFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DAF25C7C4DD34BB87456146 /* HoldingsFingerprint.swift */; };
 		1D440F03E6E632ABE852CA6B /* SemanticNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 214B9E639E6F606CAD054CB4 /* SemanticNormalizer.swift */; };
 		1F2CF76C2BFFDCB46B9B4D84 /* Transaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1B2E8CD13E70631FA2725B /* Transaction.swift */; };
@@ -256,6 +257,7 @@
 		A74B0D3E580CAACB839B149C /* OpenbankMexicoParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenbankMexicoParserTests.swift; sourceTree = "<group>"; };
 		A752AE4F8853003301F69F59 /* PastedHsbc2NowParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastedHsbc2NowParserTests.swift; sourceTree = "<group>"; };
 		A8FF1C26E42D2DED6095F2E2 /* CategoryCorrectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryCorrectionTests.swift; sourceTree = "<group>"; };
+		AAD06CB6E6BFF5D2DF2B332D /* KeychainTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainTokenStore.swift; sourceTree = "<group>"; };
 		ABEDFC6BADAB0B0639C63F9A /* SectionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionCard.swift; sourceTree = "<group>"; };
 		AF4B815E55BBE994A9DF4A5B /* Statement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Statement.swift; sourceTree = "<group>"; };
 		AF90BB8B8BA6AA6C4D95B192 /* AccountDeletionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionServiceTests.swift; sourceTree = "<group>"; };
@@ -414,6 +416,7 @@
 			isa = PBXGroup;
 			children = (
 				1AE3A402ECAC8EDC5B7D22E7 /* AppDataResetService.swift */,
+				AAD06CB6E6BFF5D2DF2B332D /* KeychainTokenStore.swift */,
 				8573C4DA0BD52C0E219ABFF9 /* Logger.swift */,
 				D86529E2EA3D87647109F8D7 /* StoreFileResetService.swift */,
 			);
@@ -890,6 +893,7 @@
 				3D3B81B6595F4B1EF332472D /* IngestPipeline.swift in Sources */,
 				7CD3B4515A778A0374791688 /* IngestReport.swift in Sources */,
 				8E17FA6D66457644DE57B368 /* InstallmentPlan.swift in Sources */,
+				1ABB82C4377F2525012D7413 /* KeychainTokenStore.swift in Sources */,
 				B277F3453D26338D48CB25D6 /* KnowledgeLoader.swift in Sources */,
 				8128193061F187D9926BF060 /* LearningHooks.swift in Sources */,
 				C0CFAF4A4EC674DC54253F0D /* LiabilityAccountDashboard.swift in Sources */,
