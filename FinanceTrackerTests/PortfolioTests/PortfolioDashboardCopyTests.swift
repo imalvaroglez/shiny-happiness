@@ -7,7 +7,7 @@ struct PortfolioDashboardCopyTests {
     @Test("Refresh outcomes map to actionable user messages")
     func refreshOutcomeMessages() {
         #expect(PortfolioDashboardCopy.refreshMessage(for: .priced) == nil)
-        #expect(PortfolioDashboardCopy.refreshMessage(for: .partial) == "Some positions could not be priced. No portfolio valuation was saved.")
+        #expect(PortfolioDashboardCopy.refreshMessage(for: .partial(missing: ["GFNORTEO"])) == "Some positions could not be priced: GFNORTEO. No portfolio valuation was saved.")
         #expect(PortfolioDashboardCopy.refreshMessage(for: .empty) == "No active positions to price.")
         #expect(PortfolioDashboardCopy.refreshMessage(for: .notAuthenticated) == "Add your DataBursatil token in Settings before refreshing prices.")
         #expect(PortfolioDashboardCopy.refreshMessage(for: .failed) == "Could not refresh prices from DataBursatil.")

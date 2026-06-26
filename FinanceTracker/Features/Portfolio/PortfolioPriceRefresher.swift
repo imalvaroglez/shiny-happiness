@@ -5,7 +5,7 @@ import SwiftData
 enum PortfolioPriceRefresher {
     enum Outcome: Equatable {
         case priced
-        case partial
+        case partial(missing: [String])
         case empty
         case notAuthenticated
         case failed
@@ -39,19 +39,19 @@ enum PortfolioPriceRefresher {
         for (ticker, quote) in quotes {
             quotesByTicker[PortfolioTicker.normalize(ticker)] = quote
         }
-        var allPriced = true
+        var missingTickers: [String] = []
         for position in positions {
             guard let quote = quotesByTicker[PortfolioTicker.normalize(position.emisoraSerie)] else {
-                allPriced = false
+                missingTickers.append(position.emisoraSerie)
                 continue
             }
             position.lastPrice = quote.price
             position.lastPriceAt = quote.timestamp ?? .now
         }
 
-        guard allPriced else {
+        guard missingTickers.isEmpty else {
             try? context.save()
-            return .partial
+            return .partial(missing: missingTickers.sorted())
         }
 
         let totalValue = positions.reduce(Decimal(0)) { $0 + ($1.shares * ($1.lastPrice ?? 0)) }

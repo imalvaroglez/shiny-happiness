@@ -105,7 +105,7 @@ struct PortfolioPriceRefresherTests {
             ]
         }
 
-        #expect(outcome == .partial)
+        #expect(outcome == .partial(missing: ["GFNORTEO"]))
         #expect(femsa.lastPrice == 150)
         #expect(femsa.lastPriceAt != nil)
         #expect(gfnorte.lastPrice == nil)

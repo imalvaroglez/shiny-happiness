@@ -314,8 +314,12 @@ enum PortfolioDashboardCopy {
         switch outcome {
         case .priced:
             nil
-        case .partial:
-            "Some positions could not be priced. No portfolio valuation was saved."
+        case .partial(let missing):
+            if missing.isEmpty {
+                "Some positions could not be priced. No portfolio valuation was saved."
+            } else {
+                "Some positions could not be priced: \(missing.joined(separator: ", ")). No portfolio valuation was saved."
+            }
         case .empty:
             "No active positions to price."
         case .notAuthenticated:
