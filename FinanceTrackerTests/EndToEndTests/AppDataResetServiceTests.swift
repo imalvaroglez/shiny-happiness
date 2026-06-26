@@ -8,11 +8,7 @@ import SwiftData
 struct AppDataResetServiceTests {
 
     private func makeContainer() throws -> ModelContainer {
-        let schema = Schema([
-            Account.self, AccountBalanceSnapshot.self, Transaction.self,
-            Statement.self, Category.self, CategoryRule.self,
-            InstallmentPlan.self, PendingImport.self, SignRecoveryHint.self,
-        ])
+        let schema = AppSchema.schema
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])
     }
@@ -65,10 +61,21 @@ struct AppDataResetServiceTests {
         )
         context.insert(hint)
 
+        let investmentAccount = Account(institution: "Broker", type: .investment, currency: "MXN", nickname: "Broker")
+        context.insert(investmentAccount)
+        _ = try PortfolioService.addPosition(
+            account: investmentAccount,
+            emisoraSerie: "FEMSAUBD",
+            name: nil,
+            shares: 1,
+            averageCost: 100,
+            context: context
+        )
+
         try context.save()
     }
 
-    @Test("deletePersistentModels removes all 9 model types")
+    @Test("deletePersistentModels removes all model types")
     func testDeletePersistentModels() async throws {
         let container = try makeContainer()
         let context = container.mainContext
@@ -87,6 +94,7 @@ struct AppDataResetServiceTests {
 
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Statement>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 0)
@@ -108,6 +116,7 @@ struct AppDataResetServiceTests {
 
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Statement>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 0)
@@ -141,6 +150,7 @@ struct AppDataResetServiceTests {
         #expect(rulesAfterFirst == rulesAfterSecond)
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
     }
 
     @Test("Repair removes all financial orphans when accounts are zero")
@@ -170,6 +180,9 @@ struct AppDataResetServiceTests {
         let snapshot = AccountBalanceSnapshot(date: .now, amount: 5000, kind: .manualOpening)
         context.insert(snapshot)
 
+        let position = StockPosition(emisoraSerie: "FEMSAUBD", shares: 1, averageCost: 100)
+        context.insert(position)
+
         try context.save()
 
         let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: context)
@@ -180,6 +193,7 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<PendingImport>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<SignRecoveryHint>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Statement>()) == 0)
 

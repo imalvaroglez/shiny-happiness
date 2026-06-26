@@ -106,7 +106,7 @@ struct SettingsView: View {
             }
         } message: {
             if let target = accountDeletionTarget {
-                Text("Permanently delete \"\(target.displayName)\"? This will remove \(target.preview.statementCount) statement(s), \(target.preview.transactionCount) transaction(s), \(target.preview.balanceSnapshotCount) balance snapshot(s), \(target.preview.pendingImportCount) pending import(s), and \(target.preview.installmentPlanCount) installment plan(s). This cannot be undone.")
+                Text("Permanently delete \"\(target.displayName)\"? This will remove \(target.preview.statementCount) statement(s), \(target.preview.transactionCount) transaction(s), \(target.preview.balanceSnapshotCount) balance snapshot(s), \(target.preview.stockPositionCount) stock position(s), \(target.preview.pendingImportCount) pending import(s), and \(target.preview.installmentPlanCount) installment plan(s). This cannot be undone.")
             } else {
                 Text("Are you sure?")
             }
@@ -713,9 +713,11 @@ struct SettingsView: View {
         let installmentPlanCount = (try? modelContext.fetchCount(FetchDescriptor<InstallmentPlan>())) ?? 0
         let pendingImportCount = (try? modelContext.fetchCount(FetchDescriptor<PendingImport>())) ?? 0
         let signRecoveryHintCount = (try? modelContext.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
+        let stockPositionCount = (try? modelContext.fetchCount(FetchDescriptor<StockPosition>())) ?? 0
 
         return accountCount > 0
             || balanceSnapshotCount > 0
+            || stockPositionCount > 0
             || statementCount > 0
             || transactionCount > 0
             || installmentPlanCount > 0
