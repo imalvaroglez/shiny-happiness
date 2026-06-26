@@ -297,10 +297,17 @@ enum BackupArchive {
                         existing.averageCost = snap.averageCost
                         existing.lastModifiedAt = snap.lastModifiedAt
                     }
-                    if let snapAt = snap.lastPriceAt,
-                       existing.lastPriceAt == nil || snapAt > existing.lastPriceAt! {
-                        existing.lastPrice = snap.lastPrice
-                        existing.lastPriceAt = snapAt
+                    if let snapAt = snap.lastPriceAt {
+                        let shouldUpdatePrice: Bool
+                        if let existingAt = existing.lastPriceAt {
+                            shouldUpdatePrice = snapAt > existingAt
+                        } else {
+                            shouldUpdatePrice = true
+                        }
+                        if shouldUpdatePrice {
+                            existing.lastPrice = snap.lastPrice
+                            existing.lastPriceAt = snapAt
+                        }
                     }
                 } else {
                     existing.apply(snap)
