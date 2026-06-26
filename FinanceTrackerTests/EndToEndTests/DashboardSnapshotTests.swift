@@ -17,15 +17,7 @@ import SwiftData
 struct DashboardSnapshotTests {
 
     private func makeContainer() throws -> ModelContainer {
-        let schema = Schema([
-            Account.self, AccountBalanceSnapshot.self, Transaction.self,
-            Statement.self,
-            Category.self,
-            CategoryRule.self,
-            InstallmentPlan.self,
-            PendingImport.self,
-            SignRecoveryHint.self,
-        ])
+        let schema = AppSchema.schema
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])
     }
@@ -43,6 +35,64 @@ struct DashboardSnapshotTests {
 
     private func skipIfFixtureMissing(_ path: String) -> Bool {
         !FileManager.default.fileExists(atPath: path)
+    }
+
+    @Test("Investment asset snapshot carries period-correct portfolio data")
+    func investmentAssetSnapshotCarriesPortfolioData() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let valuationDate = dateFromComponents(year: 2026, month: 6, day: 1)
+        let asOf = valuationDate.addingTimeInterval(3_600)
+        let account = Account(institution: "Broker", type: .investment, currency: "MXN", nickname: "Broker")
+        context.insert(account)
+        let position = try PortfolioService.addPosition(
+            account: account,
+            emisoraSerie: "FEMSAUBD",
+            name: "Femsa",
+            shares: 10,
+            averageCost: 100,
+            context: context
+        )
+        position.lastPrice = 300
+        position.lastPriceAt = asOf
+        let fingerprint = HoldingsFingerprint.of([
+            ("FEMSAUBD", 10, 100),
+        ])
+        context.insert(AccountBalanceSnapshot(
+            account: account,
+            date: valuationDate,
+            amount: 1_500,
+            kind: .portfolioValuation,
+            note: "Portfolio valuation |fp=\(fingerprint)"
+        ))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.scope = .account(account.id)
+        viewModel.setPeriod(.custom, customRange: DateRange(start: valuationDate, end: asOf), now: asOf)
+        viewModel.configure(context: context)
+
+        guard case .asset(let snapshot) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot")
+            return
+        }
+
+        let portfolio = try #require(snapshot.portfolio)
+        #expect(snapshot.currentBalance == 1_500)
+        #expect(portfolio.inPortfolioMode)
+        #expect(portfolio.valuationAmount == 1_500)
+        #expect(portfolio.valuationDate == valuationDate)
+        #expect(portfolio.sourceIsPortfolioValuation)
+        #expect(portfolio.holdingsFingerprintMatches)
+        #expect(portfolio.totalInvested == 1_000)
+        let totalGrowth = try #require(portfolio.totalGrowthPercent)
+        #expect(abs(totalGrowth - 50) < 0.001)
+
+        let row = try #require(portfolio.rows.first)
+        #expect(row.ticker == "FEMSAUBD")
+        #expect(row.value == 3_000)
+        let rowGrowth = try #require(row.growthPercent)
+        #expect(abs(rowGrowth - 200) < 0.001)
     }
 
     @Test("Category palette separates visible dashboard categories")
