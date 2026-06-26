@@ -68,6 +68,20 @@ struct PortfolioServiceTests {
         #expect(gfnorte.emisoraSerie == "GFNORTEO")
     }
 
+    @Test("SIC suffixes are stored in canonical form")
+    func normalizesSICSuffixes() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Broker", type: .investment, nickname: "Broker")
+        context.insert(account)
+
+        let voo = try PortfolioService.addPosition(account: account, emisoraSerie: "VOO.MX", name: nil, shares: 1, averageCost: 1, context: context)
+        let ibm = try PortfolioService.addPosition(account: account, emisoraSerie: "IBM*", name: nil, shares: 1, averageCost: 1, context: context)
+
+        #expect(voo.emisoraSerie == "VOO")
+        #expect(ibm.emisoraSerie == "IBM")
+    }
+
     @Test("Eligibility blocks investment accounts with manual anchors")
     func eligibility() throws {
         let container = try makeContainer()

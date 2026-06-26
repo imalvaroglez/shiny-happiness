@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Stocks Portfolio setup.** Zero-balance investment accounts can now start a stock portfolio, and spaced BMV series like `AMX B`, `CEMEX CPO`, and `GFNORTE O` are normalized for DataBursatil.
 - **Stocks Portfolio refresh.** If DataBursatil returns only some quotes, the dashboard now names the missing tickers while preserving the previous complete valuation.
+- **DataBursatil quotes.** Refresh now accepts DataBursatil's lowercase `bmv`/`biva` response keys and maps known SIC tickers like `VOO` and `IBM` to the required `*` request suffix.
 
 ## [0.6.2] - 2026-06-20
 

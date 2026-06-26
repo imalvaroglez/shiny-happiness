@@ -44,7 +44,7 @@ struct DataBursatilClient: Sendable {
         var components = URLComponents(string: "https://api.databursatil.com/v2/cotizaciones")!
         components.queryItems = [
             URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "emisora_serie", value: tickers.map(PortfolioTicker.normalize).joined(separator: ",")),
+            URLQueryItem(name: "emisora_serie", value: tickers.map(PortfolioTicker.providerTicker).joined(separator: ",")),
             URLQueryItem(name: "concepto", value: "U"),
             URLQueryItem(name: "bolsa", value: "BMV,BIVA"),
         ]
@@ -78,7 +78,10 @@ struct DataBursatilClient: Sendable {
 
         var quotes: [String: PriceSnapshot] = [:]
         for (ticker, exchanges) in payload {
-            let quote = exchanges["BMV"] ?? exchanges["BIVA"]
+            let normalizedExchanges = exchanges.reduce(into: [String: BolsaQuote]()) { result, exchange in
+                result[exchange.key.uppercased()] = exchange.value
+            }
+            let quote = normalizedExchanges["BMV"] ?? normalizedExchanges["BIVA"]
             guard let price = quote?.u, price > 0 else { continue }
             quotes[PortfolioTicker.normalize(ticker)] = PriceSnapshot(price: price, timestamp: parseDate(quote?.f))
         }

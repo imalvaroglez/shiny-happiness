@@ -151,6 +151,21 @@ enum PortfolioService {
 
 enum PortfolioTicker {
     static func normalize(_ ticker: String) -> String {
-        ticker.uppercased().filter { !$0.isWhitespace }
+        let compact = ticker.uppercased().filter { !$0.isWhitespace }
+        if compact.hasSuffix(".MX") { return String(compact.dropLast(3)) }
+        if compact.hasSuffix("*") { return String(compact.dropLast()) }
+        return compact
+    }
+
+    static func providerTicker(_ ticker: String) -> String {
+        let normalized = normalize(ticker)
+        guard needsSICMarker(ticker, normalized: normalized) else { return normalized }
+        return "\(normalized)*"
+    }
+
+    private static func needsSICMarker(_ ticker: String, normalized: String) -> Bool {
+        let compact = ticker.uppercased().filter { !$0.isWhitespace }
+        // ponytail: small SIC alias list; replace with /emisoras lookup if broad US ticker support matters.
+        return compact.hasSuffix(".MX") || compact.hasSuffix("*") || ["IBM", "NVDA", "VOO"].contains(normalized)
     }
 }

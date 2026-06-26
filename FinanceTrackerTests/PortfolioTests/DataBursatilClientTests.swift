@@ -33,7 +33,7 @@ struct DataBursatilClientTests {
 
     @Test("Decodes BMV price to Decimal")
     func decodesBMV() async throws {
-        let body = json(#"{"FEMSAUBD":{"BMV":{"u":19.86,"f":"2026-06-25 15:30:00"}}}"#)
+        let body = json(#"{"FEMSAUBD":{"bmv":{"u":19.86,"f":"2026-06-25 15:30:00"}}}"#)
         let client = DataBursatilClient(token: "t", transport: FakeTransport(body: body, status: 200))
         let quotes = try await client.quotes(for: ["FEMSAUBD"])
         #expect(quotes["FEMSAUBD"]?.price == 19.86)
@@ -58,6 +58,18 @@ struct DataBursatilClientTests {
         #expect(quotes["AMXB"]?.price == 15)
         #expect(quotes["CEMEXCPO"]?.price == 20)
         #expect(quotes["GFNORTEO"]?.price == 30)
+    }
+
+    @Test("Request uses SIC marker for known US tickers")
+    func requestUsesSICMarkerForKnownUSTickers() async throws {
+        let body = json(#"{"VOO*":{"bmv":{"u":100.00}},"IBM*":{"biva":{"u":200.00}},"NVDA*":{"bmv":{"u":300.00}}}"#)
+        let transport = FakeTransport(body: body, status: 200, expectedTickers: "VOO*,IBM*,NVDA*")
+        let client = DataBursatilClient(token: "t", transport: transport)
+        let quotes = try await client.quotes(for: ["VOO.MX", "IBM", "NVDA*"])
+
+        #expect(quotes["VOO"]?.price == 100)
+        #expect(quotes["IBM"]?.price == 200)
+        #expect(quotes["NVDA"]?.price == 300)
     }
 
     @Test("Missing token throws without URL")
