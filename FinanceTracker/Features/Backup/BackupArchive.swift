@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    private static let schemaVersion = 2
+    private static let schemaVersion = 3
     private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -74,6 +74,9 @@ enum BackupArchive {
         let signRecoveryHints = try context.fetch(FetchDescriptor<SignRecoveryHint>())
         try writeJSON("SignRecoveryHint", signRecoveryHints.map { SignRecoveryHintSnapshot($0) })
 
+        let stockPositions = try context.fetch(FetchDescriptor<StockPosition>())
+        try writeJSON("StockPosition", stockPositions.map { StockPositionSnapshot($0) })
+
         let appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
         let sourceStatements = appSupport.appendingPathComponent("FinanceTracker/Statements")
         if fm.fileExists(atPath: sourceStatements.path) {
@@ -104,7 +107,7 @@ enum BackupArchive {
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard manifest.schemaVersion == 1 || manifest.schemaVersion == schemaVersion else {
+        guard [1, 2, 3].contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
 
@@ -138,6 +141,12 @@ enum BackupArchive {
         let transactionsSnap = try loadJSON(TransactionSnapshot.self, "Transaction")
         let pendingImportsSnap = try loadJSON(PendingImportSnapshot.self, "PendingImport")
         let signRecoveryHintsSnap = try loadJSON(SignRecoveryHintSnapshot.self, "SignRecoveryHint")
+        let stockPositionsSnap: [StockPositionSnapshot]
+        if manifest.schemaVersion >= 3 {
+            stockPositionsSnap = try loadJSON(StockPositionSnapshot.self, "StockPosition")
+        } else {
+            stockPositionsSnap = try loadOptionalJSON(StockPositionSnapshot.self, "StockPosition")
+        }
 
         let existingAccounts = try context.fetch(FetchDescriptor<Account>())
         let existingBalanceSnapshots = try context.fetch(FetchDescriptor<AccountBalanceSnapshot>())
@@ -148,6 +157,7 @@ enum BackupArchive {
         let existingTransactions = try context.fetch(FetchDescriptor<Transaction>())
         let existingPendingImports = try context.fetch(FetchDescriptor<PendingImport>())
         let existingSignRecoveryHints = try context.fetch(FetchDescriptor<SignRecoveryHint>())
+        let existingStockPositions = try context.fetch(FetchDescriptor<StockPosition>())
 
         var accountMap = indexByID(existingAccounts, keyPath: \Account.id)
         var balanceSnapshotMap = indexByID(existingBalanceSnapshots, keyPath: \AccountBalanceSnapshot.id)
@@ -158,6 +168,7 @@ enum BackupArchive {
         var transactionMap = indexByID(existingTransactions, keyPath: \Transaction.id)
         var pendingImportMap = indexByID(existingPendingImports, keyPath: \PendingImport.id)
         var signRecoveryHintMap = indexByID(existingSignRecoveryHints, keyPath: \SignRecoveryHint.id)
+        var stockPositionMap = indexByID(existingStockPositions, keyPath: \StockPosition.id)
 
         func resolveOrInsertAccount(_ id: UUID, _ snap: AccountSnapshot) -> Account {
             if let existing = accountMap[id] {
@@ -276,6 +287,32 @@ enum BackupArchive {
             return obj
         }
 
+        func resolveOrInsertStockPosition(_ id: UUID, _ snap: StockPositionSnapshot) -> StockPosition {
+            if let existing = stockPositionMap[id] {
+                if case .mergeKeepingNewer = strategy {
+                    if snap.lastModifiedAt > existing.lastModifiedAt {
+                        existing.emisoraSerie = snap.emisoraSerie
+                        existing.name = snap.name
+                        existing.shares = snap.shares
+                        existing.averageCost = snap.averageCost
+                        existing.lastModifiedAt = snap.lastModifiedAt
+                    }
+                    if let snapAt = snap.lastPriceAt,
+                       existing.lastPriceAt == nil || snapAt > existing.lastPriceAt! {
+                        existing.lastPrice = snap.lastPrice
+                        existing.lastPriceAt = snapAt
+                    }
+                } else {
+                    existing.apply(snap)
+                }
+                return existing
+            }
+            let obj = StockPosition(snap)
+            context.insert(obj)
+            stockPositionMap[id] = obj
+            return obj
+        }
+
         for snap in accountsSnap { _ = resolveOrInsertAccount(snap.id, snap) }
         for snap in balanceSnapshotsSnap { _ = resolveOrInsertBalanceSnapshot(snap.id, snap) }
         for snap in categoriesSnap { _ = resolveOrInsertCategory(snap.id, snap) }
@@ -285,6 +322,7 @@ enum BackupArchive {
         for snap in transactionsSnap { _ = resolveOrInsertTransaction(snap.id, snap) }
         for snap in pendingImportsSnap { _ = resolveOrInsertPendingImport(snap.id, snap) }
         for snap in signRecoveryHintsSnap { _ = resolveOrInsertSignRecoveryHint(snap.id, snap) }
+        for snap in stockPositionsSnap { _ = resolveOrInsertStockPosition(snap.id, snap) }
 
         for snap in accountsSnap {
             guard let obj = accountMap[snap.id] else { continue }
@@ -336,6 +374,11 @@ enum BackupArchive {
             obj.account = snap.accountId.flatMap { accountMap[$0] }
             obj.statement = snap.statementId.flatMap { statementMap[$0] }
             obj.resolvedTransaction = snap.resolvedTransactionId.flatMap { transactionMap[$0] }
+            if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
+        }
+        for snap in stockPositionsSnap {
+            guard let obj = stockPositionMap[snap.id] else { continue }
+            obj.account = snap.accountId.flatMap { accountMap[$0] }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
 
@@ -525,6 +568,50 @@ extension AccountBalanceSnapshotSnapshot {
             note: snapshot.note,
             createdAt: snapshot.createdAt,
             lastModifiedAt: snapshot.lastModifiedAt
+        )
+    }
+}
+
+extension StockPosition {
+    convenience init(_ snap: StockPositionSnapshot) {
+        self.init(
+            id: snap.id,
+            emisoraSerie: snap.emisoraSerie,
+            name: snap.name,
+            shares: snap.shares,
+            averageCost: snap.averageCost,
+            lastPrice: snap.lastPrice,
+            lastPriceAt: snap.lastPriceAt,
+            createdAt: snap.createdAt
+        )
+        lastModifiedAt = snap.lastModifiedAt
+    }
+
+    func apply(_ snap: StockPositionSnapshot) {
+        emisoraSerie = snap.emisoraSerie
+        name = snap.name
+        shares = snap.shares
+        averageCost = snap.averageCost
+        lastPrice = snap.lastPrice
+        lastPriceAt = snap.lastPriceAt
+        createdAt = snap.createdAt
+        lastModifiedAt = snap.lastModifiedAt
+    }
+}
+
+extension StockPositionSnapshot {
+    init(_ position: StockPosition) {
+        self.init(
+            id: position.id,
+            accountId: position.account?.id,
+            emisoraSerie: position.emisoraSerie,
+            name: position.name,
+            shares: position.shares,
+            averageCost: position.averageCost,
+            lastPrice: position.lastPrice,
+            lastPriceAt: position.lastPriceAt,
+            createdAt: position.createdAt,
+            lastModifiedAt: position.lastModifiedAt
         )
     }
 }
