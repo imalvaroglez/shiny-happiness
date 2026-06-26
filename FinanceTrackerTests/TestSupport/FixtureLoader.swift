@@ -10,6 +10,7 @@ enum FixtureLoader {
 
     static func optionalURL(_ filename: String) -> URL? {
         Bundle(for: FixtureBundleToken.self).url(forResource: filename, withExtension: nil)
+            ?? Bundle(for: FixtureBundleToken.self).url(forResource: filename, withExtension: nil, subdirectory: "samples")
     }
 
     static func string(_ filename: String, encoding: String.Encoding = .utf8) throws -> String {

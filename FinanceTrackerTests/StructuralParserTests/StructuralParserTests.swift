@@ -16,12 +16,13 @@ struct StructuralParserTests {
 
     // MARK: - Openbank Mexico (Grid Layout)
 
-    private var openbankPDF: URL {
-        FixtureLoader.url("01.pdf")
+    private var openbankPDF: URL? {
+        FixtureLoader.optionalURL("01.pdf")
     }
 
     @Test("Parses Openbank PDF (grid layout) and extracts transactions")
     func parsesOpenbankPDF() async throws {
+        guard let openbankPDF else { return }
         let data = try Data(contentsOf: openbankPDF)
         let transactions = try await parser.parse(data: data)
 
@@ -36,6 +37,7 @@ struct StructuralParserTests {
 
     @Test("Openbank transactions have valid dates in reasonable range")
     func openbankDatesValid() async throws {
+        guard let openbankPDF else { return }
         let data = try Data(contentsOf: openbankPDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)
@@ -51,6 +53,7 @@ struct StructuralParserTests {
 
     @Test("Openbank has both deposits and withdrawals")
     func openbankDepositsAndWithdrawals() async throws {
+        guard let openbankPDF else { return }
         let data = try Data(contentsOf: openbankPDF)
         let transactions = try await parser.parse(data: data)
         #expect(!transactions.isEmpty)

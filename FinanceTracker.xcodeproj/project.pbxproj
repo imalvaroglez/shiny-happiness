@@ -143,6 +143,7 @@
 		D5AF14203C74431004F2E689 /* AmexMexicoParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A55B8805B742C85C8DF62F /* AmexMexicoParser.swift */; };
 		D6EBF777F566115700D6F631 /* StockPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57FAADEEF601457BB7DDE40C /* StockPosition.swift */; };
 		D81D3721DF4E349BB6094C14 /* CategoryManagementActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A597EF9FEFE3473730377F78 /* CategoryManagementActions.swift */; };
+		D9E05A4B1D0B0F18F326B459 /* samples in Resources */ = {isa = PBXBuildFile; fileRef = E381E57451C13D0EBF6EA793 /* samples */; };
 		DCBA7F670AEBDCBA9F807D2F /* category_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 258ACDAAC6B78C5485F65FCB /* category_rules.json */; };
 		DD25F1A3E44215D6411D5B90 /* PortfolioPriceRefresherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 807AA00A55D09F5CEFB799FB /* PortfolioPriceRefresherTests.swift */; };
 		DF35C549A740C53F50C47C0A /* CategorizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F8E6BEB13E160FD7823D67 /* CategorizerTests.swift */; };
@@ -307,6 +308,7 @@
 		E03FD69EFD0B6B299D45E403 /* PortfolioViewData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioViewData.swift; sourceTree = "<group>"; };
 		E32404A690D984E7DF6570FE /* IngestReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestReport.swift; sourceTree = "<group>"; };
 		E32D2CADB3F7DBA60D048605 /* SeedDataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedDataLoader.swift; sourceTree = "<group>"; };
+		E381E57451C13D0EBF6EA793 /* samples */ = {isa = PBXFileReference; lastKnownFileType = folder; path = samples; sourceTree = SOURCE_ROOT; };
 		E76175BE428466F780B78B2C /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
 		E9F678D7C0F27BD7C9899137 /* InstallmentPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallmentPlan.swift; sourceTree = "<group>"; };
 		EA788084B77DC6E285F0C75B /* SPEIDestinationRulesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SPEIDestinationRulesTests.swift; sourceTree = "<group>"; };
@@ -727,6 +729,7 @@
 			children = (
 				C311382A5459401252CECA4F /* FinanceTracker */,
 				25237C1A46F3E765B90B6436 /* FinanceTrackerTests */,
+				E381E57451C13D0EBF6EA793 /* samples */,
 				343055944EC6722D9C82C82B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -859,6 +862,7 @@
 				4F81EBFD1F759C29AB0C13EE /* category_rules.json in Resources */,
 				EE981FAE7AF35C481C9B0DC9 /* date_patterns.json in Resources */,
 				150B4EFC55A2D5EC565217C4 /* header_vocabulary.json in Resources */,
+				D9E05A4B1D0B0F18F326B459 /* samples in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
