@@ -696,7 +696,12 @@ struct SettingsView: View {
         }
     }
 
-    private static let latestReleaseHighlights: [String] = []
+    private static let latestReleaseHighlights: [String] = [
+        "Track a stock portfolio inside an investment account.",
+        "Refresh BMV/BIVA and supported SIC prices with DataBursatil.",
+        "Include complete portfolio valuations in Net Worth.",
+        "Back up and restore stock positions with the rest of your data.",
+    ]
 
     private var lastBackupDate: String? {
         let fm = FileManager.default

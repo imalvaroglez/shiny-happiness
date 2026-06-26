@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-26
+
 ### Added
 
 - **Stocks Portfolio.** Track a BMV/US stock portfolio as an investment account with per-stock positions, on-demand DataBursatil price refresh, current value, growth vs cost basis, and Net Worth inclusion through authoritative portfolio valuation snapshots.
