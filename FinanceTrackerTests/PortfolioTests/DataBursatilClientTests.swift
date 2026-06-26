@@ -7,8 +7,16 @@ struct DataBursatilClientTests {
     private struct FakeTransport: HTTPRequesting {
         let body: Data
         let status: Int
+        var expectedTickers: String?
 
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            if let expectedTickers {
+                let actual = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                    .queryItems?
+                    .first { $0.name == "emisora_serie" }?
+                    .value
+                #expect(actual == expectedTickers)
+            }
             let response = HTTPURLResponse(
                 url: request.url!,
                 statusCode: status,
@@ -38,6 +46,18 @@ struct DataBursatilClientTests {
         let client = DataBursatilClient(token: "t", transport: FakeTransport(body: body, status: 200))
         let quotes = try await client.quotes(for: ["FEMSAUBD"])
         #expect(quotes["FEMSAUBD"]?.price == 19.85)
+    }
+
+    @Test("Request normalizes spaced BMV series")
+    func requestNormalizesSpacedBMVSeries() async throws {
+        let body = json(#"{"AMXB":{"BMV":{"u":15.00}},"CEMEXCPO":{"BMV":{"u":20.00}},"GFNORTEO":{"BMV":{"u":30.00}}}"#)
+        let transport = FakeTransport(body: body, status: 200, expectedTickers: "AMXB,CEMEXCPO,GFNORTEO")
+        let client = DataBursatilClient(token: "t", transport: transport)
+        let quotes = try await client.quotes(for: ["AMX B", "CEMEX CPO", "GFNORTE O"])
+
+        #expect(quotes["AMXB"]?.price == 15)
+        #expect(quotes["CEMEXCPO"]?.price == 20)
+        #expect(quotes["GFNORTEO"]?.price == 30)
     }
 
     @Test("Missing token throws without URL")

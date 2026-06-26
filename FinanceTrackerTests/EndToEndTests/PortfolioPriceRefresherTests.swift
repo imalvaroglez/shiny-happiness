@@ -131,4 +131,60 @@ struct PortfolioPriceRefresherTests {
 
         #expect(outcome == .empty)
     }
+
+    @Test("Requested portfolio tickers refresh into Net Worth")
+    func requestedPortfolioTickersRefreshIntoNetWorth() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = try AccountCreationService.create(
+            kind: .investment,
+            name: "Broker",
+            institution: "Broker",
+            accountNumber: nil,
+            currency: "MXN",
+            openingAmount: 0,
+            creditLimit: nil,
+            tintHex: nil,
+            includeInNetWorth: true,
+            context: context
+        )
+        let requested = [
+            ("VOO", "VOO", Decimal(10)),
+            ("IBM", "IBM", Decimal(20)),
+            ("FMTY14", "FMTY14", Decimal(30)),
+            ("AMX B", "AMXB", Decimal(40)),
+            ("CEMEX CPO", "CEMEXCPO", Decimal(50)),
+            ("GFNORTE O", "GFNORTEO", Decimal(60)),
+        ]
+
+        #expect(PortfolioService.canAddPositions(account: account, context: context))
+        for (input, _, _) in requested {
+            try PortfolioService.addPosition(
+                account: account,
+                emisoraSerie: input,
+                name: nil,
+                shares: 1,
+                averageCost: 1,
+                context: context
+            )
+        }
+
+        let outcome = await PortfolioPriceRefresher.refresh(account: account, context: context) { tickers in
+            #expect(Set(tickers) == Set(requested.map { $0.1 }))
+            return Dictionary(uniqueKeysWithValues: requested.map {
+                ($0.1, DataBursatilClient.PriceSnapshot(price: $0.2, timestamp: nil))
+            })
+        }
+
+        #expect(outcome == .priced)
+        let expectedTotal = requested.reduce(Decimal(0)) { $0 + $1.2 }
+        let viewModel = DashboardViewModel()
+        viewModel.configure(context: context)
+        guard case .consolidated(let snapshot) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot")
+            return
+        }
+        #expect(snapshot.netWorth == expectedTotal)
+        #expect(snapshot.accountSummaries.first { $0.id == account.id }?.latestBalance == expectedTotal)
+    }
 }

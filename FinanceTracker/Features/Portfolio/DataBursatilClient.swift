@@ -44,7 +44,7 @@ struct DataBursatilClient: Sendable {
         var components = URLComponents(string: "https://api.databursatil.com/v2/cotizaciones")!
         components.queryItems = [
             URLQueryItem(name: "token", value: token),
-            URLQueryItem(name: "emisora_serie", value: tickers.map(Self.normalizeTicker).joined(separator: ",")),
+            URLQueryItem(name: "emisora_serie", value: tickers.map(PortfolioTicker.normalize).joined(separator: ",")),
             URLQueryItem(name: "concepto", value: "U"),
             URLQueryItem(name: "bolsa", value: "BMV,BIVA"),
         ]
@@ -80,7 +80,7 @@ struct DataBursatilClient: Sendable {
         for (ticker, exchanges) in payload {
             let quote = exchanges["BMV"] ?? exchanges["BIVA"]
             guard let price = quote?.u, price > 0 else { continue }
-            quotes[normalizeTicker(ticker)] = PriceSnapshot(price: price, timestamp: parseDate(quote?.f))
+            quotes[PortfolioTicker.normalize(ticker)] = PriceSnapshot(price: price, timestamp: parseDate(quote?.f))
         }
         guard !quotes.isEmpty else { throw Error.noQuotes }
         return quotes
@@ -95,7 +95,4 @@ struct DataBursatilClient: Sendable {
         return formatter.date(from: string)
     }
 
-    private static func normalizeTicker(_ ticker: String) -> String {
-        ticker.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-    }
 }

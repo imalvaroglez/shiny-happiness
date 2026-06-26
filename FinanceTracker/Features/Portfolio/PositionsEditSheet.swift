@@ -105,7 +105,7 @@ private struct AddPositionSheet: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
             Form {
-                TextField("Ticker (for example, VOO or GFNORTEO)", text: $ticker)
+                TextField("Ticker (for example, VOO, AMX B, or GFNORTE O)", text: $ticker)
                 TextField("Name (optional)", text: $name)
                 TextField("Shares", value: $shares, format: .number)
                 TextField("Average cost", value: $averageCost, format: .number)

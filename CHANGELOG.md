@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **SwiftData/backup portfolio support.** Schema V3 adds `StockPosition`; backup format V3 writes `StockPosition.json`, while V1/V2 backups still restore without positions.
 
+### Fixed
+
+- **Stocks Portfolio setup.** Zero-balance investment accounts can now start a stock portfolio, and spaced BMV series like `AMX B`, `CEMEX CPO`, and `GFNORTE O` are normalized for DataBursatil.
+
 ## [0.6.2] - 2026-06-20
 
 ### Changed

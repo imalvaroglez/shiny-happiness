@@ -37,11 +37,11 @@ enum PortfolioPriceRefresher {
 
         var quotesByTicker: [String: DataBursatilClient.PriceSnapshot] = [:]
         for (ticker, quote) in quotes {
-            quotesByTicker[normalizeTicker(ticker)] = quote
+            quotesByTicker[PortfolioTicker.normalize(ticker)] = quote
         }
         var allPriced = true
         for position in positions {
-            guard let quote = quotesByTicker[normalizeTicker(position.emisoraSerie)] else {
+            guard let quote = quotesByTicker[PortfolioTicker.normalize(position.emisoraSerie)] else {
                 allPriced = false
                 continue
             }
@@ -68,7 +68,4 @@ enum PortfolioPriceRefresher {
         return .priced
     }
 
-    private static func normalizeTicker(_ ticker: String) -> String {
-        ticker.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-    }
 }

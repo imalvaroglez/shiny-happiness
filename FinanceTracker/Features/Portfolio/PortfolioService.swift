@@ -56,7 +56,10 @@ enum PortfolioService {
         let snapshots = (try? context.fetch(FetchDescriptor<AccountBalanceSnapshot>(
             predicate: #Predicate<AccountBalanceSnapshot> { $0.account?.id == accountID }
         ))) ?? []
-        return snapshots.allSatisfy { $0.kind == .portfolioValuation }
+        return snapshots.allSatisfy {
+            $0.kind == .portfolioValuation
+                || ($0.kind == .manualOpening && $0.amount == 0)
+        }
     }
 
     @discardableResult
@@ -142,6 +145,12 @@ enum PortfolioService {
     }
 
     private static func normalizeTicker(_ ticker: String) -> String {
-        ticker.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        PortfolioTicker.normalize(ticker)
+    }
+}
+
+enum PortfolioTicker {
+    static func normalize(_ ticker: String) -> String {
+        ticker.uppercased().filter { !$0.isWhitespace }
     }
 }

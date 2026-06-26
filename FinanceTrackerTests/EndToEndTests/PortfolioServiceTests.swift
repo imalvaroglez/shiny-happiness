@@ -52,6 +52,22 @@ struct PortfolioServiceTests {
         }
     }
 
+    @Test("Spaced BMV series are stored in provider format")
+    func normalizesSpacedBMVSeries() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Broker", type: .investment, nickname: "Broker")
+        context.insert(account)
+
+        let amx = try PortfolioService.addPosition(account: account, emisoraSerie: " amx b ", name: nil, shares: 1, averageCost: 1, context: context)
+        let cemex = try PortfolioService.addPosition(account: account, emisoraSerie: "CEMEX CPO", name: nil, shares: 1, averageCost: 1, context: context)
+        let gfnorte = try PortfolioService.addPosition(account: account, emisoraSerie: "GFNORTE O", name: nil, shares: 1, averageCost: 1, context: context)
+
+        #expect(amx.emisoraSerie == "AMXB")
+        #expect(cemex.emisoraSerie == "CEMEXCPO")
+        #expect(gfnorte.emisoraSerie == "GFNORTEO")
+    }
+
     @Test("Eligibility blocks investment accounts with manual anchors")
     func eligibility() throws {
         let container = try makeContainer()
@@ -65,6 +81,25 @@ struct PortfolioServiceTests {
         context.insert(AccountBalanceSnapshot(account: cetes, date: .now, amount: 1_000, kind: .manualOpening))
         try context.save()
         #expect(!PortfolioService.canAddPositions(account: cetes, context: context))
+    }
+
+    @Test("New zero-balance investment account can add positions")
+    func zeroOpeningInvestmentCanAddPositions() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = try AccountCreationService.create(
+            kind: .investment,
+            name: "Broker",
+            institution: "Broker",
+            accountNumber: nil,
+            currency: "MXN",
+            openingAmount: 0,
+            creditLimit: nil,
+            tintHex: nil,
+            context: context
+        )
+
+        #expect(PortfolioService.canAddPositions(account: account, context: context))
     }
 
     @Test("Emptied portfolio can restart")
