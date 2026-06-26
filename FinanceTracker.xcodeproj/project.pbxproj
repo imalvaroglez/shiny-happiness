@@ -31,6 +31,7 @@
 		2ECCDE68ED2AC31F756C0841 /* TransactionDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 820058456236DE88D63C47FE /* TransactionDetailSheet.swift */; };
 		2F32BA1E6065EBE5D7BA0E1E /* amount_conventions.json in Resources */ = {isa = PBXBuildFile; fileRef = A43EB1070F820ABB2DD25DF6 /* amount_conventions.json */; };
 		2FB86180F374A9A6773D4993 /* BackupArchiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24A6CE11C6370FEE1842953 /* BackupArchiveTests.swift */; };
+		3003ED18333E1D8232B783BF /* PortfolioService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93085CDC7E089042AFF32EEA /* PortfolioService.swift */; };
 		3218EB269C821EE5C6F62552 /* OpenbankMexicoParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74B0D3E580CAACB839B149C /* OpenbankMexicoParserTests.swift */; };
 		334DE92A9AEA2308B0C6443B /* AppBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 295FC5398FDC28706B6381A6 /* AppBackdrop.swift */; };
 		34FA52D1686B5290F925C55A /* PasteImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C377B11E49DF2A1F59DF0A87 /* PasteImportSheet.swift */; };
@@ -104,6 +105,7 @@
 		9B454A77B487AA81B149DC56 /* StructuralParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6813D29124C05045CEDD6125 /* StructuralParserTests.swift */; };
 		9CA76EBFAEBD99259F1580D1 /* PortfolioResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9119EC0B299B814BC2A32E8 /* PortfolioResolverTests.swift */; };
 		9D30CE9FCB73FB11930406E7 /* AppDataResetServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5991749DFCB4D702D68AFEF6 /* AppDataResetServiceTests.swift */; };
+		A0B223628AB851DDDE58D052 /* PortfolioServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF95B7EEEEE105DC5FD764E6 /* PortfolioServiceTests.swift */; };
 		A1AD6EE4E5C7D5AA5584BD27 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989ACDB4A037230E6C8E9080 /* Account.swift */; };
 		A32C65AECBA5FCC6DDECF6E0 /* RetirementKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = D803CDF2E576F738887F2D2D /* RetirementKind.swift */; };
 		A3FA364702E99FA693D03CBF /* AccountBalanceSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8A9B5CAA7955E44FD69806 /* AccountBalanceSnapshot.swift */; };
@@ -246,6 +248,7 @@
 		911C0B681D74C9CCC271C0CA /* StatementBalanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementBalanceTests.swift; sourceTree = "<group>"; };
 		9246E2DCF146303197C41581 /* PaymentDetailsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentDetailsSheet.swift; sourceTree = "<group>"; };
 		92E3281262428E4DA9DEBC6D /* CategoryManagementActionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryManagementActionsTests.swift; sourceTree = "<group>"; };
+		93085CDC7E089042AFF32EEA /* PortfolioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioService.swift; sourceTree = "<group>"; };
 		949A945D8EE113CE8376A2DB /* StructuralParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralParser.swift; sourceTree = "<group>"; };
 		94C2CD008ED3068A1C7FF4C2 /* ConsolidatedDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidatedDashboard.swift; sourceTree = "<group>"; };
 		989ACDB4A037230E6C8E9080 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
@@ -264,6 +267,7 @@
 		ABEDFC6BADAB0B0639C63F9A /* SectionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionCard.swift; sourceTree = "<group>"; };
 		AF4B815E55BBE994A9DF4A5B /* Statement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Statement.swift; sourceTree = "<group>"; };
 		AF90BB8B8BA6AA6C4D95B192 /* AccountDeletionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionServiceTests.swift; sourceTree = "<group>"; };
+		AF95B7EEEEE105DC5FD764E6 /* PortfolioServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioServiceTests.swift; sourceTree = "<group>"; };
 		B2F130B0509FE843CB686B4E /* CategoryRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRule.swift; sourceTree = "<group>"; };
 		B464D773C09FB5504C23975A /* TransactionFlowKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionFlowKind.swift; sourceTree = "<group>"; };
 		B57D80A4E755ED722BD76906 /* CategoryPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryPickerView.swift; sourceTree = "<group>"; };
@@ -529,6 +533,7 @@
 				A4A44210612FDD708268A9C6 /* OpenbankMultiAccountTests.swift */,
 				1A1209A83421ACFB92621BC0 /* PaymentMetadataTests.swift */,
 				F9119EC0B299B814BC2A32E8 /* PortfolioResolverTests.swift */,
+				AF95B7EEEEE105DC5FD764E6 /* PortfolioServiceTests.swift */,
 				67DCEB0832ADA26837DC4401 /* RetirementDashboardTests.swift */,
 				911C0B681D74C9CCC271C0CA /* StatementBalanceTests.swift */,
 			);
@@ -592,6 +597,7 @@
 			isa = PBXGroup;
 			children = (
 				F93DFD8109A199EAE81C7408 /* DataBursatilClient.swift */,
+				93085CDC7E089042AFF32EEA /* PortfolioService.swift */,
 			);
 			path = Portfolio;
 			sourceTree = "<group>";
@@ -929,6 +935,7 @@
 				52898B3508FAA5913092F631 /* PendingImport.swift in Sources */,
 				371082F70A36D27C5B7DE423 /* PendingReviewSection.swift in Sources */,
 				4327A5360668266C72DCCD84 /* PersistentModel+Touch.swift in Sources */,
+				3003ED18333E1D8232B783BF /* PortfolioService.swift in Sources */,
 				6B10DFBF6B32F7DB37BB4991 /* RawTransaction.swift in Sources */,
 				A32C65AECBA5FCC6DDECF6E0 /* RetirementKind.swift in Sources */,
 				7D0E96AE5660552618295297 /* SectionCard.swift in Sources */,
@@ -998,6 +1005,7 @@
 				BF07D5A0AA6A639CB64E46BD /* PaymentDueDisplayStateTests.swift in Sources */,
 				6383BECC39BB996521430044 /* PaymentMetadataTests.swift in Sources */,
 				9CA76EBFAEBD99259F1580D1 /* PortfolioResolverTests.swift in Sources */,
+				A0B223628AB851DDDE58D052 /* PortfolioServiceTests.swift in Sources */,
 				CE18EEF0A87AF21D55D3A771 /* RetirementDashboardTests.swift in Sources */,
 				D18A1A482A6D2E46B03178A2 /* RetirementSemanticsTests.swift in Sources */,
 				1F8B12CA89D3CA8BCA7DD553 /* SPEIDestinationRulesTests.swift in Sources */,
