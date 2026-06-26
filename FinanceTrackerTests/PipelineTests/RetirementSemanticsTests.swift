@@ -20,6 +20,13 @@ struct RetirementSemanticsTests {
         return Calendar(identifier: .gregorian).date(from: components)!
     }
 
+    private func removeStore(at url: URL) {
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: url)
+        try? fileManager.removeItem(at: URL(fileURLWithPath: url.path + "-wal"))
+        try? fileManager.removeItem(at: URL(fileURLWithPath: url.path + "-shm"))
+    }
+
     @Test("Retirement account defaults are deterministic")
     func retirementAccountDefaults() throws {
         let ppr = Account(institution: "PPR", type: .retirement, retirementKindRaw: RetirementKind.ppr.rawValue)
@@ -216,16 +223,12 @@ struct RetirementSemanticsTests {
     func v1StoreMigratesRetirementSemantics() throws {
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("finance-v1-\(UUID()).store")
-        defer { try? FileManager.default.removeItem(at: storeURL) }
+        defer { removeStore(at: storeURL) }
 
         do {
-            let v1Schema = Schema(FinanceTrackerSchemaV1.models)
+            let v1Schema = Schema(versionedSchema: FinanceTrackerSchemaV1.self)
             let config = ModelConfiguration(schema: v1Schema, url: storeURL)
-            let container = try ModelContainer(
-                for: v1Schema,
-                migrationPlan: FinanceTrackerMigrationPlan.self,
-                configurations: [config]
-            )
+            let container = try ModelContainer(for: v1Schema, configurations: [config])
             let context = container.mainContext
             let account = FinanceTrackerSchemaV1.Account(
                 institution: "AFORE Test",
@@ -257,5 +260,63 @@ struct RetirementSemanticsTests {
         #expect(transaction.movementKind == .income)
         #expect(transaction.treatmentKind == .statutoryRetirementContribution)
         #expect(!TransactionClassifier().classify(transaction: transaction).countsAsRegularIncome)
+    }
+
+    @Test("V2 store migrates to V3 and registers stock positions")
+    func v2StoreMigratesToV3AndRegistersStockPositions() throws {
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("finance-v2-\(UUID()).store")
+        defer { removeStore(at: storeURL) }
+
+        do {
+            let v2Schema = Schema(versionedSchema: FinanceTrackerSchemaV2.self)
+            let config = ModelConfiguration(schema: v2Schema, url: storeURL)
+            let container = try ModelContainer(for: v2Schema, configurations: [config])
+            let context = container.mainContext
+            let account = FinanceTrackerSchemaV2.Account(
+                institution: "PPR Test",
+                type: .retirement,
+                nickname: "PPR"
+            )
+            context.insert(account)
+            context.insert(FinanceTrackerSchemaV2.Transaction(
+                account: account,
+                postedAt: date(),
+                amount: 1_000,
+                descriptionRaw: "PPR contribution",
+                flowKindRaw: TransactionFlowKind.income.rawValue
+            ))
+            try context.save()
+        }
+
+        do {
+            let config = ModelConfiguration(schema: AppSchema.schema, url: storeURL)
+            let migrated = try ModelContainer(
+                for: AppSchema.schema,
+                migrationPlan: FinanceTrackerMigrationPlan.self,
+                configurations: [config]
+            )
+            let context = migrated.mainContext
+            let account = try #require(try context.fetch(FetchDescriptor<Account>()).first)
+            let transaction = try #require(try context.fetch(FetchDescriptor<Transaction>()).first)
+
+            #expect(account.retirementKind == .ppr)
+            #expect(account.liquidity == .restricted)
+            #expect(transaction.movementKind == .income)
+            #expect(transaction.treatmentKind == .retirementContributionUserFunded)
+            #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
+
+            context.insert(StockPosition(account: account, emisoraSerie: "VOO", shares: 2, averageCost: 500))
+            try context.save()
+        }
+
+        let config = ModelConfiguration(schema: AppSchema.schema, url: storeURL)
+        let reopened = try ModelContainer(
+            for: AppSchema.schema,
+            migrationPlan: FinanceTrackerMigrationPlan.self,
+            configurations: [config]
+        )
+        let positions = try reopened.mainContext.fetch(FetchDescriptor<StockPosition>())
+        #expect(positions.map(\.emisoraSerie) == ["VOO"])
     }
 }
