@@ -34,7 +34,7 @@ struct SettingsView: View {
     @State private var isRestoring = false
     @State private var backupStatus = ""
     @State private var resetErrorMessage: String?
-    @State private var tokenDraft = KeychainTokenStore.token() ?? ""
+    @State private var tokenDraft = ""
     @State private var tokenStatusMessage: String?
 
     @State private var accountDeletionTarget: AccountDeletionTarget?
@@ -600,6 +600,9 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 SecureField("API token", text: $tokenDraft)
                     .textFieldStyle(.roundedBorder)
+                Text("Saved tokens are hidden. Paste a token to replace it, or use Clear to remove it.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
 
                 HStack(spacing: 12) {
                     Button("Save") { saveDataBursatilToken() }
@@ -652,8 +655,7 @@ struct SettingsView: View {
     private func saveDataBursatilToken() {
         let trimmed = tokenDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            KeychainTokenStore.clear()
-            tokenStatusMessage = "Token cleared."
+            tokenStatusMessage = "Paste a token to save, or use Clear to remove the saved token."
             return
         }
 
@@ -697,10 +699,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Track a stock portfolio inside an investment account.",
-        "Refresh BMV/BIVA and supported SIC prices with DataBursatil.",
-        "Include complete portfolio valuations in Net Worth.",
-        "Back up and restore stock positions with the rest of your data.",
+        "Edit manual balances directly from the transaction ledger.",
+        "Delete or restore balance rows to include or exclude their balance snapshot.",
+        "Keep balance rows out of categories, learning, and cash-flow reports.",
+        "Open Settings without a Keychain prompt for the saved DataBursatil token.",
     ]
 
     private var lastBackupDate: String? {

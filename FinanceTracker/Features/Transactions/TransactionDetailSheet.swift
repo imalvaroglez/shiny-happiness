@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 struct CategoryChange {
@@ -30,6 +31,11 @@ struct TransactionDetailSheet: View {
         transaction.source == .manual
         && !transaction.isTransfer
         && transaction.account?.type == .creditCard
+        && !isBalanceMirror
+    }
+
+    private var isBalanceMirror: Bool {
+        BalanceSnapshotService.mirroredSnapshot(for: transaction, context: modelContext) != nil
     }
 
     init(transaction: Transaction, onCategoryAssigned: @escaping (CategoryChange) -> Void, onSaved: (() -> Void)? = nil) {
@@ -166,15 +172,17 @@ struct TransactionDetailSheet: View {
             }
             panelDivider
 
-            if transaction.source == .manual {
+            if transaction.source == .manual && !isBalanceMirror {
                 treatmentRow
                 panelDivider
             }
 
-            categoryRow
+            if !isBalanceMirror {
+                categoryRow
+                panelDivider
+            }
 
             if let account = transaction.account {
-                panelDivider
                 readOnlyRow("Account", value: account.displayName)
             }
 
@@ -275,6 +283,9 @@ struct TransactionDetailSheet: View {
     }
 
     private var categoryColor: Color {
+        if isBalanceMirror {
+            return .secondary
+        }
         if let category = draftCategory {
             return CategoryPalette.color(for: category.name)
         }
@@ -339,8 +350,14 @@ struct TransactionDetailSheet: View {
     }
 
     private func save() {
+        let isBalanceMirror = BalanceSnapshotService.mirroredSnapshot(for: transaction, context: modelContext) != nil
         let amountToStore: Decimal
-        if isKindEditable {
+        if isBalanceMirror, let account = transaction.account {
+            amountToStore = account.type.isLiability ? -abs(draftSignedAmount) : abs(draftSignedAmount)
+            transaction.isDuplicate = true
+            transaction.movementKindRaw = TransactionMovementKind.adjustment.rawValue
+            transaction.treatmentKindRaw = TransactionTreatmentKind.valuationAdjustment.rawValue
+        } else if isKindEditable {
             switch draftFlowKind {
             case .charge: amountToStore = -abs(draftAbsoluteAmount)
             default: amountToStore = abs(draftAbsoluteAmount)
@@ -361,9 +378,11 @@ struct TransactionDetailSheet: View {
         transaction.amount = amountToStore
         // Treatment is reporting-only: store `.regular` as nil to keep data quiet,
         // and never touch flow/movement/transfer here.
-        transaction.setReportingTreatment(draftTreatmentKind)
+        if !isBalanceMirror {
+            transaction.setReportingTreatment(draftTreatmentKind)
+        }
 
-        if categoryDidChange, let newCategory = draftCategory {
+        if !isBalanceMirror, categoryDidChange, let newCategory = draftCategory {
             transaction.category = newCategory
             let keyword = MerchantExtractor.extractMerchant(from: draftDescription)
             LearningHooks.recordCategorization(
@@ -376,9 +395,10 @@ struct TransactionDetailSheet: View {
         }
 
         transaction.touch()
+        BalanceSnapshotService.syncMirroredSnapshot(for: transaction, context: modelContext)
         try? modelContext.save()
 
-        if categoryDidChange, let cat = draftCategory {
+        if !isBalanceMirror, categoryDidChange, let cat = draftCategory {
             onCategoryAssigned(
                 CategoryChange(transaction: transaction, category: cat, keyword: pendingKeyword)
             )
