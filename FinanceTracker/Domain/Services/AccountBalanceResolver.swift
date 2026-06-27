@@ -241,12 +241,17 @@ enum AccountBalanceResolver {
     static func allAnchors(accountId: UUID, context: ModelContext) -> [AccountBalanceAnchor] {
         let statements = fetchStatements(accountId: accountId, context: context)
         let snapshots = fetchSnapshots(accountId: accountId, context: context)
+        let deletedMirrorIDs = Set(
+            allTransactions(accountId: accountId, context: context)
+                .filter { $0.deletedAt != nil }
+                .map(\.id)
+        )
 
         let statementAnchors = statements.compactMap { statement -> AccountBalanceAnchor? in
             guard let balance = statement.closingBalance else { return nil }
             return AccountBalanceAnchor(date: statement.periodEnd, amount: balance, source: .statement(statement))
         }
-        let manualAnchors = snapshots.map {
+        let manualAnchors = snapshots.filter { !deletedMirrorIDs.contains($0.id) }.map {
             AccountBalanceAnchor(date: $0.date, amount: $0.amount, source: .manualSnapshot($0))
         }
         return statementAnchors + manualAnchors

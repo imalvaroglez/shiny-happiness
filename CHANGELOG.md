@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-06-27
+
+### Added
+
+- **Editable balance snapshots.** New manual account balances now appear in the transaction ledger as editable mirror rows while keeping balance snapshots as the source of truth and staying out of categories/reporting.
+
+### Fixed
+
+- **Settings Keychain prompt.** Opening Settings no longer reads the saved DataBursatil token, so macOS does not ask for Keychain access just to show the screen.
+
 ## [0.7.0] - 2026-06-26
 
 ### Added

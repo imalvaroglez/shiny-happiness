@@ -48,10 +48,12 @@ enum PortfolioService {
         ))) ?? 0
         guard statementCount == 0 else { return false }
 
-        let transactionCount = (try? context.fetchCount(FetchDescriptor<Transaction>(
+        let transactions = (try? context.fetch(FetchDescriptor<Transaction>(
             predicate: #Predicate<Transaction> { $0.account?.id == accountID }
-        ))) ?? 0
-        guard transactionCount == 0 else { return false }
+        ))) ?? []
+        guard transactions.allSatisfy({
+            BalanceSnapshotService.mirroredSnapshot(for: $0, context: context)?.amount == 0
+        }) else { return false }
 
         let snapshots = (try? context.fetch(FetchDescriptor<AccountBalanceSnapshot>(
             predicate: #Predicate<AccountBalanceSnapshot> { $0.account?.id == accountID }

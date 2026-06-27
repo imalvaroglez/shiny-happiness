@@ -125,6 +125,7 @@ enum AccountCreationService {
             note: "Opening balance"
         )
         context.insert(snapshot)
+        BalanceSnapshotService.createMirrorTransaction(for: snapshot, account: account, context: context)
         try context.save()
         return account
     }
@@ -176,8 +177,51 @@ enum BalanceSnapshotService {
             note: note?.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         context.insert(snapshot)
+        createMirrorTransaction(for: snapshot, account: account, context: context)
         try context.save()
         return snapshot
+    }
+
+    static func mirroredSnapshot(for transaction: Transaction, context: ModelContext) -> AccountBalanceSnapshot? {
+        let id = transaction.id
+        var descriptor = FetchDescriptor<AccountBalanceSnapshot>(
+            predicate: #Predicate<AccountBalanceSnapshot> { $0.id == id }
+        )
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
+    }
+
+    static func syncMirroredSnapshot(for transaction: Transaction, context: ModelContext) {
+        guard let snapshot = mirroredSnapshot(for: transaction, context: context),
+              let account = transaction.account else { return }
+        let signed = account.type.isLiability ? -abs(transaction.amount) : abs(transaction.amount)
+        snapshot.date = transaction.postedAt
+        snapshot.amount = signed
+        snapshot.note = transaction.descriptionRaw
+        snapshot.touch()
+        transaction.amount = signed
+        transaction.category = nil
+        transaction.isDuplicate = true
+        transaction.movementKindRaw = TransactionMovementKind.adjustment.rawValue
+        transaction.treatmentKindRaw = TransactionTreatmentKind.valuationAdjustment.rawValue
+    }
+
+    static func createMirrorTransaction(for snapshot: AccountBalanceSnapshot, account: Account, context: ModelContext) {
+        let description = snapshot.note.flatMap { $0.isEmpty ? nil : $0 } ?? "Balance"
+        let tx = Transaction(
+            id: snapshot.id,
+            account: account,
+            postedAt: snapshot.date,
+            amount: snapshot.amount,
+            currency: account.currency,
+            descriptionRaw: description,
+            merchantNormalized: description,
+            isDuplicate: true,
+            source: .manual,
+            movementKindRaw: TransactionMovementKind.adjustment.rawValue,
+            treatmentKindRaw: TransactionTreatmentKind.valuationAdjustment.rawValue
+        )
+        context.insert(tx)
     }
 }
 

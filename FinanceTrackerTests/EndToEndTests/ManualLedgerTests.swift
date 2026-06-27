@@ -51,11 +51,21 @@ struct ManualLedgerTests {
         )
 
         let snapshots = try context.fetch(FetchDescriptor<AccountBalanceSnapshot>())
+        let transactions = try context.fetch(FetchDescriptor<Transaction>())
+        let checkingSnapshot = try #require(snapshots.first { $0.account?.id == checking.id })
+        let cardSnapshot = try #require(snapshots.first { $0.account?.id == card.id })
+        let checkingMirror = try #require(transactions.first { $0.id == checkingSnapshot.id })
+        let cardMirror = try #require(transactions.first { $0.id == cardSnapshot.id })
+
         #expect(checking.manuallyCreatedAt != nil)
         #expect(card.manuallyCreatedAt != nil)
         #expect(card.creditLimit == 10_000)
-        #expect(snapshots.first { $0.account?.id == checking.id }?.amount == 1_500)
-        #expect(snapshots.first { $0.account?.id == card.id }?.amount == -900)
+        #expect(checkingSnapshot.amount == 1_500)
+        #expect(cardSnapshot.amount == -900)
+        #expect(checkingMirror.amount == checkingSnapshot.amount)
+        #expect(cardMirror.amount == cardSnapshot.amount)
+        #expect(checkingMirror.isDuplicate)
+        #expect(cardMirror.treatmentKind == .valuationAdjustment)
     }
 
     @Test("Balance resolver uses latest anchor plus later transactions")
@@ -104,6 +114,160 @@ struct ManualLedgerTests {
         )
 
         #expect(AccountBalanceResolver.currentBalance(account: account, context: context) == 2_350)
+    }
+
+    @Test("Balance adjustment mirror appears without double-counting")
+    func balanceAdjustmentMirrorDoesNotDoubleCount() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let epoch = Date(timeIntervalSince1970: 0)
+        let day1 = Date(timeIntervalSince1970: 1_000)
+        let day2 = Date(timeIntervalSince1970: 2_000)
+        let account = try AccountCreationService.create(
+            kind: .debit,
+            name: "Debit",
+            institution: "Bank",
+            accountNumber: nil,
+            currency: "MXN",
+            openingAmount: 1_000,
+            creditLimit: nil,
+            tintHex: nil,
+            openedAt: epoch,
+            context: context
+        )
+        let snapshot = try BalanceSnapshotService.createAdjustment(
+            account: account,
+            date: day1,
+            displayAmount: 2_000,
+            note: "Manual balance",
+            context: context
+        )
+        let tx = try mirror(for: snapshot, context: context)
+        let mirrorSnapshot = try #require(BalanceSnapshotService.mirroredSnapshot(for: tx, context: context))
+
+        #expect(tx.id == snapshot.id)
+        #expect(mirrorSnapshot.id == snapshot.id)
+        #expect(AccountBalanceResolver.currentBalance(account: account, context: context) == 2_000)
+
+        let viewModel = DashboardViewModel()
+        viewModel.dateRange = DateRange(start: epoch, end: day2)
+        viewModel.scope = .account(account.id)
+        viewModel.configure(context: context)
+
+        guard case .asset(let snap) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot"); return
+        }
+        #expect(snap.recentTransactions.contains { $0.id == snapshot.id })
+        #expect(snap.totalIncome == 0)
+        #expect(snap.totalExpenses == 0)
+        #expect(snap.monthlyCashFlow.isEmpty)
+    }
+
+    @Test("Editing balance mirror syncs snapshot")
+    func editingBalanceMirrorSyncsSnapshot() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = try AccountCreationService.create(
+            kind: .debit,
+            name: "Debit",
+            institution: "Bank",
+            accountNumber: nil,
+            currency: "MXN",
+            openingAmount: 1_000,
+            creditLimit: nil,
+            tintHex: nil,
+            openedAt: Date(timeIntervalSince1970: 0),
+            context: context
+        )
+        let snapshot = try BalanceSnapshotService.createAdjustment(
+            account: account,
+            date: Date(timeIntervalSince1970: 1_000),
+            displayAmount: 2_000,
+            note: "Old",
+            context: context
+        )
+        let tx = try mirror(for: snapshot, context: context)
+        tx.postedAt = Date(timeIntervalSince1970: 2_000)
+        tx.amount = -3_000
+        tx.descriptionRaw = "Corrected"
+
+        BalanceSnapshotService.syncMirroredSnapshot(for: tx, context: context)
+        try context.save()
+
+        #expect(snapshot.date == Date(timeIntervalSince1970: 2_000))
+        #expect(snapshot.amount == 3_000)
+        #expect(snapshot.note == "Corrected")
+        #expect(tx.amount == 3_000)
+        #expect(AccountBalanceResolver.currentBalance(account: account, context: context) == 3_000)
+    }
+
+    @Test("Editing balance mirror clears category without learning")
+    func editingBalanceMirrorClearsCategoryWithoutLearning() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let category = FinanceTracker.Category(name: "Entertainment", kind: .expense)
+        context.insert(category)
+        let account = try AccountCreationService.create(
+            kind: .debit,
+            name: "Debit",
+            institution: "Bank",
+            accountNumber: nil,
+            currency: "MXN",
+            openingAmount: 1_000,
+            creditLimit: nil,
+            tintHex: nil,
+            openedAt: Date(timeIntervalSince1970: 0),
+            context: context
+        )
+        let snapshot = try BalanceSnapshotService.createAdjustment(
+            account: account,
+            date: Date(timeIntervalSince1970: 1_000),
+            displayAmount: 2_000,
+            note: "Balance",
+            context: context
+        )
+        let tx = try mirror(for: snapshot, context: context)
+        tx.category = category
+
+        BalanceSnapshotService.syncMirroredSnapshot(for: tx, context: context)
+        try context.save()
+
+        #expect(tx.category == nil)
+        #expect(try context.fetch(FetchDescriptor<CategoryRule>()).isEmpty)
+    }
+
+    @Test("Deleting balance mirror excludes and restore includes snapshot")
+    func deletingBalanceMirrorTogglesSnapshotAnchor() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = try AccountCreationService.create(
+            kind: .debit,
+            name: "Debit",
+            institution: "Bank",
+            accountNumber: nil,
+            currency: "MXN",
+            openingAmount: 1_000,
+            creditLimit: nil,
+            tintHex: nil,
+            openedAt: Date(timeIntervalSince1970: 0),
+            context: context
+        )
+        let snapshot = try BalanceSnapshotService.createAdjustment(
+            account: account,
+            date: Date(timeIntervalSince1970: 1_000),
+            displayAmount: 2_000,
+            note: nil,
+            context: context
+        )
+        let tx = try mirror(for: snapshot, context: context)
+
+        tx.deletedAt = Date.now
+        try context.save()
+        #expect(AccountBalanceResolver.currentBalance(account: account, context: context) == 1_000)
+
+        tx.deletedAt = nil
+        try context.save()
+        #expect(AccountBalanceResolver.currentBalance(account: account, context: context) == 2_000)
     }
 
     @Test("Manual transfer creates linked outflow and inflow")
@@ -490,5 +654,13 @@ struct ManualLedgerTests {
         components.month = month
         components.day = day
         return Calendar(identifier: .gregorian).date(from: components)!
+    }
+
+    private func mirror(for snapshot: AccountBalanceSnapshot, context: ModelContext) throws -> Transaction {
+        let id = snapshot.id
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.id == id }
+        )
+        return try #require(try context.fetch(descriptor).first)
     }
 }
