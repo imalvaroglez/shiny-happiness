@@ -648,6 +648,38 @@ struct DashboardPeriodFilteringTests {
         #expect(groups[1].isPlaceholder)
     }
 
+    @Test("Consolidated month cash flow uses the trend card")
+    func consolidatedMonthCashFlowUsesTrendCard() {
+        let now = date(year: 2026, month: 6, day: 11)
+        let period = DashboardPeriodResolver.context(
+            kind: .month,
+            requestedRange: DashboardPeriodKind.month.resolvedRange(now: now),
+            dataRange: nil,
+            now: now
+        )
+        let quarter = DashboardPeriodResolver.context(
+            kind: .quarter,
+            requestedRange: DashboardPeriodKind.quarter.resolvedRange(now: now),
+            dataRange: nil,
+            now: now
+        )
+
+        #expect(DashboardCashFlowTrendBuilder.usesTrendCard(period: period))
+        #expect(!DashboardCashFlowTrendBuilder.usesTrendCard(period: quarter))
+    }
+
+    @Test("Cash flow trend points carry daily net and cumulative net")
+    func cashFlowTrendPointsCarryDailyNetAndCumulativeNet() {
+        let points = DashboardCashFlowTrendBuilder.points(from: [
+            MonthlyCashFlow(month: date(year: 2026, month: 6, day: 1), income: 100, expenses: -40),
+            MonthlyCashFlow(month: date(year: 2026, month: 6, day: 2), income: 0, expenses: -20),
+            MonthlyCashFlow(month: date(year: 2026, month: 6, day: 3), income: 10, expenses: 0),
+        ])
+
+        #expect(points.map(\.net) == [60, -20, 10])
+        #expect(points.map(\.cumulativeNet) == [60, 40, 50])
+    }
+
     @Test("Grouped period empty input renders no groups")
     func groupedPeriodEmptyInputRendersNoGroups() {
         let now = date(year: 2026, month: 6, day: 11)

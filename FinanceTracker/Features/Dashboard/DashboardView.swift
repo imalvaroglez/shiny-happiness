@@ -545,6 +545,22 @@ private struct AccountSidebarRow: View {
     DashboardPreviewFixtures.negativeNetWorthPreview()
 }
 
+#Preview("Net Worth Composition") {
+    DashboardPreviewFixtures.netWorthCompositionPreview()
+}
+
+#Preview("Net Worth Composition Liquid Investments") {
+    DashboardPreviewFixtures.liquidInvestmentCompositionPreview()
+}
+
+#Preview("Overview Four Charts Compact") {
+    DashboardPreviewFixtures.fourChartOverviewPreview()
+}
+
+#Preview("Overview Four Charts Narrow") {
+    DashboardPreviewFixtures.fourChartOverviewPreview(width: 760)
+}
+
 #Preview("Overview Year 12 Months") {
     DashboardPreviewFixtures.preview(kind: .year, now: DashboardPreviewFixtures.date(2026, 12, 31))
 }
@@ -698,12 +714,172 @@ private enum DashboardPreviewFixtures {
         .background(AppBackdrop())
     }
 
-    private static func overview(_ snapshot: ConsolidatedSnapshot) -> some View {
+    static func netWorthCompositionPreview() -> some View {
+        let now = date(2026, 6, 11)
+        let period = DashboardPeriodResolver.context(
+            kind: .all,
+            requestedRange: DashboardPeriodKind.all.resolvedRange(now: now),
+            dataRange: DateRange(start: date(2026, 1, 1), end: now),
+            now: now
+        )
+        let summaries = sampleCompositionSummaries()
+        let composition = NetWorthComposition.calculate(from: summaries)
+        let snapshot = ConsolidatedSnapshot(
+            period: period,
+            netWorth: composition.totalNetWorth,
+            netWorthOverTime: [NetWorthPoint(month: period.effectiveNetWorthDate, balance: composition.totalNetWorth)],
+            monthlyCashFlow: [],
+            spendingByCategory: [],
+            totalIncome: 0,
+            totalExpenses: 0,
+            totalInterestEarned: 0,
+            totalInterestCharged: 0,
+            recentTransactions: [],
+            accountSummaries: summaries,
+            totalTransactions: summaries.count,
+            retirementAssets: composition.retirement,
+            liquidNetWorth: composition.netLiquidity
+        )
+        return overview(snapshot)
+    }
+
+    static func liquidInvestmentCompositionPreview() -> some View {
+        let now = date(2026, 6, 11)
+        let period = DashboardPeriodResolver.context(
+            kind: .all,
+            requestedRange: DashboardPeriodKind.all.resolvedRange(now: now),
+            dataRange: DateRange(start: date(2026, 1, 1), end: now),
+            now: now
+        )
+        let summaries = [
+            compositionSummary("Checking", institution: "Preview Bank", type: .checking, amount: 80_000),
+            compositionSummary("Liquid Fund", institution: "Preview Broker", type: .investment, amount: 420_000, liquidity: .liquid),
+            compositionSummary("AFORE", institution: "Preview Retirement", type: .retirement, amount: 900_000, liquidity: .lockedUntilRetirement, retirementKind: .afore),
+            compositionSummary("Credit Card", institution: "Preview Bank", type: .creditCard, amount: -40_000),
+        ]
+        let composition = NetWorthComposition.calculate(from: summaries)
+        let snapshot = ConsolidatedSnapshot(
+            period: period,
+            netWorth: composition.totalNetWorth,
+            netWorthOverTime: [NetWorthPoint(month: period.effectiveNetWorthDate, balance: composition.totalNetWorth)],
+            monthlyCashFlow: [],
+            spendingByCategory: [],
+            totalIncome: 0,
+            totalExpenses: 0,
+            totalInterestEarned: 0,
+            totalInterestCharged: 0,
+            recentTransactions: [],
+            accountSummaries: summaries,
+            totalTransactions: summaries.count,
+            retirementAssets: composition.retirement,
+            liquidNetWorth: composition.netLiquidity
+        )
+        return overview(snapshot)
+    }
+
+    static func fourChartOverviewPreview(width: CGFloat = 1_100) -> some View {
+        let now = date(2026, 6, 11)
+        let requested = DashboardPeriodKind.year.resolvedRange(now: now)
+        let period = DashboardPeriodResolver.context(
+            kind: .year,
+            requestedRange: requested,
+            dataRange: DateRange(start: date(2026, 1, 1), end: now),
+            now: now
+        )
+        let cashFlow = period.intervals().enumerated().map { index, interval in
+            MonthlyCashFlow(
+                month: interval.bucketStart,
+                income: Decimal(24_000 + index * 700),
+                expenses: -Decimal(14_000 + (index % 4) * 1_200)
+            )
+        }
+        let summaries = sampleCompositionSummaries()
+        let composition = NetWorthComposition.calculate(from: summaries)
+        let intervals = period.intervals()
+        let netWorth = intervals.enumerated().map { index, interval in
+            let remainingSteps = max(0, intervals.count - index - 1)
+            return NetWorthPoint(month: interval.end, balance: composition.totalNetWorth - Decimal(remainingSteps * 18_000))
+        }
+        let snapshot = ConsolidatedSnapshot(
+            period: period,
+            netWorth: netWorth.last?.balance ?? composition.totalNetWorth,
+            netWorthOverTime: netWorth,
+            monthlyCashFlow: cashFlow,
+            spendingByCategory: sampleSpending(),
+            totalIncome: cashFlow.reduce(Decimal.zero) { $0 + $1.income },
+            totalExpenses: cashFlow.reduce(Decimal.zero) { $0 + $1.expenses },
+            totalInterestEarned: 420,
+            totalInterestCharged: 0,
+            recentTransactions: [],
+            accountSummaries: summaries,
+            totalTransactions: cashFlow.count,
+            retirementAssets: composition.retirement,
+            liquidNetWorth: composition.netLiquidity
+        )
+        return overview(snapshot, width: width)
+    }
+
+    private static func sampleCompositionSummaries() -> [AccountSummary] {
+        [
+            compositionSummary("Apartados Open / Openbank", institution: "Openbank Mexico", type: .savings, amount: d("251936.32")),
+            compositionSummary("BBVA", institution: "BBVA", type: .checking, amount: d("1000.00")),
+            compositionSummary("BONDDIA / Cetesdirecto", institution: "Cetesdirecto", type: .investment, amount: d("201097.99"), liquidity: .liquid),
+            compositionSummary("Instant Access Savings / Revolut", institution: "Revolut", type: .savings, amount: d("57334.53")),
+            compositionSummary("Joint Instant Access Savings / Revolut", institution: "Revolut", type: .savings, amount: d("9927.64")),
+            compositionSummary("Priority / Banamex", institution: "Banamex", type: .checking, amount: 0),
+            compositionSummary("Investment / GBM", institution: "GBM", type: .investment, amount: d("239730.95"), liquidity: .restricted),
+            compositionSummary("AFORE / Banamex", institution: "Banamex", type: .retirement, amount: d("630645.34"), liquidity: .lockedUntilRetirement, retirementKind: .afore),
+            compositionSummary("Plan para el Retiro / Skandia", institution: "Skandia", type: .retirement, amount: d("826880.42"), liquidity: .lockedUntilRetirement, retirementKind: .employerRetirementPlan),
+            compositionSummary("PPR / Fintual", institution: "Fintual", type: .retirement, amount: d("133976.59"), liquidity: .restricted, retirementKind: .ppr),
+            compositionSummary("2now de Alvaro / HSBC", institution: "HSBC 2Now", type: .creditCard, amount: -d("63312.65")),
+            compositionSummary("2now de Mar / HSBC", institution: "HSBC 2Now", type: .creditCard, amount: -d("10923.40")),
+            compositionSummary("Explora / Banamex", institution: "Banamex", type: .creditCard, amount: -d("3374.43")),
+            compositionSummary("Gold Elite Credit Card / American Express", institution: "American Express Mexico", type: .creditCard, amount: -d("63974.54")),
+            compositionSummary("Volaris 0 / Invex", institution: "Invex", type: .creditCard, amount: -d("296.79")),
+        ]
+    }
+
+    private static func sampleSpending() -> [CategorySpending] {
+        [
+            CategorySpending(category: Category(name: "Food", kind: .expense), amount: 12_400),
+            CategorySpending(category: Category(name: "Transport", kind: .expense), amount: 7_800),
+            CategorySpending(category: Category(name: "Home", kind: .expense), amount: 6_300),
+            CategorySpending(category: Category(name: "Health", kind: .expense), amount: 4_100),
+            CategorySpending(category: Category(name: "Subscriptions", kind: .expense), amount: 2_900),
+        ]
+    }
+
+    private static func compositionSummary(
+        _ name: String,
+        institution: String,
+        type: AccountType,
+        amount: Decimal,
+        liquidity: AccountLiquidity = .liquid,
+        retirementKind: RetirementKind? = nil
+    ) -> AccountSummary {
+        AccountSummary(
+            id: UUID(),
+            displayName: name,
+            institution: institution,
+            type: type,
+            currency: "MXN",
+            latestBalance: amount,
+            balanceAsOf: date(2026, 6, 11),
+            balanceSourceKind: .exactBalanceSnapshot,
+            balanceSourceDate: date(2026, 6, 11),
+            creditLimit: nil,
+            utilizationPercent: nil,
+            liquidity: liquidity,
+            retirementKind: retirementKind
+        )
+    }
+
+    private static func overview(_ snapshot: ConsolidatedSnapshot, width: CGFloat = 1_100, height: CGFloat = 820) -> some View {
         ScrollView {
             ConsolidatedDashboard(snapshot: snapshot)
                 .padding()
         }
-        .frame(width: 1_100, height: 820)
+        .frame(width: width, height: height)
         .background(AppBackdrop())
     }
 
@@ -728,7 +904,8 @@ private enum DashboardPreviewFixtures {
     private static func snapshot(
         period: DashboardPeriodContext,
         cashFlow: [MonthlyCashFlow],
-        netWorth: [NetWorthPoint]? = nil
+        netWorth: [NetWorthPoint]? = nil,
+        spending: [CategorySpending] = []
     ) -> ConsolidatedSnapshot {
         let resolvedNetWorth = netWorth ?? period.intervals().enumerated().map { index, interval in
             NetWorthPoint(month: interval.end, balance: Decimal(280_000 + index * 4_250 - (index % 4) * 1_500))
@@ -739,7 +916,7 @@ private enum DashboardPreviewFixtures {
             netWorth: finalNetWorth,
             netWorthOverTime: resolvedNetWorth,
             monthlyCashFlow: cashFlow,
-            spendingByCategory: [],
+            spendingByCategory: spending,
             totalIncome: cashFlow.reduce(Decimal.zero) { $0 + $1.income },
             totalExpenses: cashFlow.reduce(Decimal.zero) { $0 + $1.expenses },
             totalInterestEarned: 420,
@@ -773,5 +950,9 @@ private enum DashboardPreviewFixtures {
         components.day = day
         components.timeZone = TimeZone(identifier: "America/Mexico_City")
         return Calendar(identifier: .gregorian).date(from: components)!
+    }
+
+    private static func d(_ value: String) -> Decimal {
+        Decimal(string: value) ?? 0
     }
 }

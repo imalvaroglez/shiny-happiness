@@ -782,6 +782,196 @@ struct DashboardGroupedBarLayout {
     }
 }
 
+struct DashboardCashFlowTrendPoint: Identifiable, Equatable {
+    let bucketStart: Date
+    let income: Decimal
+    let expenses: Decimal
+    let net: Decimal
+    let cumulativeNet: Decimal
+
+    var id: Date { bucketStart }
+}
+
+enum DashboardCashFlowTrendBuilder {
+    static func usesTrendCard(period: DashboardPeriodContext) -> Bool {
+        period.kind == .month
+    }
+
+    static func points(from entries: [MonthlyCashFlow]) -> [DashboardCashFlowTrendPoint] {
+        var running = Decimal.zero
+        return entries.sorted { $0.month < $1.month }.map { entry in
+            let net = entry.income + entry.expenses
+            running += net
+            return DashboardCashFlowTrendPoint(
+                bucketStart: entry.month,
+                income: entry.income,
+                expenses: entry.expenses,
+                net: net,
+                cumulativeNet: running
+            )
+        }
+    }
+}
+
+struct DashboardCashFlowTrendChart: View {
+    let entries: [MonthlyCashFlow]
+    let period: DashboardPeriodContext
+    let currencyCode: String
+    var onPointTap: ((DashboardCashFlowTrendPoint) -> Void)? = nil
+
+    @Binding var hoverBucketStart: Date?
+
+    private var points: [DashboardCashFlowTrendPoint] {
+        DashboardCashFlowTrendBuilder.points(from: entries)
+    }
+
+    private var selectedPoint: DashboardCashFlowTrendPoint? {
+        guard let hoverBucketStart else { return nil }
+        return points.first { $0.bucketStart == hoverBucketStart }
+    }
+
+    private var trendColor: Color {
+        (points.last?.cumulativeNet ?? 0) >= 0 ? DashboardChartSeriesColor.income : DashboardChartSeriesColor.expense
+    }
+
+    var body: some View {
+        if points.isEmpty {
+            DashboardChartEmptyState(message: "No cash flow activity for this period.")
+                .frame(height: 170)
+        } else {
+            let domain = cashFlowTrendDomain
+            Chart {
+                ForEach(points) { point in
+                    LineMark(
+                        x: .value("Day", point.bucketStart, unit: period.bucket.component),
+                        y: .value("Month-to-date net", point.cumulativeNet.dashboardDoubleValue)
+                    )
+                    .foregroundStyle(trendColor)
+                    .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+
+                    AreaMark(
+                        x: .value("Day", point.bucketStart, unit: period.bucket.component),
+                        y: .value("Month-to-date net", point.cumulativeNet.dashboardDoubleValue)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [trendColor.opacity(0.20), trendColor.opacity(0.03)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                }
+
+                RuleMark(y: .value("Zero", 0))
+                    .foregroundStyle(.secondary.opacity(0.18))
+
+                if let selectedPoint {
+                    RuleMark(x: .value("Selected", selectedPoint.bucketStart))
+                        .foregroundStyle(.secondary.opacity(0.28))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 4]))
+
+                    PointMark(
+                        x: .value("Selected day", selectedPoint.bucketStart, unit: period.bucket.component),
+                        y: .value("Selected month-to-date net", selectedPoint.cumulativeNet.dashboardDoubleValue)
+                    )
+                    .foregroundStyle(trendColor)
+                    .symbolSize(82)
+                }
+            }
+            .frame(height: 170)
+            .chartBackground { _ in Color.clear }
+            .chartPlotStyle { plotArea in
+                plotArea
+                    .padding(.top, 6)
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 4)
+            }
+            .chartXScale(domain: period.plotDomain)
+            .chartYScale(domain: domain.range)
+            .chartXAxis {
+                AxisMarks(values: period.axisMarkValues()) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                        .foregroundStyle(.secondary.opacity(0.12))
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(dashboardAxisLabel(for: date, bucket: period.bucket))
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                        .foregroundStyle(.secondary.opacity(0.12))
+                    AxisValueLabel {
+                        if let amount = value.as(Double.self) {
+                            Text(dashboardCompactAmount(amount, code: currencyCode))
+                        }
+                    }
+                    .foregroundStyle(.tertiary)
+                }
+            }
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    ZStack {
+                        DashboardChartHoverOverlay(
+                            proxy: proxy,
+                            geometry: geo,
+                            period: period,
+                            hoverBucketStart: $hoverBucketStart
+                        )
+
+                        if let selectedPoint,
+                           let xPos = proxy.position(forX: selectedPoint.bucketStart) {
+                            tooltip(for: selectedPoint)
+                                .position(x: dashboardTooltipX(xPos, in: geo, width: 220), y: 30)
+                        }
+                    }
+                }
+            }
+            .onTapGesture {
+                guard let selectedPoint else { return }
+                onPointTap?(selectedPoint)
+            }
+            .animation(.easeInOut(duration: 0.18), value: hoverBucketStart)
+        }
+    }
+
+    private var cashFlowTrendDomain: DashboardBalanceChartDomain {
+        let values = points.map { $0.cumulativeNet.dashboardDoubleValue } + [0]
+        let chartPoints = values.map {
+            NetWorthPoint(month: Date(timeIntervalSince1970: 0), balance: Decimal($0))
+        }
+        return DashboardBalanceChartScale.domain(for: chartPoints)
+    }
+
+    private func tooltip(for point: DashboardCashFlowTrendPoint) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(dashboardBucketLabel(for: point.bucketStart, bucket: period.bucket))
+                .font(.caption.weight(.semibold))
+            tooltipRow("Income", amount: point.income, color: DashboardChartSeriesColor.income)
+            tooltipRow("Expenses", amount: abs(point.expenses), color: DashboardChartSeriesColor.expense)
+            tooltipRow("Net", amount: point.net, color: point.net >= 0 ? DashboardChartSeriesColor.income : DashboardChartSeriesColor.expense)
+            Divider()
+            tooltipRow("Month to date", amount: point.cumulativeNet, color: .primary)
+        }
+        .padding(8)
+        .frame(width: 220, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    private func tooltipRow(_ title: String, amount: Decimal, color: Color) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(MoneyFormat.string(code: currencyCode, amount))
+                .foregroundStyle(color)
+        }
+        .font(.caption2.monospacedDigit())
+    }
+}
+
 private extension Decimal {
     var dashboardDoubleValue: Double {
         (self as NSDecimalNumber).doubleValue
@@ -963,12 +1153,15 @@ enum CategoryPalette {
 struct SpendingCategoryDonut: View {
     let entries: [CategorySpending]
     let currencyCode: String
+    var chartHeight: CGFloat = 240
+    var visibleEntryLimit: Int = 8
+    var compactRows: Bool = false
     let onSelect: (CategorySpending) -> Void
 
     @State private var selectedAngle: Decimal? = nil
     @State private var hoveredCategoryID: UUID? = nil
 
-    private var visibleEntries: [CategorySpending] { Array(entries.prefix(8)) }
+    private var visibleEntries: [CategorySpending] { Array(entries.prefix(visibleEntryLimit)) }
     private var total: Decimal {
         visibleEntries.reduce(Decimal.zero) { $0 + $1.amount }
     }
@@ -1006,7 +1199,7 @@ struct SpendingCategoryDonut: View {
                     }
                 }
             }
-            .frame(height: 240)
+            .frame(height: chartHeight)
             .chartAngleSelection(value: $selectedAngle)
             .chartBackground { _ in Color.clear }
             .overlay {
@@ -1033,14 +1226,15 @@ struct SpendingCategoryDonut: View {
             }
             .animation(.easeInOut(duration: 0.16), value: activeCategoryID)
 
-            VStack(spacing: 6) {
+            VStack(spacing: compactRows ? 4 : 6) {
                 ForEach(visibleEntries) { entry in
                     CategoryBreakdownRow(
                         entry: entry,
                         total: total,
                         currencyCode: currencyCode,
                         isActive: activeCategoryID == entry.id,
-                        hasActive: activeCategoryID != nil
+                        hasActive: activeCategoryID != nil,
+                        compact: compactRows
                     ) {
                         onSelect(entry)
                     }
@@ -1135,6 +1329,7 @@ private struct CategoryBreakdownRow: View {
     let currencyCode: String
     let isActive: Bool
     let hasActive: Bool
+    let compact: Bool
     let onSelect: () -> Void
 
     private var color: Color { CategoryPalette.color(for: entry.category.name) }
@@ -1161,7 +1356,7 @@ private struct CategoryBreakdownRow: View {
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 7)
+            .padding(.vertical, compact ? 5 : 7)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(isActive ? color.opacity(0.14) : Color.clear)
