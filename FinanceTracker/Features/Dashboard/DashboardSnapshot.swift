@@ -90,6 +90,10 @@ struct ConsolidatedSnapshot {
         let counts = Dictionary(grouping: codes, by: { $0 }).mapValues(\.count)
         return counts.max(by: { $0.value < $1.value })?.key ?? "MXN"
     }
+
+    var netWorthComposition: NetWorthComposition {
+        NetWorthComposition.calculate(from: accountSummaries)
+    }
 }
 
 // MARK: - Asset (checking, savings, etc.)

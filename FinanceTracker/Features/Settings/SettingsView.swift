@@ -699,10 +699,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Edit manual balances directly from the transaction ledger.",
-        "Delete or restore balance rows to include or exclude their balance snapshot.",
-        "Keep balance rows out of categories, learning, and cash-flow reports.",
-        "Open Settings without a Keychain prompt for the saved DataBursatil token.",
+        "See your net worth split into Liquidity, Patrimonial investments, and Retirement.",
+        "Switch between Total and Available net worth for near-term planning.",
+        "Keep liabilities reflected directly in your Liquidity view.",
+        "Review the main dashboard charts together in a compact overview grid.",
     ]
 
     private var lastBackupDate: String? {

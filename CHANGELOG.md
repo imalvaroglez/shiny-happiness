@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-28
+
+### Added
+
+- **Net Worth Composition.** The consolidated dashboard now shows how current net worth splits across Liquidity, Patrimonial investments, and Retirement, with a Total/Available toggle and liabilities reducing liquidity first.
+
+### Changed
+
+- **Dashboard overview.** The consolidated dashboard now keeps Cash Flow, Net Worth, Net Worth Composition, and Spending by Category visible together in a compact responsive chart grid.
+
 ## [0.7.1] - 2026-06-27
 
 ### Added

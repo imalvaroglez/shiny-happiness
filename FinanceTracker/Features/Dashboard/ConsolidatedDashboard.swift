@@ -3,9 +3,8 @@ import SwiftData
 import Charts
 
 /// The default scope: aggregated view across every account. Renders summary tiles
-/// for net worth / income / expenses / interest, then the cash-flow bar chart,
-/// net-worth line chart, spending donut, recent transactions, and a small
-/// per-account list. All cards and chart marks support drill-down via a sheet.
+/// followed by a compact chart overview, then supporting account and transaction
+/// lists. All cards and chart marks support drill-down via a sheet.
 struct ConsolidatedDashboard: View {
     let snapshot: ConsolidatedSnapshot
     var onTransactionTap: ((Transaction) -> Void)? = nil
@@ -13,17 +12,12 @@ struct ConsolidatedDashboard: View {
     @State private var breakdown: BreakdownRequest? = nil
     @State private var cashFlowSeries: Set<CashFlowSeries> = [.income, .expenses]
     @State private var netWorthHover: Date? = nil
+    @State private var cashFlowTrendHover: Date? = nil
 
     var body: some View {
         VStack(spacing: 20) {
             summaryCards
-            if !snapshot.monthlyCashFlow.isEmpty { cashFlowChart }
-            if snapshot.netWorthOverTime.isEmpty {
-                insufficientNetWorthCard
-            } else {
-                netWorthChart
-            }
-            if !snapshot.spendingByCategory.isEmpty { spendingDonut }
+            overviewChartsGrid
             if !snapshot.accountSummaries.isEmpty { accountsList }
             if !snapshot.recentTransactions.isEmpty { recentTransactionsList }
             if snapshot.totalTransactions == 0 { emptyState }
@@ -31,6 +25,46 @@ struct ConsolidatedDashboard: View {
         .sheet(item: $breakdown) { req in
             BreakdownSheet(request: req)
         }
+    }
+
+    // MARK: - Chart overview
+
+    private var overviewChartsGrid: some View {
+        ViewThatFits(in: .horizontal) {
+            LazyVGrid(columns: twoChartColumns, alignment: .leading, spacing: 16) {
+                overviewCharts
+            }
+            .frame(minWidth: 860)
+
+            LazyVGrid(columns: oneChartColumn, alignment: .leading, spacing: 16) {
+                overviewCharts
+            }
+        }
+    }
+
+    private var twoChartColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: 16),
+            GridItem(.flexible(), spacing: 16)
+        ]
+    }
+
+    private var oneChartColumn: [GridItem] {
+        [GridItem(.flexible(), spacing: 16)]
+    }
+
+    @ViewBuilder
+    private var overviewCharts: some View {
+        if !snapshot.monthlyCashFlow.isEmpty {
+            cashFlowChart
+        }
+        if snapshot.netWorthOverTime.isEmpty {
+            insufficientNetWorthCard
+        } else {
+            netWorthChart
+        }
+        if !snapshot.accountSummaries.isEmpty { netWorthCompositionCard }
+        if !snapshot.spendingByCategory.isEmpty { spendingDonut }
     }
 
     // MARK: - Summary tiles
@@ -68,34 +102,52 @@ struct ConsolidatedDashboard: View {
 
     private var cashFlowChart: some View {
         ChartCard(title: "Cash Flow") {
-            VStack(alignment: .leading, spacing: 8) {
-                seriesFilter
-                Text("Transfers between your accounts are excluded.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if DashboardCashFlowTrendBuilder.usesTrendCard(period: snapshot.period) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Month-to-date net")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
 
-                DashboardGroupedPeriodBarChart(
-                    groups: cashFlowBarGroups,
-                    firstSeriesName: CashFlowSeries.income.rawValue,
-                    secondSeriesName: CashFlowSeries.expenses.rawValue,
-                    firstColor: DashboardChartSeriesColor.income,
-                    secondColor: DashboardChartSeriesColor.expense,
-                    currencyCode: snapshot.currencyCode,
-                    emptyMessage: "No cash flow activity for this period.",
-                    showsFirstSeries: cashFlowSeries.contains(.income),
-                    showsSecondSeries: cashFlowSeries.contains(.expenses),
-                    footerText: { group in
-                        guard let entry = cashFlowEntry(for: group.bucketStart) else { return nil }
-                        var parts = ["Net: \(MoneyFormat.string(code: snapshot.currencyCode, entry.savings))"]
-                        if entry.income > 0 {
-                            parts.append("Savings Rate: \(cashFlowSavingsRateText(entry))")
+                    DashboardCashFlowTrendChart(
+                        entries: snapshot.monthlyCashFlow,
+                        period: snapshot.period,
+                        currencyCode: snapshot.currencyCode,
+                        onPointTap: { point in
+                            breakdown = .cashFlowPeriod(start: point.bucketStart, bucket: snapshot.period.bucket, transactions: snapshot.recentTransactions)
+                        },
+                        hoverBucketStart: $cashFlowTrendHover
+                    )
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    seriesFilter
+                    Text("Transfers between your accounts are excluded.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    DashboardGroupedPeriodBarChart(
+                        groups: cashFlowBarGroups,
+                        firstSeriesName: CashFlowSeries.income.rawValue,
+                        secondSeriesName: CashFlowSeries.expenses.rawValue,
+                        firstColor: DashboardChartSeriesColor.income,
+                        secondColor: DashboardChartSeriesColor.expense,
+                        currencyCode: snapshot.currencyCode,
+                        emptyMessage: "No cash flow activity for this period.",
+                        showsFirstSeries: cashFlowSeries.contains(.income),
+                        showsSecondSeries: cashFlowSeries.contains(.expenses),
+                        footerText: { group in
+                            guard let entry = cashFlowEntry(for: group.bucketStart) else { return nil }
+                            var parts = ["Net: \(MoneyFormat.string(code: snapshot.currencyCode, entry.savings))"]
+                            if entry.income > 0 {
+                                parts.append("Savings Rate: \(cashFlowSavingsRateText(entry))")
+                            }
+                            return parts.joined(separator: " · ")
+                        },
+                        onGroupTap: { group in
+                            breakdown = .cashFlowPeriod(start: group.bucketStart, bucket: snapshot.period.bucket, transactions: snapshot.recentTransactions)
                         }
-                        return parts.joined(separator: " · ")
-                    },
-                    onGroupTap: { group in
-                        breakdown = .cashFlowPeriod(start: group.bucketStart, bucket: snapshot.period.bucket, transactions: snapshot.recentTransactions)
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -173,14 +225,24 @@ struct ConsolidatedDashboard: View {
         }
     }
 
+    private var netWorthCompositionCard: some View {
+        NetWorthCompositionCard(
+            composition: snapshot.netWorthComposition,
+            currencyCode: snapshot.currencyCode,
+            compact: true
+        )
+    }
+
     // MARK: - Spending donut
 
     private var spendingDonut: some View {
-        let topCategories = Array(snapshot.spendingByCategory.prefix(8))
         return ChartCard(title: "Spending by Category") {
             SpendingCategoryDonut(
-                entries: topCategories,
-                currencyCode: snapshot.currencyCode
+                entries: snapshot.spendingByCategory,
+                currencyCode: snapshot.currencyCode,
+                chartHeight: 170,
+                visibleEntryLimit: 4,
+                compactRows: true
             ) { entry in
                 breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
             }
