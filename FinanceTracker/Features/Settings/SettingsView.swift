@@ -770,9 +770,11 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Settings now open with Backup & Data first.",
-        "Accounts, categories, integrations, and About each have their own tab.",
-        "Data reset controls now sit in a clearer danger zone.",
+        "Overview now leads with Available Net Worth and latest snapshot dates.",
+        "Cash flow, spending, interest, and recent transactions follow the selected period.",
+        "Spending is easier to scan with ranked category bars and Other grouping.",
+        "Accounts are grouped by liquidity, patrimonial assets, retirement, liabilities, and uncategorized.",
+        "Needs Attention highlights card liabilities, liquidity, allocation, and uncategorized accounts.",
     ]
 
     private var lastBackupDate: String? {

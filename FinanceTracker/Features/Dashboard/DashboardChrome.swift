@@ -1053,10 +1053,25 @@ struct DashboardTransactionRow: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(transaction.postedAt.formatted(date: .abbreviated, time: .omitted))
+                    if let accountName = transaction.account?.displayName {
+                        Text(".")
+                        Text(accountName)
+                            .lineLimit(1)
+                    }
+                    if let category = transaction.category {
+                        Text(".")
+                        Text(category.name)
+                            .lineLimit(1)
+                    }
                     if let card = transaction.cardLast4 {
-                        Text("•")
+                        Text(".")
                         Text("••••\(card)")
                             .lineLimit(1)
+                    }
+                    if isTransferLike {
+                        Text(".")
+                        Text("Transfer")
+                            .foregroundStyle(.tertiary)
                     }
                 }
                     .font(.caption2)
@@ -1066,13 +1081,26 @@ struct DashboardTransactionRow: View {
             Text(MoneyFormat.string(transaction.amount, code: transaction.currency))
                 .font(.callout.weight(.semibold))
                 .monospacedDigit()
-                .foregroundStyle(transaction.amount >= 0 ? .green : .primary)
+                .foregroundStyle(amountColor)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
     }
 
+    private var isTransferLike: Bool {
+        transaction.isTransfer
+            || transaction.movementKind == .transfer
+            || transaction.category?.kind == .transfer
+            || transaction.category?.kind == .creditCardPayment
+    }
+
+    private var amountColor: Color {
+        if isTransferLike { return .secondary }
+        return transaction.amount >= 0 ? DashboardChartSeriesColor.income : .primary
+    }
+
     private var categoryColor: Color {
+        if isTransferLike { return .secondary }
         if let category = transaction.category {
             return CategoryPalette.color(for: category.name)
         }
@@ -1147,6 +1175,137 @@ enum CategoryPalette {
             hash &*= 1_099_511_628_211
         }
         return hash
+    }
+}
+
+struct DashboardSpendingBarRow: Identifiable {
+    let id: String
+    let categoryID: UUID?
+    let name: String
+    let amount: Decimal
+    let total: Decimal
+    let isOther: Bool
+
+    var percentage: Double? {
+        guard total > 0 else { return nil }
+        return ((amount / total) as NSDecimalNumber).doubleValue * 100
+    }
+}
+
+enum DashboardSpendingBarBuilder {
+    static func rows(from entries: [CategorySpending], limit: Int = 5) -> [DashboardSpendingBarRow] {
+        let sorted = entries.sorted { $0.amount > $1.amount }
+        let total = sorted.reduce(Decimal.zero) { $0 + $1.amount }
+        guard total > 0 else { return [] }
+
+        var rows = sorted.prefix(limit).map { entry in
+            DashboardSpendingBarRow(
+                id: entry.category.id.uuidString,
+                categoryID: entry.category.id,
+                name: entry.category.name,
+                amount: entry.amount,
+                total: total,
+                isOther: false
+            )
+        }
+
+        let otherAmount = sorted.dropFirst(limit).reduce(Decimal.zero) { $0 + $1.amount }
+        if otherAmount > 0 {
+            rows.append(DashboardSpendingBarRow(
+                id: "other",
+                categoryID: nil,
+                name: "Other",
+                amount: otherAmount,
+                total: total,
+                isOther: true
+            ))
+        }
+        return rows
+    }
+}
+
+struct DashboardSpendingCategoryBars: View {
+    let entries: [CategorySpending]
+    let currencyCode: String
+    var limit: Int = 5
+    let onSelect: (CategorySpending) -> Void
+
+    private var rows: [DashboardSpendingBarRow] {
+        DashboardSpendingBarBuilder.rows(from: entries, limit: limit)
+    }
+
+    private var maxAmount: Decimal {
+        rows.map(\.amount).max() ?? 0
+    }
+
+    var body: some View {
+        if rows.isEmpty {
+            DashboardChartEmptyState(message: "No spending in this period.")
+        } else {
+            VStack(spacing: 9) {
+                ForEach(rows) { row in
+                    spendingRow(row)
+                }
+            }
+            .padding(.vertical, 4)
+            .accessibilityElement(children: .contain)
+        }
+    }
+
+    private func spendingRow(_ row: DashboardSpendingBarRow) -> some View {
+        let color = row.isOther ? Color.secondary : CategoryPalette.color(for: row.name)
+        let widthRatio = maxAmount > 0 ? ((row.amount / maxAmount) as NSDecimalNumber).doubleValue : 0
+        let matchedEntry = row.categoryID.flatMap { id in entries.first { $0.category.id == id } }
+
+        return Button {
+            if let matchedEntry {
+                onSelect(matchedEntry)
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 8, height: 8)
+                    Text(row.name)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    Text(percentText(row.percentage))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(MoneyFormat.string(code: currencyCode, row.amount))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(.secondary.opacity(0.13))
+                        Capsule()
+                            .fill(color.gradient)
+                            .frame(width: max(3, proxy.size.width * CGFloat(widthRatio)))
+                    }
+                }
+                .frame(height: 8)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(matchedEntry == nil)
+        .help("\(row.name): \(MoneyFormat.string(code: currencyCode, row.amount)), \(percentText(row.percentage))")
+    }
+
+    private func percentText(_ percentage: Double?) -> String {
+        guard let percentage else { return "0%" }
+        return String(format: "%.1f%%", percentage)
     }
 }
 
@@ -1401,6 +1560,78 @@ struct ChartCard<Content: View>: View {
             }
             .padding()
         }
+    }
+}
+
+enum DashboardAccountBucket: String, CaseIterable, Identifiable {
+    case liquidity = "Liquidity"
+    case patrimonial = "Patrimonial"
+    case retirement = "Retirement"
+    case liabilities = "Liabilities"
+    case uncategorized = "Uncategorized"
+
+    var id: String { rawValue }
+}
+
+struct DashboardAccountGroup: Identifiable {
+    let bucket: DashboardAccountBucket
+    let subtotal: Decimal
+    let detail: String?
+    let accounts: [AccountSummary]
+
+    var id: DashboardAccountBucket { bucket }
+}
+
+enum DashboardAccountGroupBuilder {
+    static func groups(from composition: NetWorthComposition, currencyCode: String) -> [DashboardAccountGroup] {
+        var groups: [DashboardAccountGroup] = []
+
+        if !composition.liquidAssetAccounts.isEmpty || composition.netLiquidity != 0 {
+            groups.append(DashboardAccountGroup(
+                bucket: .liquidity,
+                subtotal: composition.netLiquidity,
+                detail: "Gross \(MoneyFormat.string(code: currencyCode, composition.grossLiquidity)) after cards",
+                accounts: composition.liquidAssetAccounts
+            ))
+        }
+
+        if !composition.patrimonialAccounts.isEmpty {
+            groups.append(DashboardAccountGroup(
+                bucket: .patrimonial,
+                subtotal: composition.patrimonial,
+                detail: nil,
+                accounts: composition.patrimonialAccounts
+            ))
+        }
+
+        if !composition.retirementAccounts.isEmpty {
+            groups.append(DashboardAccountGroup(
+                bucket: .retirement,
+                subtotal: composition.retirement,
+                detail: nil,
+                accounts: composition.retirementAccounts
+            ))
+        }
+
+        if !composition.liabilityAccounts.isEmpty || composition.totalLiabilities != 0 {
+            groups.append(DashboardAccountGroup(
+                bucket: .liabilities,
+                subtotal: -composition.totalLiabilities,
+                detail: "Outstanding short-term liabilities",
+                accounts: composition.liabilityAccounts
+            ))
+        }
+
+        if !composition.uncategorizedAccounts.isEmpty {
+            groups.append(DashboardAccountGroup(
+                bucket: .uncategorized,
+                subtotal: composition.uncategorized,
+                detail: "\(composition.uncategorizedAccounts.count) account\(composition.uncategorizedAccounts.count == 1 ? "" : "s") need review",
+                accounts: composition.uncategorizedAccounts
+            ))
+        }
+
+        return groups
     }
 }
 

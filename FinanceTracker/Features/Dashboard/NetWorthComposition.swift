@@ -211,9 +211,21 @@ struct NetWorthCompositionCard: View {
     let currencyCode: String
     var compact: Bool = false
 
-    @State private var selectedMode: NetWorthCompositionMode = .total
+    @State private var selectedMode: NetWorthCompositionMode
     @State private var selectedAngle: Decimal? = nil
     @State private var hoveredBucket: NetWorthCompositionBucket? = nil
+
+    init(
+        composition: NetWorthComposition,
+        currencyCode: String,
+        compact: Bool = false,
+        defaultMode: NetWorthCompositionMode = .total
+    ) {
+        self.composition = composition
+        self.currencyCode = currencyCode
+        self.compact = compact
+        _selectedMode = State(initialValue: defaultMode)
+    }
 
     private var display: NetWorthCompositionDisplay { composition.display(mode: selectedMode) }
     private var chartSlices: [NetWorthCompositionSlice] { display.chartSlices }

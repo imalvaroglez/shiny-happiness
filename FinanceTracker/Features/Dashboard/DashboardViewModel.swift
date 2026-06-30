@@ -110,10 +110,17 @@ final class DashboardViewModel {
         let interestCharged = computeInterestCharged(transactions)
 
         let (netWorth, netWorthSeries, accountSummaries, retirementAssets, liquidNetWorth) = computeNetWorth(context: context, period: period)
+        let latestAsOf = fetchFinancialDateSpan(context: context)?.end ?? period.effectiveNetWorthDate
+        let latestAccountSummaries = computeAccountSummaries(context: context, asOf: latestAsOf)
+        let latestNetWorth = latestAccountSummaries
+            .filter { $0.balanceSourceKind != .insufficientHistory }
+            .reduce(Decimal(0)) { $0 + $1.latestBalance }
 
         return ConsolidatedSnapshot(
             period: period,
             netWorth: netWorth,
+            latestNetWorth: latestNetWorth,
+            snapshotAsOfDate: latestAsOf,
             netWorthOverTime: netWorthSeries,
             monthlyCashFlow: cashFlow,
             spendingByCategory: spending,
@@ -123,6 +130,7 @@ final class DashboardViewModel {
             totalInterestCharged: interestCharged,
             recentTransactions: transactions,
             accountSummaries: accountSummaries,
+            latestAccountSummaries: latestAccountSummaries,
             totalTransactions: transactions.count,
             retirementAssets: retirementAssets,
             liquidNetWorth: liquidNetWorth
@@ -437,11 +445,41 @@ final class DashboardViewModel {
             resolution.sourceKind == .insufficientHistory ? partial : partial + resolution.amount
         }
 
-        // Build account summaries: every Account, even those without a statement yet
-        // (balance defaults to zero).
-        let summaries: [AccountSummary] = accounts.map { account in
+        let summaries = accountSummaries(for: accounts, resolutionsByAccount: resolutionsByAccount, asOf: period.effectiveNetWorthDate)
+
+        // Liquid Net Worth and Retirement Assets use the same insufficient-history
+        // guard as `current` above: accounts we can't resolve are excluded.
+        let knownSummaries = summaries.filter { $0.balanceSourceKind != .insufficientHistory }
+        let retirementAssets = knownSummaries
+            .filter { $0.type == .retirement }
+            .reduce(Decimal(0)) { $0 + $1.latestBalance }
+        let liquidNetWorth = knownSummaries
+            .filter { $0.isLiability || (!$0.isLiability && $0.type != .retirement && $0.liquidity == .liquid) }
+            .reduce(Decimal(0)) { $0 + $1.latestBalance }
+
+        let knownAccountIDs = Set(knownSummaries.map(\.id))
+        let series = computeMonthlyNetWorth(context: context, accounts: accounts, knownAccountIDs: knownAccountIDs, period: period)
+        return (current, series, summaries, retirementAssets, liquidNetWorth)
+    }
+
+    private func computeAccountSummaries(context: ModelContext, asOf: Date) -> [AccountSummary] {
+        let accountsDescriptor = FetchDescriptor<Account>(sortBy: [SortDescriptor(\.nickname)])
+        let accounts = ((try? context.fetch(accountsDescriptor)) ?? [])
+            .filter(\.effectiveIncludeInNetWorth)
+        let resolutionsByAccount = Dictionary(uniqueKeysWithValues: accounts.map { account in
+            (account.id, AccountBalanceResolver.resolution(account: account, asOf: asOf, context: context))
+        })
+        return accountSummaries(for: accounts, resolutionsByAccount: resolutionsByAccount, asOf: asOf)
+    }
+
+    private func accountSummaries(
+        for accounts: [Account],
+        resolutionsByAccount: [UUID: AccountBalanceResolution],
+        asOf: Date
+    ) -> [AccountSummary] {
+        accounts.map { account in
             let resolution = resolutionsByAccount[account.id] ?? AccountBalanceResolution(
-                asOf: period.effectiveNetWorthDate,
+                asOf: asOf,
                 amount: 0,
                 sourceKind: .insufficientHistory,
                 sourceDate: nil
@@ -474,36 +512,24 @@ final class DashboardViewModel {
                 retirementKind: account.retirementKind
             )
         }
-
-        // Liquid Net Worth and Retirement Assets use the same insufficient-history
-        // guard as `current` above: accounts we can't resolve are excluded.
-        let knownSummaries = summaries.filter { $0.balanceSourceKind != .insufficientHistory }
-        let retirementAssets = knownSummaries
-            .filter { $0.type == .retirement }
-            .reduce(Decimal(0)) { $0 + $1.latestBalance }
-        let liquidNetWorth = knownSummaries
-            .filter { $0.isLiability || (!$0.isLiability && $0.type != .retirement && $0.liquidity == .liquid) }
-            .reduce(Decimal(0)) { $0 + $1.latestBalance }
-
-        let series = computeMonthlyNetWorth(context: context, accounts: accounts, period: period)
-        return (current, series, summaries, retirementAssets, liquidNetWorth)
     }
 
-    private func computeMonthlyNetWorth(context: ModelContext, accounts: [Account], period: DashboardPeriodContext) -> [NetWorthPoint] {
+    private func computeMonthlyNetWorth(context: ModelContext, accounts: [Account], knownAccountIDs: Set<UUID>, period: DashboardPeriodContext) -> [NetWorthPoint] {
         let calendar = Calendar(identifier: .gregorian)
         let intervals = period.intervals(calendar: calendar)
-        guard !intervals.isEmpty else { return [] }
+        guard !intervals.isEmpty, !knownAccountIDs.isEmpty else { return [] }
+        let knownAccounts = accounts.filter { knownAccountIDs.contains($0.id) }
 
         return intervals.compactMap { interval in
-            var hasKnownBalance = false
-            let total = accounts.reduce(Decimal(0)) { partial, account in
+            var missingKnownBalance = false
+            let total = knownAccounts.reduce(Decimal(0)) { partial, account in
                 guard let balance = AccountBalanceResolver.balance(account: account, asOf: interval.end, context: context) else {
+                    missingKnownBalance = true
                     return partial
                 }
-                hasKnownBalance = true
                 return partial + balance
             }
-            return hasKnownBalance ? NetWorthPoint(month: interval.end, balance: total) : nil
+            return missingKnownBalance ? nil : NetWorthPoint(month: interval.end, balance: total)
         }
     }
 
