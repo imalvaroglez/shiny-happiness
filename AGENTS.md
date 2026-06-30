@@ -216,7 +216,8 @@ For any versioned release or release-candidate task, the work is not complete un
 1. `git status --short` has been reviewed.
 2. All intended release changes are committed.
 3. The commit is pushed to the active branch.
-4. The final working tree is clean, except for explicitly documented unrelated user-owned dirty files.
-5. The final response reports the commit hash, branch name, push status, and remaining dirty files, if any.
+4. A pull request is created for the release branch, with the test/build results and release notes in the PR body.
+5. The final working tree is clean, except for explicitly documented unrelated user-owned dirty files.
+6. The final response reports the commit hash, branch name, push status, PR URL, and remaining dirty files, if any.
 
-Do not claim a release is closed, done, or ready while intended release files remain uncommitted. Preserve unrelated dirty files, exclude them from the release commit, and report them clearly. If the release commit cannot be pushed, do not claim completion; report the reason and exact next step.
+Do not claim a release is closed, done, or ready while intended release files remain uncommitted, unpushed, or without an open PR. Preserve unrelated dirty files, exclude them from the release commit, and report them clearly. If the release commit cannot be pushed or the PR cannot be created, do not claim completion; report the reason and exact next step.

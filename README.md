@@ -148,6 +148,7 @@ For a user-visible release:
 5. Run focused tests for touched areas, then the full serial suite.
 6. Run a Release build.
 7. Before installing or smoke-testing the production app, confirm a fresh `.ftbackup` exists and is newer than the latest production data change.
+8. Create a pull request for the release branch with release notes and test/build results.
 
 ## License
 
