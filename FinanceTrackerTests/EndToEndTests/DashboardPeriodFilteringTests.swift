@@ -264,6 +264,47 @@ struct DashboardPeriodFilteringTests {
         #expect(june.totalIncome == 300)
     }
 
+    @Test("Latest snapshot metrics stay independent from selected period")
+    func latestSnapshotMetricsIgnoreSelectedPeriod() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Test Bank", type: .checking, openedAt: date(year: 2026, month: 1, day: 1))
+        context.insert(account)
+        context.insert(AccountBalanceSnapshot(account: account, date: date(year: 2026, month: 5, day: 1), amount: 1_000, kind: .manualOpening))
+        context.insert(Transaction(account: account, postedAt: date(year: 2026, month: 6, day: 5), amount: 500, descriptionRaw: "June income", source: .manual))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(
+            .custom,
+            customRange: DateRange(start: date(year: 2026, month: 5, day: 1), end: date(year: 2026, month: 5, day: 31)),
+            now: date(year: 2026, month: 6, day: 10)
+        )
+        viewModel.configure(context: context)
+
+        guard case .consolidated(let may) = viewModel.snapshot else {
+            Issue.record("Expected May snapshot"); return
+        }
+        #expect(may.netWorth == 1_000)
+        #expect(may.latestNetWorth == 1_500)
+        #expect(may.snapshotAsOfDate == date(year: 2026, month: 6, day: 5))
+        #expect(may.netWorthComposition.availableNetWorth == 1_500)
+
+        viewModel.setPeriod(
+            .custom,
+            customRange: DateRange(start: date(year: 2026, month: 6, day: 1), end: date(year: 2026, month: 6, day: 30)),
+            now: date(year: 2026, month: 6, day: 10)
+        )
+        viewModel.refresh()
+
+        guard case .consolidated(let june) = viewModel.snapshot else {
+            Issue.record("Expected June snapshot"); return
+        }
+        #expect(june.netWorth == 1_500)
+        #expect(june.latestNetWorth == may.latestNetWorth)
+        #expect(june.netWorthComposition.availableNetWorth == may.netWorthComposition.availableNetWorth)
+    }
+
     @Test("Historical net worth breakdown uses period-end balances and excludes later changes")
     func historicalNetWorthBreakdownUsesPeriodEndBalances() throws {
         let container = try makeContainer()
@@ -700,6 +741,66 @@ struct DashboardPeriodFilteringTests {
         #expect(groups.isEmpty)
     }
 
+    @Test("Spending bars sort top categories and group the rest")
+    func spendingBarsSortAndGroupOther() {
+        let rows = DashboardSpendingBarBuilder.rows(from: [
+            categorySpend("Furniture", 100),
+            categorySpend("Maintenance", 90),
+            categorySpend("Rent", 80),
+            categorySpend("Events", 70),
+            categorySpend("Food", 60),
+            categorySpend("Coffee", 10),
+            categorySpend("Books", 5),
+        ])
+
+        #expect(rows.map(\.name) == ["Furniture", "Maintenance", "Rent", "Events", "Food", "Other"])
+        #expect(rows.last?.amount == 15)
+        #expect(rows.last?.isOther == true)
+        #expect(rows.first?.percentage.map { abs($0 - 24.096) < 0.01 } == true)
+    }
+
+    @Test("Dashboard account groups follow net worth composition buckets")
+    func dashboardAccountGroupsFollowCompositionBuckets() {
+        let composition = NetWorthComposition.calculate(from: [
+            accountSummary("Checking", type: .checking, amount: 1_000),
+            accountSummary("Brokerage", type: .investment, amount: 500, liquidity: .restricted),
+            accountSummary("AFORE", type: .retirement, amount: 700, liquidity: .lockedUntilRetirement, retirementKind: .afore),
+            accountSummary("Card", type: .creditCard, amount: -300),
+            accountSummary("Mystery", type: .other, amount: 40),
+        ])
+
+        let groups = DashboardAccountGroupBuilder.groups(from: composition, currencyCode: "MXN")
+
+        #expect(groups.map(\.bucket) == [.liquidity, .patrimonial, .retirement, .liabilities, .uncategorized])
+        #expect(groups.first { $0.bucket == .liquidity }?.subtotal == 700)
+        #expect(groups.first { $0.bucket == .liabilities }?.subtotal == -300)
+        #expect(groups.first { $0.bucket == .uncategorized }?.accounts.map(\.displayName) == ["Mystery"])
+    }
+
+    @Test("Net worth trend skips intervals before known accounts all have balances")
+    func netWorthTrendSkipsIncompleteHistory() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let checking = Account(institution: "Bank", type: .checking)
+        let retirement = Account(institution: "AFORE", type: .retirement, retirementKindRaw: RetirementKind.afore.rawValue)
+        context.insert(checking)
+        context.insert(retirement)
+        context.insert(AccountBalanceSnapshot(account: checking, date: date(year: 2026, month: 1, day: 1), amount: 1_000, kind: .manualOpening))
+        context.insert(AccountBalanceSnapshot(account: retirement, date: date(year: 2026, month: 6, day: 1), amount: 5_000, kind: .manualOpening))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(.all, now: date(year: 2026, month: 6, day: 30))
+        viewModel.configure(context: context)
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+
+        #expect(snap.netWorthOverTime.first?.month ?? .distantPast >= date(year: 2026, month: 6, day: 1))
+        #expect(snap.netWorthOverTime.allSatisfy { $0.balance >= 6_000 })
+    }
+
     @Test("Hover snapping maps raw dates inside a bucket to the same bucket start")
     func hoverSnappingMapsRawDatesToBucketStart() {
         let calendar = Calendar(identifier: .gregorian)
@@ -853,6 +954,34 @@ struct DashboardPeriodFilteringTests {
             creditLimit: nil,
             utilizationPercent: nil
         )
+    }
+
+    private func accountSummary(
+        _ name: String,
+        type: AccountType,
+        amount: Decimal,
+        liquidity: AccountLiquidity = .liquid,
+        retirementKind: RetirementKind? = nil
+    ) -> AccountSummary {
+        AccountSummary(
+            id: UUID(),
+            displayName: name,
+            institution: "Test Bank",
+            type: type,
+            currency: "MXN",
+            latestBalance: amount,
+            balanceAsOf: date(year: 2026, month: 6, day: 1),
+            balanceSourceKind: .exactBalanceSnapshot,
+            balanceSourceDate: date(year: 2026, month: 6, day: 1),
+            creditLimit: nil,
+            utilizationPercent: nil,
+            liquidity: liquidity,
+            retirementKind: retirementKind
+        )
+    }
+
+    private func categorySpend(_ name: String, _ amount: Decimal) -> CategorySpending {
+        CategorySpending(category: FinanceTracker.Category(name: name, kind: .expense), amount: amount)
     }
 
     private func displayBucket(year: Int, month: Int, first: Decimal, second: Decimal) -> DashboardPeriodBucketDisplayValue {

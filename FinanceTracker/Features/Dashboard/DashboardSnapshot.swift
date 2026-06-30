@@ -67,6 +67,8 @@ struct AccountSummary: Identifiable, Hashable {
 struct ConsolidatedSnapshot {
     let period: DashboardPeriodContext
     let netWorth: Decimal
+    let latestNetWorth: Decimal
+    let snapshotAsOfDate: Date
     let netWorthOverTime: [NetWorthPoint]
     let monthlyCashFlow: [MonthlyCashFlow]
     let spendingByCategory: [CategorySpending]
@@ -76,23 +78,30 @@ struct ConsolidatedSnapshot {
     let totalInterestCharged: Decimal
     let recentTransactions: [Transaction]
     let accountSummaries: [AccountSummary]
+    let latestAccountSummaries: [AccountSummary]
     let totalTransactions: Int
     /// Σ latestBalance over retirement-type accounts (gross; no liability offset).
     let retirementAssets: Decimal
     /// Σ of liquid non-retirement asset balances + liability balances (already negative).
     let liquidNetWorth: Decimal
 
+    var netCashFlow: Decimal { totalIncome + totalExpenses }
+
     /// Most common currency across the user's accounts; used for the consolidated
     /// summary cards. Falls back to "MXN" when no accounts exist yet.
     var currencyCode: String {
-        let codes = accountSummaries.map(\.currency)
+        let codes = overviewAccountSummaries.map(\.currency)
         guard !codes.isEmpty else { return "MXN" }
         let counts = Dictionary(grouping: codes, by: { $0 }).mapValues(\.count)
         return counts.max(by: { $0.value < $1.value })?.key ?? "MXN"
     }
 
+    var overviewAccountSummaries: [AccountSummary] {
+        latestAccountSummaries.isEmpty ? accountSummaries : latestAccountSummaries
+    }
+
     var netWorthComposition: NetWorthComposition {
-        NetWorthComposition.calculate(from: accountSummaries)
+        NetWorthComposition.calculate(from: overviewAccountSummaries)
     }
 }
 

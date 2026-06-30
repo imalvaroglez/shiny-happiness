@@ -8,27 +8,49 @@ import SwiftUI
 /// deeper.
 struct AppBackdrop: View {
     var body: some View {
-        LinearGradient(
-            colors: [Self.coolMid, Self.midNeutral, Self.warmMid],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        ZStack {
+            LinearGradient(
+                colors: [Self.coolMid, Self.midNeutral, Self.warmMid],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            RadialGradient(
+                colors: [Self.accentWarm.opacity(0.45), .clear],
+                center: .trailing,
+                startRadius: 40,
+                endRadius: 560
+            )
+            RadialGradient(
+                colors: [Self.accentCool.opacity(0.32), .clear],
+                center: .bottomLeading,
+                startRadius: 20,
+                endRadius: 520
+            )
+        }
         .ignoresSafeArea()
     }
 
     // Palette tuned for both color schemes. Both modes stay low-saturation so
     // charts and category colors remain readable.
     private static var coolMid: Color {
-        Color(light: Color(hex: "DBE4F3") ?? .blue,
-              dark:  Color(hex: "2A4570") ?? .blue)
+        Color(light: Color(hex: "DDE6EF") ?? .blue,
+              dark:  Color(hex: "141A24") ?? .blue)
     }
     private static var midNeutral: Color {
-        Color(light: Color(hex: "EEEAE5") ?? .gray,
-              dark:  Color(hex: "232328") ?? .gray)
+        Color(light: Color(hex: "ECE8E3") ?? .gray,
+              dark:  Color(hex: "1D1B1D") ?? .gray)
     }
     private static var warmMid: Color {
-        Color(light: Color(hex: "F3E5D4") ?? .orange,
-              dark:  Color(hex: "4A3A28") ?? .orange)
+        Color(light: Color(hex: "F2E2D2") ?? .orange,
+              dark:  Color(hex: "3A241A") ?? .orange)
+    }
+    private static var accentWarm: Color {
+        Color(light: Color(hex: "F59A5B") ?? .orange,
+              dark:  Color(hex: "D75A1B") ?? .orange)
+    }
+    private static var accentCool: Color {
+        Color(light: Color(hex: "84B8D8") ?? .cyan,
+              dark:  Color(hex: "235B74") ?? .cyan)
     }
 }
 

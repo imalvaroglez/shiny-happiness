@@ -16,6 +16,44 @@ private enum SettingsFocusField: Hashable {
     case newCategoryName
 }
 
+private enum SettingsPane: String, Hashable {
+    case accounts
+    case categories
+    case backupData
+    case integrations
+    case about
+
+    var title: String {
+        switch self {
+        case .accounts:
+            "Accounts"
+        case .categories:
+            "Categories"
+        case .backupData:
+            "Backup & Data"
+        case .integrations:
+            "Integrations"
+        case .about:
+            "About"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .accounts:
+            "creditcard"
+        case .categories:
+            "tag"
+        case .backupData:
+            "externaldrive"
+        case .integrations:
+            "key"
+        case .about:
+            "info.circle"
+        }
+    }
+}
+
 struct SettingsView: View {
     var onAccountDeleted: (UUID) -> Void = { _ in }
     var onAccountCreated: (Account) -> Void = { _ in }
@@ -54,6 +92,7 @@ struct SettingsView: View {
     @State private var categoryDeletionTarget: CategoryDeletionTarget?
 
     @FocusState private var focusedField: SettingsFocusField?
+    @SceneStorage("SettingsView.selectedPane") private var selectedPaneRawValue = SettingsPane.backupData.rawValue
 
     private var transactionCountsByAccountID: [UUID: Int] {
         var counts: [UUID: Int] = [:]
@@ -74,18 +113,36 @@ struct SettingsView: View {
         return try? modelContext.fetch(descriptor).first
     }
 
+    private var selectedPane: Binding<SettingsPane> {
+        Binding {
+            SettingsPane(rawValue: selectedPaneRawValue) ?? .accounts
+        } set: { pane in
+            selectedPaneRawValue = pane.rawValue
+        }
+    }
+
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 16) {
+        TabView(selection: selectedPane) {
+            settingsPane(.backupData) {
+                backupSection
+                dataSection
+            }
+
+            settingsPane(.accounts) {
                 accountsSection
+            }
+
+            settingsPane(.categories) {
                 categoriesSection
+            }
+
+            settingsPane(.integrations) {
                 dataBursatilSection
-                adaptiveGridRow
+            }
+
+            settingsPane(.about) {
                 aboutSection
             }
-            .frame(maxWidth: 1180)
-            .frame(maxWidth: .infinity)
-            .padding()
         }
         .navigationTitle("Settings")
         .alert("Delete Account?", isPresented: Binding(
@@ -161,19 +218,22 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private var adaptiveGridRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) {
-                backupSection
-                    .frame(maxWidth: .infinity)
-                dataSection
-                    .frame(maxWidth: .infinity)
+    private func settingsPane<Content: View>(
+        _ pane: SettingsPane,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 16) {
+                content()
             }
-            VStack(spacing: 16) {
-                backupSection
-                dataSection
-            }
+            .frame(maxWidth: 1180)
+            .frame(maxWidth: .infinity)
+            .padding()
         }
+        .tabItem {
+            Label(pane.title, systemImage: pane.systemImage)
+        }
+        .tag(pane)
     }
 
     private var accountsSection: some View {
@@ -625,8 +685,8 @@ struct SettingsView: View {
     }
 
     private var dataSection: some View {
-        SectionCard(title: "Data") {
-            VStack(alignment: .leading, spacing: 10) {
+        SectionCard(title: "Data Snapshot & Reset") {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 24) {
                     MetricChip(label: "Accounts", value: "\(accounts.count)")
                     MetricChip(label: "Transactions", value: "\(transactions.count)")
@@ -634,10 +694,21 @@ struct SettingsView: View {
                     MetricChip(label: "Installment Plans", value: "\(installmentPlans.count)")
                 }
 
-                Button(role: .destructive) {
-                    showDeleteConfirmation = true
-                } label: {
-                    Text("Delete All Data")
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Danger Zone")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red)
+                    Text("Export a fresh backup before deleting financial data.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Text("Delete All Data")
+                    }
                 }
             }
             .padding(16)
@@ -699,10 +770,11 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "See your net worth split into Liquidity, Patrimonial investments, and Retirement.",
-        "Switch between Total and Available net worth for near-term planning.",
-        "Keep liabilities reflected directly in your Liquidity view.",
-        "Review the main dashboard charts together in a compact overview grid.",
+        "Overview now leads with Available Net Worth and latest snapshot dates.",
+        "Cash flow, spending, interest, and recent transactions follow the selected period.",
+        "Spending is easier to scan with ranked category bars and Other grouping.",
+        "Accounts are grouped by liquidity, patrimonial assets, retirement, liabilities, and uncategorized.",
+        "Needs Attention highlights card liabilities, liquidity, allocation, and uncategorized accounts.",
     ]
 
     private var lastBackupDate: String? {

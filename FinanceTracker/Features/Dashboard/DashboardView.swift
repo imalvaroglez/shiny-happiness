@@ -332,6 +332,8 @@ struct DashboardView: View {
         case .consolidated(let snap):
             ConsolidatedDashboard(snapshot: snap, onTransactionTap: { tx in
                 editingTransaction = tx
+            }, onViewAllTransactions: {
+                sidebarSelection = .transactions
             })
         case .asset(let snap):
             AssetAccountDashboard(
@@ -569,6 +571,14 @@ private struct AccountSidebarRow: View {
     DashboardPreviewFixtures.emptyCashFlowPreview()
 }
 
+#Preview("Overview Partial Net Worth Trend") {
+    DashboardPreviewFixtures.partialTrendPreview()
+}
+
+#Preview("Overview Uncategorized Account") {
+    DashboardPreviewFixtures.uncategorizedAccountPreview()
+}
+
 #Preview("Liability Sparse Charges vs Payments") {
     DashboardPreviewFixtures.liabilitySparsePreview()
 }
@@ -601,6 +611,57 @@ private enum DashboardPreviewFixtures {
 
     static func manyMonthsAllPreview() -> some View {
         preview(kind: .all, now: date(2026, 12, 31))
+    }
+
+    static func partialTrendPreview() -> some View {
+        let now = date(2026, 6, 11)
+        let requested = DashboardPeriodKind.year.resolvedRange(now: now)
+        let period = DashboardPeriodResolver.context(
+            kind: .year,
+            requestedRange: requested,
+            dataRange: DateRange(start: date(2026, 1, 1), end: now),
+            now: now
+        )
+        return overview(snapshot(
+            period: period,
+            cashFlow: [],
+            netWorth: [NetWorthPoint(month: now, balance: 598_180)]
+        ))
+    }
+
+    static func uncategorizedAccountPreview() -> some View {
+        let now = date(2026, 6, 11)
+        let requested = DashboardPeriodKind.all.resolvedRange(now: now)
+        let period = DashboardPeriodResolver.context(
+            kind: .all,
+            requestedRange: requested,
+            dataRange: DateRange(start: date(2026, 1, 1), end: now),
+            now: now
+        )
+        let summaries = sampleCompositionSummaries() + [
+            compositionSummary("Mystery Account", institution: "Unknown", type: .other, amount: 42_000)
+        ]
+        let composition = NetWorthComposition.calculate(from: summaries)
+        let snapshot = ConsolidatedSnapshot(
+            period: period,
+            netWorth: composition.totalNetWorth,
+            latestNetWorth: composition.totalNetWorth,
+            snapshotAsOfDate: now,
+            netWorthOverTime: [NetWorthPoint(month: now, balance: composition.totalNetWorth)],
+            monthlyCashFlow: [],
+            spendingByCategory: sampleSpending(),
+            totalIncome: 0,
+            totalExpenses: 0,
+            totalInterestEarned: 420,
+            totalInterestCharged: 0,
+            recentTransactions: [],
+            accountSummaries: summaries,
+            latestAccountSummaries: summaries,
+            totalTransactions: summaries.count,
+            retirementAssets: composition.retirement,
+            liquidNetWorth: composition.netLiquidity
+        )
+        return overview(snapshot)
     }
 
     static func retirementJumpPreview() -> some View {
@@ -727,6 +788,8 @@ private enum DashboardPreviewFixtures {
         let snapshot = ConsolidatedSnapshot(
             period: period,
             netWorth: composition.totalNetWorth,
+            latestNetWorth: composition.totalNetWorth,
+            snapshotAsOfDate: period.effectiveNetWorthDate,
             netWorthOverTime: [NetWorthPoint(month: period.effectiveNetWorthDate, balance: composition.totalNetWorth)],
             monthlyCashFlow: [],
             spendingByCategory: [],
@@ -736,6 +799,7 @@ private enum DashboardPreviewFixtures {
             totalInterestCharged: 0,
             recentTransactions: [],
             accountSummaries: summaries,
+            latestAccountSummaries: summaries,
             totalTransactions: summaries.count,
             retirementAssets: composition.retirement,
             liquidNetWorth: composition.netLiquidity
@@ -761,6 +825,8 @@ private enum DashboardPreviewFixtures {
         let snapshot = ConsolidatedSnapshot(
             period: period,
             netWorth: composition.totalNetWorth,
+            latestNetWorth: composition.totalNetWorth,
+            snapshotAsOfDate: period.effectiveNetWorthDate,
             netWorthOverTime: [NetWorthPoint(month: period.effectiveNetWorthDate, balance: composition.totalNetWorth)],
             monthlyCashFlow: [],
             spendingByCategory: [],
@@ -770,6 +836,7 @@ private enum DashboardPreviewFixtures {
             totalInterestCharged: 0,
             recentTransactions: [],
             accountSummaries: summaries,
+            latestAccountSummaries: summaries,
             totalTransactions: summaries.count,
             retirementAssets: composition.retirement,
             liquidNetWorth: composition.netLiquidity
@@ -803,6 +870,8 @@ private enum DashboardPreviewFixtures {
         let snapshot = ConsolidatedSnapshot(
             period: period,
             netWorth: netWorth.last?.balance ?? composition.totalNetWorth,
+            latestNetWorth: netWorth.last?.balance ?? composition.totalNetWorth,
+            snapshotAsOfDate: period.effectiveNetWorthDate,
             netWorthOverTime: netWorth,
             monthlyCashFlow: cashFlow,
             spendingByCategory: sampleSpending(),
@@ -812,6 +881,7 @@ private enum DashboardPreviewFixtures {
             totalInterestCharged: 0,
             recentTransactions: [],
             accountSummaries: summaries,
+            latestAccountSummaries: summaries,
             totalTransactions: cashFlow.count,
             retirementAssets: composition.retirement,
             liquidNetWorth: composition.netLiquidity
@@ -914,6 +984,8 @@ private enum DashboardPreviewFixtures {
         return ConsolidatedSnapshot(
             period: period,
             netWorth: finalNetWorth,
+            latestNetWorth: finalNetWorth,
+            snapshotAsOfDate: period.effectiveNetWorthDate,
             netWorthOverTime: resolvedNetWorth,
             monthlyCashFlow: cashFlow,
             spendingByCategory: spending,
@@ -923,6 +995,21 @@ private enum DashboardPreviewFixtures {
             totalInterestCharged: 0,
             recentTransactions: [],
             accountSummaries: [
+                AccountSummary(
+                    id: UUID(),
+                    displayName: "Preview Checking",
+                    institution: "Preview Bank",
+                    type: .checking,
+                    currency: "MXN",
+                    latestBalance: finalNetWorth,
+                    balanceAsOf: period.effectiveNetWorthDate,
+                    balanceSourceKind: .reconstructedBalance,
+                    balanceSourceDate: date(2026, 1, 1),
+                    creditLimit: nil,
+                    utilizationPercent: nil
+                )
+            ],
+            latestAccountSummaries: [
                 AccountSummary(
                     id: UUID(),
                     displayName: "Preview Checking",

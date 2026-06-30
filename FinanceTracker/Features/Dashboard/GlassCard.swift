@@ -44,6 +44,11 @@ struct GlassCard<Content: View>: View {
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .stroke(.white.opacity(0.16), lineWidth: 0.7)
+                    .allowsHitTesting(false)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .stroke(
                         AngularGradient(
                             gradient: Gradient(colors: [

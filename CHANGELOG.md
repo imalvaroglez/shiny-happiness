@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-06-30
+
+### Changed
+
+- **Overview dashboard.** Redesigned the consolidated dashboard around Available Net Worth, latest snapshot dates, period-only cash flow/spending metrics, ranked spending bars, bucketed accounts, Needs Attention, and Interest & Yield cards.
+
+## [0.8.1] - 2026-06-30
+
+### Changed
+
+- **Settings navigation.** Settings now opens with Backup & Data first, followed by accounts, categories, integrations, and About tabs.
+
 ## [0.8.0] - 2026-06-28
 
 ### Added
