@@ -262,7 +262,7 @@ struct ConsolidatedDashboard: View {
     // MARK: - Net worth
 
     private var netWorthChart: some View {
-        ChartCard(title: "Net Worth Trend") {
+        ChartCard(title: "Net Worth Trend", subtitle: periodLabel) {
             VStack(alignment: .leading, spacing: 8) {
                 if hasReliableNetWorthTrend {
                     DashboardBalanceTimeSeriesChart(
@@ -274,12 +274,6 @@ struct ConsolidatedDashboard: View {
                         },
                         hoverBucketStart: $netWorthHover
                     )
-
-                    if trendStartsAfterPeriodStart {
-                        Label("Historical balance data starts here.", systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 } else {
                     DashboardChartEmptyState(message: "Net worth trend will appear after more balance snapshots.")
                 }
@@ -293,12 +287,7 @@ struct ConsolidatedDashboard: View {
     }
 
     private var hasReliableNetWorthTrend: Bool {
-        snapshot.netWorthOverTime.count >= 2
-    }
-
-    private var trendStartsAfterPeriodStart: Bool {
-        guard let first = snapshot.netWorthOverTime.first else { return false }
-        return first.month > snapshot.period.dateRange.start
+        !snapshot.netWorthOverTime.isEmpty
     }
 
     private var netWorthCompositionCard: some View {

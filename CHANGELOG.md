@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-07-06
+
+### Fixed
+
+- **Dashboard balance charts.** Balance and net-worth charts now use rolling lookback periods, stay within chart bounds, and preserve earlier valid overview history.
+- **Dashboard performance.** Balance and net-worth charts no longer create one chart sample per transaction, scan full history for bounded period changes, or fetch full account histories for latest balance lookups, keeping period clicks responsive after large backup imports.
+
 ## [0.8.2] - 2026-06-30
 
 ### Changed

@@ -770,11 +770,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Overview now leads with Available Net Worth and latest snapshot dates.",
-        "Cash flow, spending, interest, and recent transactions follow the selected period.",
-        "Spending is easier to scan with ranked category bars and Other grouping.",
-        "Accounts are grouped by liquidity, patrimonial assets, retirement, liabilities, and uncategorized.",
-        "Needs Attention highlights card liabilities, liquidity, allocation, and uncategorized accounts.",
+        "Balance and net-worth charts now stay inside their cards.",
+        "Month, Quarter, and Year now use rolling lookback ranges ending today.",
+        "Overview net worth keeps earlier valid history when newer accounts start later.",
+        "Dashboard period clicks stay responsive after large backup imports.",
     ]
 
     private var lastBackupDate: String? {

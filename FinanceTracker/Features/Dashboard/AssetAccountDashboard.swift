@@ -264,7 +264,7 @@ struct AssetAccountDashboard: View {
     }
 
     private var balanceChart: some View {
-        ChartCard(title: "Balance Over Time") {
+        ChartCard(title: "Balance Over Time", subtitle: periodLabel) {
             DashboardBalanceTimeSeriesChart(
                 points: snapshot.balanceOverTime,
                 period: snapshot.period,
@@ -275,7 +275,7 @@ struct AssetAccountDashboard: View {
     }
 
     private var insufficientBalanceCard: some View {
-        ChartCard(title: "Balance Over Time") {
+        ChartCard(title: "Balance Over Time", subtitle: periodLabel) {
             DashboardChartEmptyState(message: "Not enough balance history to calculate this account balance for the selected period.")
         }
     }
@@ -306,6 +306,10 @@ struct AssetAccountDashboard: View {
                 }
             }
         }
+    }
+
+    private var periodLabel: String {
+        snapshot.period.kind == .all ? "All time" : NetWorthBreakdownCopy.periodRange(snapshot.period.dateRange)
     }
 }
 

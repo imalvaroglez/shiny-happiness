@@ -20,20 +20,20 @@ struct DashboardPeriodFilteringTests {
         return try ModelContainer(for: schema, configurations: [config])
     }
 
-    @Test("Month range includes current month only and uses daily buckets")
-    func monthRangeUsesCurrentMonthDailyBuckets() throws {
+    @Test("Month range uses the last 30 days and daily buckets")
+    func monthRangeUsesLast30DaysDailyBuckets() throws {
         let container = try makeContainer()
         let context = container.mainContext
         let calendar = Calendar(identifier: .gregorian)
-        let now = Date.now
+        let now = date(year: 2026, month: 7, day: 2)
         let account = Account(institution: "Test Bank", type: .checking)
         context.insert(account)
         context.insert(Transaction(account: account, postedAt: now, amount: 100, descriptionRaw: "Current month income"))
         context.insert(Transaction(
             account: account,
-            postedAt: calendar.date(byAdding: .month, value: -1, to: now)!,
+            postedAt: date(year: 2026, month: 6, day: 1),
             amount: 900,
-            descriptionRaw: "Previous month income"
+            descriptionRaw: "Before rolling month income"
         ))
         try context.save()
 
@@ -48,31 +48,37 @@ struct DashboardPeriodFilteringTests {
         let expectedDays = (calendar.dateComponents([.day], from: calendar.startOfDay(for: viewModel.dateRange.start), to: now).day ?? 0) + 1
         #expect(snap.totalIncome == 100)
         #expect(snap.period.bucket == .day)
+        #expect(snap.period.dateRange.start == date(year: 2026, month: 6, day: 2))
+        #expect(snap.period.dateRange.end == now)
         #expect(snap.monthlyCashFlow.count == expectedDays)
     }
 
-    @Test("Quarter and year ranges include only their current calendar windows")
-    func quarterAndYearRangesUseCurrentCalendarWindows() throws {
+    @Test("Quarter and year ranges use rolling lookbacks")
+    func quarterAndYearRangesUseRollingLookbacks() throws {
         let container = try makeContainer()
         let context = container.mainContext
-        let calendar = Calendar(identifier: .gregorian)
-        let now = Date.now
+        let now = date(year: 2026, month: 7, day: 2)
         let account = Account(institution: "Test Bank", type: .checking)
         context.insert(account)
 
         context.insert(Transaction(account: account, postedAt: now, amount: 100, descriptionRaw: "Current window income"))
-        let previousQuarterDate = calendar.date(byAdding: .month, value: -4, to: now)!
         context.insert(Transaction(
             account: account,
-            postedAt: previousQuarterDate,
+            postedAt: date(year: 2026, month: 4, day: 1),
             amount: 400,
-            descriptionRaw: "Previous quarter income"
+            descriptionRaw: "Before rolling quarter income"
         ))
         context.insert(Transaction(
             account: account,
-            postedAt: calendar.date(byAdding: .year, value: -1, to: now)!,
+            postedAt: date(year: 2025, month: 8, day: 1),
             amount: 800,
-            descriptionRaw: "Previous year income"
+            descriptionRaw: "Inside rolling year income"
+        ))
+        context.insert(Transaction(
+            account: account,
+            postedAt: date(year: 2025, month: 7, day: 1),
+            amount: 1_600,
+            descriptionRaw: "Before rolling year income"
         ))
         try context.save()
 
@@ -85,6 +91,8 @@ struct DashboardPeriodFilteringTests {
         }
         #expect(quarter.totalIncome == 100)
         #expect(quarter.period.bucket == .month)
+        #expect(quarter.period.dateRange.start == date(year: 2026, month: 4, day: 2))
+        #expect(quarter.period.dateRange.end == now)
 
         let yearVM = DashboardViewModel()
         yearVM.setPeriod(.year, now: now)
@@ -93,20 +101,21 @@ struct DashboardPeriodFilteringTests {
         guard case .consolidated(let year) = yearVM.snapshot else {
             Issue.record("Expected year snapshot"); return
         }
-        let previousQuarterIsCurrentYear = calendar.component(.year, from: previousQuarterDate) == calendar.component(.year, from: now)
-        #expect(year.totalIncome == (previousQuarterIsCurrentYear ? 500 : 100))
+        #expect(year.totalIncome == 1_300)
         #expect(year.period.bucket == .month)
+        #expect(year.period.dateRange.start == date(year: 2025, month: 7, day: 2))
+        #expect(year.period.dateRange.end == now)
     }
 
     @Test("All range includes all non-future available data")
     func allRangeExcludesFutureData() throws {
         let container = try makeContainer()
         let context = container.mainContext
-        let now = Date.now
+        let now = date(year: 2026, month: 7, day: 2)
         let account = Account(institution: "Test Bank", type: .checking)
         context.insert(account)
-        context.insert(Transaction(account: account, postedAt: now.addingTimeInterval(-30 * 86400), amount: 100, descriptionRaw: "Past income"))
-        context.insert(Transaction(account: account, postedAt: now.addingTimeInterval(30 * 86400), amount: 900, descriptionRaw: "Future income"))
+        context.insert(Transaction(account: account, postedAt: date(year: 2026, month: 6, day: 2), amount: 100, descriptionRaw: "Past income"))
+        context.insert(Transaction(account: account, postedAt: date(year: 2026, month: 7, day: 3), amount: 900, descriptionRaw: "Future income"))
         try context.save()
 
         let viewModel = DashboardViewModel()
@@ -118,8 +127,21 @@ struct DashboardPeriodFilteringTests {
         }
 
         #expect(snap.totalIncome == 100)
-        #expect(snap.period.dateRange.start <= now.addingTimeInterval(-30 * 86400))
-        #expect(snap.period.dateRange.end <= Date.now)
+        #expect(snap.period.dateRange.start == date(year: 2026, month: 6, day: 2))
+        #expect(snap.period.dateRange.end == now)
+        #expect(snap.monthlyCashFlow.allSatisfy { $0.month <= now })
+    }
+
+    @Test("Custom range caps future end dates at today")
+    func customRangeCapsFutureEndAtToday() {
+        let now = date(year: 2026, month: 7, day: 2)
+        let range = DashboardPeriodKind.custom.resolvedRange(
+            now: now,
+            customRange: DateRange(start: date(year: 2026, month: 6, day: 1), end: date(year: 2026, month: 7, day: 31))
+        )
+
+        #expect(range.start == date(year: 2026, month: 6, day: 1))
+        #expect(range.end == now)
     }
 
     @Test("Income and expenses exclude transfers and credit-card payments")
@@ -203,13 +225,14 @@ struct DashboardPeriodFilteringTests {
         let container = try makeContainer()
         let context = container.mainContext
         let calendar = Calendar(identifier: .gregorian)
-        let now = Date.now
+        let now = date(year: 2026, month: 6, day: 11)
         let account = Account(institution: "Test Bank", type: .checking)
+        let olderBalanceDate = calendar.date(byAdding: .month, value: -18, to: now)!
         context.insert(account)
         context.insert(Statement(
             account: account,
-            periodStart: calendar.date(byAdding: .year, value: -1, to: now)!,
-            periodEnd: calendar.date(byAdding: .year, value: -1, to: now)!,
+            periodStart: olderBalanceDate,
+            periodEnd: olderBalanceDate,
             sourceFileHash: "prior-year",
             closingBalance: 500
         ))
@@ -429,35 +452,36 @@ struct DashboardPeriodFilteringTests {
         #expect(snap.accountSummaries.first?.balanceSourceKind == .reconstructedBalance)
     }
 
-    @Test("Chart rendering metadata pads domains and centers quarter bars")
-    func chartRenderingMetadataPadsAndCentersQuarterBuckets() {
+    @Test("Chart rendering metadata uses rolling quarter and avoids future domains")
+    func chartRenderingMetadataUsesRollingQuarterAndAvoidsFutureDomains() {
         let calendar = Calendar(identifier: .gregorian)
         let now = date(year: 2026, month: 6, day: 11)
         let range = DashboardPeriodKind.quarter.resolvedRange(now: now)
         let period = DashboardPeriodResolver.context(kind: .quarter, requestedRange: range, dataRange: nil, now: now)
 
-        #expect(period.dateRange.start == date(year: 2026, month: 4, day: 1))
+        #expect(period.dateRange.start == date(year: 2026, month: 3, day: 11))
         #expect(period.dateRange.end == now)
         #expect(period.plotDomain.lowerBound < period.dateRange.start)
-        #expect(period.plotDomain.upperBound > period.dateRange.end)
+        #expect(period.plotDomain.upperBound == period.dateRange.end)
         #expect(period.dateRange.start == range.start)
         #expect(period.dateRange.end == range.end)
 
         let intervals = period.intervals(calendar: calendar)
-        #expect(intervals.count == 3)
-        guard let april = intervals.first else {
-            Issue.record("Expected an April interval"); return
+        #expect(intervals.count == 4)
+        guard let march = intervals.first else {
+            Issue.record("Expected a March interval"); return
         }
-        let aprilCenter = april.center(calendar: calendar)
-        let aprilBarX = period.barXValue(forBucketStart: april.bucketStart, calendar: calendar)
-        #expect(april.bucketStart == date(year: 2026, month: 4, day: 1))
-        #expect(aprilCenter > april.start)
-        #expect(aprilCenter < april.end)
-        #expect(aprilBarX == aprilCenter)
-        #expect(aprilBarX > april.start)
-        #expect(aprilBarX < april.end)
-        #expect(period.axisMarkValues(calendar: calendar).count == 3)
-        #expect(period.barWidthPoints(forVisibleBucketCount: intervals.count, calendar: calendar) == 30)
+        let marchCenter = march.center(calendar: calendar)
+        let marchBarX = period.barXValue(forBucketStart: march.bucketStart, calendar: calendar)
+        #expect(march.bucketStart == date(year: 2026, month: 3, day: 1))
+        #expect(march.start == date(year: 2026, month: 3, day: 11))
+        #expect(marchCenter > march.start)
+        #expect(marchCenter < march.end)
+        #expect(marchBarX == marchCenter)
+        #expect(marchBarX > march.start)
+        #expect(marchBarX < march.end)
+        #expect(period.axisMarkValues(calendar: calendar).count == 4)
+        #expect(period.barWidthPoints(forVisibleBucketCount: intervals.count, calendar: calendar) == 24)
     }
 
     @Test("Month buckets and rendered chart dates stay within the selected period")
@@ -501,6 +525,150 @@ struct DashboardPeriodFilteringTests {
         #expect(snap.netWorthOverTime.last?.month == snap.period.effectiveNetWorthDate)
     }
 
+    @Test("Balance charts stay bucket-sized with dense transaction history")
+    func balanceChartsStayBucketSizedWithDenseTransactionHistory() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let calendar = Calendar(identifier: .gregorian)
+        let now = date(year: 2026, month: 7, day: 2)
+        let account = Account(institution: "Test Bank", type: .checking, openedAt: date(year: 2025, month: 7, day: 1))
+        context.insert(account)
+        context.insert(AccountBalanceSnapshot(account: account, date: date(year: 2025, month: 7, day: 1), amount: 1_000, kind: .manualOpening))
+
+        let start = date(year: 2025, month: 7, day: 2)
+        for offset in 1...300 {
+            context.insert(Transaction(
+                account: account,
+                postedAt: calendar.date(byAdding: .hour, value: offset, to: start)!,
+                amount: 1,
+                descriptionRaw: "Dense tx \(offset)",
+                source: .manual
+            ))
+        }
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(.year, now: now)
+        viewModel.configure(context: context)
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+
+        #expect(snap.netWorth == 1_300)
+        #expect(snap.netWorthOverTime.count <= snap.period.intervals(calendar: calendar).count + 1)
+        #expect(snap.netWorthOverTime.count < 50)
+        #expect(snap.netWorthOverTime.last?.balance == snap.netWorth)
+    }
+
+    @Test("Dashboard refresh stays responsive with larger imported history")
+    func dashboardRefreshStaysResponsiveWithLargerImportedHistory() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let calendar = Calendar(identifier: .gregorian)
+        let now = date(year: 2026, month: 7, day: 2)
+        let accountCount = 20
+        let transactionsPerAccount = 900
+        let historyStart = date(year: 2024, month: 1, day: 1)
+
+        for accountIndex in 0..<accountCount {
+            let account = Account(
+                institution: "Bank \(accountIndex)",
+                type: .checking,
+                openedAt: historyStart
+            )
+            context.insert(account)
+            context.insert(AccountBalanceSnapshot(account: account, date: historyStart, amount: 1_000, kind: .manualOpening))
+
+            for offset in 1...transactionsPerAccount {
+                context.insert(Transaction(
+                    account: account,
+                    postedAt: calendar.date(byAdding: .day, value: offset, to: historyStart)!,
+                    amount: 1,
+                    descriptionRaw: "Imported tx \(accountIndex)-\(offset)",
+                    source: .manual
+                ))
+            }
+        }
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        let start = Date()
+        viewModel.setPeriod(.all, now: now)
+        viewModel.configure(context: context)
+        let loadedAll = Date()
+        viewModel.setPeriod(.year, now: now)
+        viewModel.refresh()
+        viewModel.setPeriod(.quarter, now: now)
+        viewModel.refresh()
+        let elapsed = Date().timeIntervalSince(start)
+        let periodSwitchElapsed = Date().timeIntervalSince(loadedAll)
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+
+        #expect(elapsed < 2.0)
+        #expect(periodSwitchElapsed < 0.75)
+        #expect(snap.netWorth == Decimal(accountCount * (1_000 + transactionsPerAccount)))
+        #expect(snap.netWorthOverTime.count <= snap.period.intervals(calendar: calendar).count + 1)
+        #expect(snap.netWorthOverTime.count < 50)
+    }
+
+    @Test("Account balance series carries prior balance through rolling month")
+    func accountBalanceSeriesCarriesPriorBalanceThroughRollingMonth() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let now = date(year: 2026, month: 7, day: 2)
+        let account = Account(institution: "Test Bank", type: .checking)
+        context.insert(account)
+        context.insert(AccountBalanceSnapshot(account: account, date: date(year: 2026, month: 6, day: 1), amount: 1_000, kind: .manualOpening))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.scope = .account(account.id)
+        viewModel.setPeriod(.month, now: now)
+        viewModel.configure(context: context)
+
+        guard case .asset(let snap) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot"); return
+        }
+
+        #expect(snap.period.dateRange.start == date(year: 2026, month: 6, day: 2))
+        #expect(snap.balanceOverTime.first?.month == snap.period.dateRange.start)
+        #expect(snap.balanceOverTime.first?.balance == 1_000)
+        #expect(snap.balanceOverTime.last?.month == now)
+        #expect(snap.balanceOverTime.last?.balance == 1_000)
+        #expect(snap.balanceOverTime.allSatisfy { $0.month >= snap.period.dateRange.start && $0.month <= now })
+    }
+
+    @Test("Account balance series starts at first in-period balance")
+    func accountBalanceSeriesStartsAtFirstInPeriodBalance() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let now = date(year: 2026, month: 7, day: 2)
+        let account = Account(institution: "Test Bank", type: .checking)
+        context.insert(account)
+        context.insert(AccountBalanceSnapshot(account: account, date: date(year: 2026, month: 6, day: 15), amount: 2_000, kind: .manualOpening))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.scope = .account(account.id)
+        viewModel.setPeriod(.month, now: now)
+        viewModel.configure(context: context)
+
+        guard case .asset(let snap) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot"); return
+        }
+
+        #expect(snap.period.dateRange.start == date(year: 2026, month: 6, day: 2))
+        #expect(snap.balanceOverTime.first?.month == date(year: 2026, month: 6, day: 15))
+        #expect(snap.balanceOverTime.first?.balance == 2_000)
+        #expect(snap.balanceOverTime.last?.month == now)
+        #expect(snap.balanceOverTime.last?.balance == 2_000)
+        #expect(!snap.balanceOverTime.contains { $0.month < date(year: 2026, month: 6, day: 15) })
+    }
+
     @Test("Dense chart buckets use narrower bars than sparse buckets")
     func denseChartBucketsUseNarrowerBars() {
         let now = date(year: 2026, month: 6, day: 11)
@@ -530,9 +698,26 @@ struct DashboardPeriodFilteringTests {
         let daysFromDomainToFirstBar = calendar.dateComponents([.day], from: trimmedDomain.lowerBound, to: firstBarX).day ?? .max
 
         #expect(period.plotDomain.lowerBound < date(year: 2026, month: 1, day: 1))
+        #expect(period.plotDomain.upperBound == now)
         #expect(trimmedDomain.lowerBound > date(year: 2026, month: 2, day: 15))
         #expect(daysFromDomainToFirstBar <= 31)
         #expect(trimmedDomain.upperBound > period.barXValue(forBucketStart: june, calendar: calendar))
+        #expect(trimmedDomain.upperBound <= now)
+    }
+
+    @Test("Balance chart x domain stays on the selected period")
+    func balanceChartXDomainStaysOnSelectedPeriod() {
+        let now = date(year: 2026, month: 7, day: 1)
+        let period = DashboardPeriodResolver.context(
+            kind: .year,
+            requestedRange: DashboardPeriodKind.year.resolvedRange(now: now),
+            dataRange: DateRange(start: date(year: 2026, month: 1, day: 1), end: now),
+            now: now
+        )
+
+        #expect(period.dateRange.start == date(year: 2025, month: 7, day: 1))
+        #expect(period.plotDomain.lowerBound < period.dateRange.start)
+        #expect(period.plotDomain.upperBound == now)
     }
 
     @Test("Empty populated bucket domain falls back to full plot domain")
@@ -631,18 +816,33 @@ struct DashboardPeriodFilteringTests {
         #expect(!dashboardCompactAmount(4_000_000, code: "MXN").contains("E"))
     }
 
-    @Test("Positive net worth chart domain does not go negative")
-    func positiveNetWorthChartDomainDoesNotGoNegative() {
+    @Test("Positive balance chart domain is padded without forcing zero")
+    func positiveBalanceChartDomainPadsWithoutForcingZero() {
         let points = [
-            NetWorthPoint(month: date(year: 2026, month: 4, day: 30), balance: 240_000),
-            NetWorthPoint(month: date(year: 2026, month: 5, day: 31), balance: 310_000),
-            NetWorthPoint(month: date(year: 2026, month: 6, day: 11), balance: 3_850_000)
+            NetWorthPoint(month: date(year: 2026, month: 4, day: 30), balance: 2_400_000),
+            NetWorthPoint(month: date(year: 2026, month: 5, day: 31), balance: 2_500_000),
+            NetWorthPoint(month: date(year: 2026, month: 6, day: 11), balance: 2_600_000)
         ]
 
         let domain = DashboardBalanceChartScale.domain(for: points)
 
-        #expect(domain.lowerBound == 0)
-        #expect(domain.upperBound > 3_850_000)
+        #expect(domain.lowerBound > 0)
+        #expect(domain.lowerBound < 2_400_000)
+        #expect(domain.upperBound > 2_600_000)
+    }
+
+    @Test("Equal balance chart domain gets readable padding")
+    func equalBalanceChartDomainGetsReadablePadding() {
+        let points = [
+            NetWorthPoint(month: date(year: 2026, month: 6, day: 1), balance: 293_550),
+            NetWorthPoint(month: date(year: 2026, month: 7, day: 1), balance: 293_550)
+        ]
+
+        let domain = DashboardBalanceChartScale.domain(for: points)
+
+        #expect(domain.lowerBound > 0)
+        #expect(domain.lowerBound < 293_550)
+        #expect(domain.upperBound > 293_550)
     }
 
     @Test("Negative net worth chart domain includes negative values")
@@ -777,8 +977,8 @@ struct DashboardPeriodFilteringTests {
         #expect(groups.first { $0.bucket == .uncategorized }?.accounts.map(\.displayName) == ["Mystery"])
     }
 
-    @Test("Net worth trend skips intervals before known accounts all have balances")
-    func netWorthTrendSkipsIncompleteHistory() throws {
+    @Test("Net worth trend includes buckets with any known balance")
+    func netWorthTrendIncludesBucketsWithAnyKnownBalance() throws {
         let container = try makeContainer()
         let context = container.mainContext
         let checking = Account(institution: "Bank", type: .checking)
@@ -797,8 +997,11 @@ struct DashboardPeriodFilteringTests {
             Issue.record("Expected consolidated snapshot"); return
         }
 
-        #expect(snap.netWorthOverTime.first?.month ?? .distantPast >= date(year: 2026, month: 6, day: 1))
-        #expect(snap.netWorthOverTime.allSatisfy { $0.balance >= 6_000 })
+        #expect(snap.netWorth == 6_000)
+        #expect(snap.netWorthOverTime.first?.month ?? .distantFuture < date(year: 2026, month: 6, day: 1))
+        #expect(snap.netWorthOverTime.first?.balance == 1_000)
+        #expect(snap.netWorthOverTime.last?.balance == snap.netWorth)
+        #expect(snap.netWorthOverTime.contains { $0.month >= date(year: 2026, month: 6, day: 1) && $0.balance == 6_000 })
     }
 
     @Test("Hover snapping maps raw dates inside a bucket to the same bucket start")

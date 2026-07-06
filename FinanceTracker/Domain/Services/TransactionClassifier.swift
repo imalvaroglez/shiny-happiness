@@ -27,8 +27,35 @@ struct TransactionClassifier {
     ) -> TransactionClassification {
         let account = sourceAccount ?? tx.account
         let category = category ?? tx.category
-        let movement = tx.movementKind
-        let treatment = tx.treatmentKind
+        if tx.flowKindRaw == nil,
+           tx.movementKindRaw == nil,
+           tx.treatmentKindRaw == nil,
+           !tx.isTransfer,
+           !tx.isDuplicate,
+           tx.deletedAt == nil,
+           tx.installmentPlan == nil,
+           category == nil,
+           account?.type.isLiability != true,
+           account?.effectiveIncludeInCashFlow ?? true,
+           !mightBeOwnAccountMovement(tx.descriptionRaw) {
+            let regularIncome = tx.amount > 0 && (account?.effectiveIncludeInRegularIncome ?? true)
+            let regularExpense = tx.amount < 0
+            return TransactionClassification(
+                isTransfer: false,
+                affectsBalance: true,
+                countsAsRegularIncome: regularIncome,
+                countsAsRegularExpense: regularExpense,
+                countsAsOperatingCashFlow: regularIncome || regularExpense,
+                countsAsRetirementContribution: false,
+                countsAsInvestmentReturn: false,
+                countsAsValuationAdjustment: false,
+                countsAsTaxTrackablePPR: false
+            )
+        }
+
+        let flow = flowKind(for: tx, account: account, category: category)
+        let movement = movementKind(for: tx, flow: flow)
+        let treatment = treatmentKind(for: tx)
         let isTransfer = movement == .transfer || tx.isTransfer || category?.kind == .transfer || category?.kind == .creditCardPayment
         let retirementContribution = treatment == .retirementContributionUserFunded
             || treatment == .retirementContributionEmployerFunded
@@ -77,9 +104,48 @@ struct TransactionClassifier {
         return false
     }
 
-    private func isOwnAccountMovement(_ tx: Transaction) -> Bool {
-        Self.ownAccountPatterns.contains {
-            tx.descriptionRaw.range(of: $0, options: .regularExpression) != nil
+    private func flowKind(for tx: Transaction, account: Account?, category: Category?) -> TransactionFlowKind {
+        if let raw = tx.flowKindRaw, let kind = TransactionFlowKind(rawValue: raw) {
+            return kind
         }
+        if tx.isTransfer { return .transfer }
+        if account?.type.isLiability == true {
+            if tx.amount > 0 {
+                return category?.kind == .creditCardPayment ? .payment : .cardCredit
+            }
+            return .charge
+        }
+        return tx.amount >= 0 ? .income : .expense
+    }
+
+    private func movementKind(for tx: Transaction, flow: TransactionFlowKind) -> TransactionMovementKind {
+        if let raw = tx.movementKindRaw, let kind = TransactionMovementKind(rawValue: raw) {
+            return kind
+        }
+        return Transaction.movementKind(from: flow, amount: tx.amount, isTransfer: tx.isTransfer)
+    }
+
+    private func treatmentKind(for tx: Transaction) -> TransactionTreatmentKind {
+        if let raw = tx.treatmentKindRaw, let kind = TransactionTreatmentKind(rawValue: raw) {
+            return kind
+        }
+        return .regular
+    }
+
+    private func isOwnAccountMovement(_ tx: Transaction) -> Bool {
+        let description = tx.descriptionRaw
+        guard mightBeOwnAccountMovement(description) else {
+            return false
+        }
+
+        return Self.ownAccountPatterns.contains {
+            description.range(of: $0, options: .regularExpression) != nil
+        }
+    }
+
+    private func mightBeOwnAccountMovement(_ description: String) -> Bool {
+        description.range(of: "STP", options: .caseInsensitive) != nil
+            || description.range(of: "BANAMEX", options: .caseInsensitive) != nil
+            || description.range(of: "CUENTA", options: .caseInsensitive) != nil
     }
 }

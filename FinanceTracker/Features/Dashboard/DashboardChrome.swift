@@ -165,34 +165,33 @@ enum DashboardBalanceChartScale {
         }
 
         if minValue == maxValue {
-            if maxValue > 0 {
-                return DashboardBalanceChartDomain(lowerBound: 0, upperBound: niceCeil(maxValue * 1.12))
-            }
-            if minValue < 0 {
-                return DashboardBalanceChartDomain(lowerBound: niceFloor(minValue * 1.12), upperBound: 0)
-            }
-            return DashboardBalanceChartDomain(lowerBound: 0, upperBound: 1)
+            let padding = max(abs(maxValue) * 0.08, 1)
+            return DashboardBalanceChartDomain(
+                lowerBound: niceFloor(minValue - padding),
+                upperBound: niceCeil(maxValue + padding)
+            )
         }
 
         let span = maxValue - minValue
-        if minValue >= 0 {
-            return DashboardBalanceChartDomain(lowerBound: 0, upperBound: niceCeil(maxValue + span * 0.12))
-        }
+        let padding = span * 0.12
+        let lower = minValue > 0 && minValue <= padding ? 0 : niceFloor(minValue - padding)
+        let upper = maxValue < 0 && abs(maxValue) <= padding ? 0 : niceCeil(maxValue + padding)
 
         return DashboardBalanceChartDomain(
-            lowerBound: niceFloor(minValue - span * 0.12),
-            upperBound: niceCeil(maxValue + span * 0.12)
+            lowerBound: lower,
+            upperBound: upper
         )
     }
 
     private static func niceCeil(_ value: Double) -> Double {
-        guard value > 0 else { return 1 }
-        let step = niceStep(for: value)
-        return max(step, ceil(value / step) * step)
+        guard value != 0 else { return 0 }
+        let step = niceStep(for: abs(value))
+        let rounded = ceil(value / step) * step
+        return value > 0 ? max(step, rounded) : rounded
     }
 
     private static func niceFloor(_ value: Double) -> Double {
-        guard value < 0 else { return 0 }
+        guard value != 0 else { return 0 }
         let step = niceStep(for: abs(value))
         return floor(value / step) * step
     }
@@ -227,7 +226,7 @@ struct DashboardBalanceTimeSeriesChart: View {
         Chart {
             ForEach(points) { point in
                 LineMark(
-                    x: .value("Period", point.month, unit: period.bucket.component),
+                    x: .value("Period", point.month),
                     y: .value("Balance", point.balance.dashboardDoubleValue)
                 )
                 .foregroundStyle(.blue)
@@ -235,7 +234,7 @@ struct DashboardBalanceTimeSeriesChart: View {
                 .interpolationMethod(.stepEnd)
 
                 AreaMark(
-                    x: .value("Period", point.month, unit: period.bucket.component),
+                    x: .value("Period", point.month),
                     y: .value("Balance", point.balance.dashboardDoubleValue)
                 )
                 .foregroundStyle(
@@ -248,7 +247,7 @@ struct DashboardBalanceTimeSeriesChart: View {
                 .interpolationMethod(.stepEnd)
 
                 PointMark(
-                    x: .value("Period", point.month, unit: period.bucket.component),
+                    x: .value("Period", point.month),
                     y: .value("Balance", point.balance.dashboardDoubleValue)
                 )
                 .foregroundStyle(.blue.opacity(point.id == latestID ? 0.95 : 0.42))
@@ -261,7 +260,7 @@ struct DashboardBalanceTimeSeriesChart: View {
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 4]))
 
                 PointMark(
-                    x: .value("Selected period", selectedPoint.month, unit: period.bucket.component),
+                    x: .value("Selected period", selectedPoint.month),
                     y: .value("Selected balance", selectedPoint.balance.dashboardDoubleValue)
                 )
                 .foregroundStyle(.blue)
@@ -1543,13 +1542,21 @@ private struct CategoryBreakdownRow: View {
 /// makes the chart feel layered onto the glass instead of painted underneath.
 struct ChartCard<Content: View>: View {
     let title: String
+    var subtitle: String? = nil
     @ViewBuilder var content: () -> Content
     @Environment(\.scopedTint) private var scopedTint
 
     var body: some View {
         GlassCard(role: .card, interactive: false) {
             VStack(alignment: .leading, spacing: 12) {
-                Text(title).font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 content()
                     .padding(8)
                     .background(
