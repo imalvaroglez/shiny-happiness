@@ -28,6 +28,10 @@ struct LiabilityPaymentVisibilityTests {
         return Calendar(identifier: .gregorian).date(from: c)!
     }
 
+    private func selectAllHistory(_ viewModel: DashboardViewModel, through date: Date) {
+        viewModel.setPeriod(.all, now: date)
+    }
+
     @Test("Transfer-kind payment on credit card counts as liability payment")
     func transferKindPaymentOnCC() async throws {
         let container = try makeContainer()
@@ -69,7 +73,7 @@ struct LiabilityPaymentVisibilityTests {
         try context.save()
 
         let viewModel = DashboardViewModel()
-        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        selectAllHistory(viewModel, through: dateFromComponents(year: 2026, month: 5, day: 31))
         viewModel.scope = .account(account.id)
         viewModel.configure(context: context)
 
@@ -118,7 +122,7 @@ struct LiabilityPaymentVisibilityTests {
         try context.save()
 
         let viewModel = DashboardViewModel()
-        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        selectAllHistory(viewModel, through: dateFromComponents(year: 2026, month: 5, day: 31))
         viewModel.scope = .account(account.id)
         viewModel.configure(context: context)
 
@@ -157,7 +161,7 @@ struct LiabilityPaymentVisibilityTests {
         try context.save()
 
         let viewModel = DashboardViewModel()
-        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        selectAllHistory(viewModel, through: dateFromComponents(year: 2026, month: 5, day: 31))
         viewModel.scope = .account(account.id)
         viewModel.configure(context: context)
 
@@ -191,7 +195,7 @@ struct LiabilityPaymentVisibilityTests {
         try context.save()
 
         let viewModel = DashboardViewModel()
-        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        selectAllHistory(viewModel, through: dateFromComponents(year: 2026, month: 4, day: 30))
         viewModel.scope = .consolidated
         viewModel.configure(context: context)
 
@@ -250,7 +254,7 @@ struct LiabilityPaymentVisibilityTests {
         try context.save()
 
         let viewModel = DashboardViewModel()
-        viewModel.dateRange = DateRange(start: .distantPast, end: .distantFuture)
+        selectAllHistory(viewModel, through: dateFromComponents(year: 2026, month: 5, day: 31))
         viewModel.scope = .account(account.id)
         viewModel.configure(context: context)
 

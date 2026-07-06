@@ -12,18 +12,13 @@ enum DashboardPeriodKind: String, CaseIterable, Sendable {
         let calendar = Calendar(identifier: .gregorian)
         switch self {
         case .month:
-            let start = calendar.startOfMonth(for: now)
+            let start = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -30, to: now)!)
             return DateRange(start: start, end: now)
         case .quarter:
-            let month = calendar.component(.month, from: now)
-            let quarterStartMonth = ((month - 1) / 3) * 3 + 1
-            var components = calendar.dateComponents([.year], from: now)
-            components.month = quarterStartMonth
-            components.day = 1
-            let start = calendar.date(from: components)!
+            let start = calendar.startOfDay(for: calendar.date(byAdding: .month, value: -3, to: now)!)
             return DateRange(start: start, end: now)
         case .year:
-            let start = calendar.date(from: calendar.dateComponents([.year], from: now))!
+            let start = calendar.startOfDay(for: calendar.date(byAdding: .month, value: -12, to: now)!)
             return DateRange(start: start, end: now)
         case .all:
             return DateRange(start: .distantPast, end: now)
@@ -34,7 +29,8 @@ enum DashboardPeriodKind: String, CaseIterable, Sendable {
             let start = calendar.startOfDay(for: min(customRange.start, customRange.end))
             let requestedEnd = max(customRange.start, customRange.end)
             let endOfRequestedDay = calendar.endOfDay(for: requestedEnd)
-            return DateRange(start: start, end: min(endOfRequestedDay, now))
+            let end = min(endOfRequestedDay, now)
+            return DateRange(start: min(start, end), end: end)
         }
     }
 }
@@ -208,7 +204,7 @@ struct DashboardPeriodContext: Sendable {
         let lastHalfDuration = calendar.dateComponents([.day, .hour, .minute, .second], from: lastMidpoint, to: last.end)
         let paddedEnd = calendar.date(byAdding: lastHalfDuration, to: last.end) ?? last.end
 
-        return min(paddedStart, first.start)...max(paddedEnd, last.end)
+        return min(paddedStart, first.start)...min(max(paddedEnd, last.end), dateRange.end)
     }
 }
 
@@ -276,14 +272,7 @@ enum DashboardPeriodResolver {
         let startHalfDuration = calendar.dateComponents([.day, .hour, .minute, .second], from: startIntervalStart, to: startMidpoint)
         let paddedStart = calendar.date(byAdding: startHalfDuration.negated, to: startIntervalStart) ?? range.start
 
-        let endBucket = bucket.start(for: range.end, calendar: calendar)
-        let endIntervalStart = max(endBucket, range.start)
-        let endIntervalEnd = range.end
-        let endMidpoint = calendar.midpoint(from: endIntervalStart, to: endIntervalEnd)
-        let endHalfDuration = calendar.dateComponents([.day, .hour, .minute, .second], from: endIntervalStart, to: endMidpoint)
-        let paddedEnd = calendar.date(byAdding: endHalfDuration, to: endIntervalEnd) ?? range.end
-
-        return min(paddedStart, range.start)...max(paddedEnd, range.end)
+        return min(paddedStart, range.start)...range.end
     }
 }
 
