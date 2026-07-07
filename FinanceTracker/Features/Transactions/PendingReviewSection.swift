@@ -138,7 +138,8 @@ private struct PendingReviewRow: View {
             descriptionRaw: description,
             merchantNormalized: description,
             cardLast4: pending.cardLast4,
-            source: .pendingResolution
+            source: .pendingResolution,
+            expenseAssignmentRaw: amount < 0 ? ExpenseAssignment.unassigned.rawValue : nil
         )
         modelContext.insert(txn)
         pending.resolvedTransaction = txn

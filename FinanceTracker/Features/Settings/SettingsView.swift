@@ -770,10 +770,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Balance and net-worth charts now stay inside their cards.",
-        "Month, Quarter, and Year now use rolling lookback ranges ending today.",
-        "Overview net worth keeps earlier valid history when newer accounts start later.",
-        "Dashboard period clicks stay responsive after large backup imports.",
+        "New Household Settlement report calculates what to recover from Fer each month.",
+        "Classify expenses as yours, shared, Fer-only, or unassigned from transactions or the report.",
+        "Add monthly Fer income estimates and optional salary overrides without affecting core financial metrics.",
+        "Copy, share, or export a WhatsApp-friendly settlement summary.",
     ]
 
     private var lastBackupDate: String? {
@@ -859,10 +859,12 @@ struct SettingsView: View {
         let pendingImportCount = (try? modelContext.fetchCount(FetchDescriptor<PendingImport>())) ?? 0
         let signRecoveryHintCount = (try? modelContext.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
         let stockPositionCount = (try? modelContext.fetchCount(FetchDescriptor<StockPosition>())) ?? 0
+        let partnerEstimateCount = (try? modelContext.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())) ?? 0
 
         return accountCount > 0
             || balanceSnapshotCount > 0
             || stockPositionCount > 0
+            || partnerEstimateCount > 0
             || statementCount > 0
             || transactionCount > 0
             || installmentPlanCount > 0

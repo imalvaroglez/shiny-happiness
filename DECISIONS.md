@@ -109,3 +109,9 @@
 **Context:** When re-importing a statement after the user deleted some transactions, the Deduplicator would either silently suppress (treating deleted rows as duplicates) or silently re-import (ignoring the deletion).
 **Decision:** The Deduplicator's `Result` includes a `matchedDeleted` list. For each match, the IngestPipeline creates a `PendingImport` with the reason "Matches a deleted transaction" and the deleted row's UUID. The user sees Restore / Keep Deleted actions in the review card.
 **Consequence:** Honors the user's deletion intent without making a silent wrong choice. Aligns with AD-009 (manual-review-first).
+
+## AD-022: Household settlement is a report layer, not accounting truth
+**Date:** 2026-07-07
+**Context:** Household spending needs partner attribution and monthly settlement math, but partner income estimates are assumptions and assignment metadata should not rewrite financial history.
+**Decision:** Store lightweight settlement metadata on real expense transactions and store one manual partner-income estimate per month. Calculate Household Settlement through a pure report calculator that takes the selected month, monthly setup, and already-fetched transactions. Keep partner estimates out of `Transaction` and out of Cash Flow, Net Worth, Savings Rate, Income charts, imports, and balances.
+**Consequence:** The app can answer "what should Fer reimburse?" without corrupting accounting truth. Report UI can stay fast by fetching the selected month once and recomputing in memory while setup or assignments change. Future report-layer features should follow this pattern: separate assumptions from real money movement, make calculators pure, back setup fields with backup/reset coverage, and keep month-first UI free of duplicated titles or labels.

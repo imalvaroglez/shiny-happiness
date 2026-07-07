@@ -6,7 +6,7 @@
 - `App/` — `@main` entry, SwiftData `ModelContainer` setup.
 - `Domain/` — SwiftData `@Model` classes (`Models/`), value objects (`ValueObjects/`), learning hooks (`Learning/`), and domain extensions (`Extensions/`).
 - `Ingest/` — statement detection, parsing, normalization, deduplication, categorization, seed data, and the structural parser. Parsers live in `Ingest/Parsers/` with subdirectories `CSV/`, `PDF/`, and `Text/` (paste-text parsers like `PastedHsbc2NowParser`). JSON resources: `Ingest/SeedData/` and `Ingest/StructuralParser/Knowledge/`.
-- `Features/` — SwiftUI screens: `Dashboard/`, `Statements/`, `Transactions/`, `Settings/`, `Backup/`, `Shared/`.
+- `Features/` — SwiftUI screens: `Dashboard/`, `Household/`, `Statements/`, `Transactions/`, `Settings/`, `Backup/`, `Shared/`.
 - `Utilities/` — shared helpers (Logger, Decimal+Money, Date+Period) plus persistence safety services such as `AppDataResetService` and `StoreFileResetService`.
 
 `FinanceTrackerTests/` mirrors behavior by area: `ParserTests/`, `PipelineTests/`, `StructuralParserTests/`, `EndToEndTests/`, `IngestTests/`, `AnalyticsTests/`, `KnowledgeLoaderTests/`. Sample PDFs and paste inputs used by tests live in `samples/`. Architecture decisions are documented in `DECISIONS.md`; planned work lives in `specs/`.
@@ -110,6 +110,19 @@ Dashboard work must preserve a clear split between financial semantics and rende
 - Sparse grouped-bar charts must stay compact and centered at wide dashboard widths. Do not allow a few active months to stretch across the full card. Hover should resolve to the nearest rendered group id and update only when the group changes.
 - Net Worth and Balance charts remain date-based point-in-time line/area charts. Do not convert them to grouped bars.
 
+### Household settlement and report-layer features
+
+Household Settlement is a planning/report layer, not accounting truth. Partner income estimates, assignment metadata, and settlement totals must never alter Cash Flow, Net Worth, Savings Rate, Income charts, imports, balances, or transaction signs. Real transactions stay real; manual partner income is a monthly assumption used only by the settlement calculator.
+
+- Keep report calculators pure where practical: selected month + setup + already-fetched transactions in, report rows/totals/warnings out. This makes behavior testable without SwiftUI or production stores.
+- Fetch the month once for interactive report screens, then recompute pure report state from cached in-memory rows while the user edits setup or assignment. Refetch only when the selected month changes or an external data change must be observed.
+- Default legacy missing `expenseAssignmentRaw` to `.user` so old history does not become a review backlog. New imported/manual regular expenses should get explicit `.unassigned` so the current month surfaces a focused classification queue.
+- Salary used for proportional household split is only regular income categorized as `Income > Salary` or `Income > Compensation`. Do not include interest, refunds, cashback, reimbursements, transfers, investment income, one-time adjustments, or other income.
+- Partner labels are user-facing as `Fer`; user labels should read as "Your" where possible. Do not introduce multi-partner abstractions until actually requested.
+- Month-first report UI should show the selected month as the main content heading. Avoid duplicating the feature title inside the body when the navigation title already names the screen, and avoid repeating the selected month inside setup cards.
+- Long transaction sections should use lazy containers and dense native controls (`ControlGroup`, compact buttons, bulk actions) to keep monthly classification fast and scannable.
+- Schema changes for setup/report metadata still require versioned migration and backup/reset coverage. Optional or defaulted fields are preferred for lightweight migrations; non-optional SwiftData fields need real defaults for existing rows.
+
 ### Fresh-start reset and SwiftData safety
 
 `AppDataResetService` is the single owner of model deletion order. Normal reset uses object-level deletion (`fetch` + `context.delete(obj)`) so SwiftData relationship rules run; do not replace it with broad `context.delete(model:)` in the healthy reset path, because batch delete can violate cascade/nullify constraints in this model graph. `BackupArchive` should delegate to the same service instead of keeping a second deletion list.
@@ -158,6 +171,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests \
   -destination 'platform=macOS' -parallel-testing-enabled NO \
   -only-testing:FinanceTrackerTests/CategoryRepairTests
+
+# Household settlement calculator, setup persistence, and report semantics
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests \
+  -destination 'platform=macOS' -parallel-testing-enabled NO \
+  -only-testing:FinanceTrackerTests/HouseholdSettlementReportTests
 
 # Full serial suite
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \

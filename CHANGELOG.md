@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-07
+
+### Added
+
+- **Household settlement.** Added transaction expense assignments, monthly partner income estimates, and a Household Settlement report with copy/share/export summaries.
+- **Household settlement workflow.** Added unassigned-expense review, quick Mine/Shared/Fer assignment, bulk assignment, month navigation, manual salary overrides, split methods, and WhatsApp-friendly summaries.
+
+### Changed
+
+- **Report-layer guidance.** Documented household settlement as a separate planning layer that must not change Cash Flow, Net Worth, Savings Rate, Income charts, imports, or balances.
+- **Household settlement performance.** The report now fetches the selected month once, recomputes totals in memory while setup changes, and lazy-renders transaction sections.
+
 ## [0.8.3] - 2026-07-06
 
 ### Fixed

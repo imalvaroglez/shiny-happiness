@@ -236,6 +236,7 @@ enum ManualTransactionService {
         category: Category?,
         flowKindRaw: String? = nil,
         treatmentKindRaw: String? = nil,
+        expenseAssignment: ExpenseAssignment = .user,
         context: ModelContext
     ) throws -> Transaction {
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -255,7 +256,8 @@ enum ManualTransactionService {
                 amount: signedAmount,
                 isTransfer: false
             ).rawValue,
-            treatmentKindRaw: treatmentKindRaw ?? defaultTreatmentKind(account: account, description: trimmed).rawValue
+            treatmentKindRaw: treatmentKindRaw ?? defaultTreatmentKind(account: account, description: trimmed).rawValue,
+            expenseAssignmentRaw: expenseAssignment == .user ? nil : expenseAssignment.rawValue
         )
         context.insert(tx)
         try context.save()

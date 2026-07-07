@@ -57,6 +57,20 @@ struct StockPositionSnapshot: Codable {
     var lastModifiedAt: Date
 }
 
+struct HouseholdPartnerIncomeEstimateSnapshot: Codable {
+    var id: UUID
+    var monthStart: Date
+    var amount: Decimal
+    var useUserIncomeManualOverride: Bool?
+    var userIncomeManualOverride: Decimal?
+    var splitMethodRaw: String?
+    var customUserPercent: Decimal?
+    var customPartnerPercent: Decimal?
+    var notes: String?
+    var createdAt: Date
+    var lastModifiedAt: Date
+}
+
 struct TransactionSnapshot: Codable {
     var id: UUID
     var accountId: UUID?
@@ -77,6 +91,12 @@ struct TransactionSnapshot: Codable {
     var flowKindRaw: String?
     var movementKindRaw: String?
     var treatmentKindRaw: String?
+    var expenseAssignmentRaw: String?
+    var settlementPaidByRaw: String?
+    var splitMethodOverrideRaw: String?
+    var customUserPercent: Decimal?
+    var customPartnerPercent: Decimal?
+    var settlementNotes: String?
     var lastModifiedAt: Date
     var deletedAt: Date?
 }

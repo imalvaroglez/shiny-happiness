@@ -52,8 +52,9 @@ The installed production app is `~/Applications/FinanceTracker.app`, and product
 1. **Import** — PDF/CSV files go through institution detection, the knowledge-driven structural parser, legacy parser fallback when needed, normalization, deduplication, categorization, and SwiftData persistence. HSBC 2Now paste-text imports have a dedicated parser for bank-portal copied text.
 2. **Review and learn** — Transactions can be edited manually. Pending import rows surface when a parser cannot confidently recover a transaction. User fixes feed category rules and sign-recovery hints.
 3. **Dashboard** — Overview and account dashboards resolve a single selected period context, then render summary cards, compact grouped-bar cash-flow comparisons, point-in-time net worth or balance charts, category spending, source statements, and recent transactions.
-4. **Category repair** — On bootstrap, `SeedDataLoader` repairs stale category kinds (e.g. old `.transfer` credit-card-payment categories) and canonicalizes duplicate active categories by deterministic UUID sort, reassigning transactions, rules, and children before soft-deleting duplicates. Category picker and settings views defensively hide any remaining duplicates from display.
-5. **Back up and restore** — `.ftbackup` folder bundles contain schema metadata, model snapshots, and copied statement files. Restore supports replace-all and merge-keeping-newer strategies.
+4. **Household settlement** — A separate month-first report uses expense assignments and manual partner-income estimates to calculate what Fer should reimburse. It never creates income transactions or changes Cash Flow, Net Worth, Savings Rate, Income charts, imports, or balances.
+5. **Category repair** — On bootstrap, `SeedDataLoader` repairs stale category kinds (e.g. old `.transfer` credit-card-payment categories) and canonicalizes duplicate active categories by deterministic UUID sort, reassigning transactions, rules, and children before soft-deleting duplicates. Category picker and settings views defensively hide any remaining duplicates from display.
+6. **Back up and restore** — `.ftbackup` folder bundles contain schema metadata, model snapshots, and copied statement files. Restore supports replace-all and merge-keeping-newer strategies.
 
 ## Dashboard Semantics
 
@@ -112,6 +113,7 @@ Key invariants:
 - Money is stored and calculated as `Decimal`.
 - Parsers return account-agnostic `RawTransaction` values; account assignment happens in normalization.
 - Liability balances are signed-negative so consolidated net worth is a plain sum.
+- Report-layer assumptions such as household partner income stay separate from real transactions and core accounting metrics.
 - Swift 6 strict concurrency is enabled. ViewModels and SwiftData context work stay on the main actor; parser value types are `Sendable`.
 - Statement deduplication uses SHA-256 hashes of file bytes or pasted text before parsing.
 
@@ -136,6 +138,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 ```
 
 The full suite currently covers dashboard calculations and rendering data, backup/restore, reset safety, manual ledger flows, parsers, ingest, categorization, structural parser knowledge, source-file tracking, and payment metadata.
+
+Household settlement changes should run `FinanceTrackerTests/HouseholdSettlementReportTests`; backup or schema changes should also run `FinanceTrackerTests/BackupArchiveTests`.
 
 ## Release Prep
 

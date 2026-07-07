@@ -21,6 +21,11 @@ struct TransactionDetailSheet: View {
     @State private var draftSignedAmount: Decimal
     @State private var draftFlowKind: TransactionFlowKind
     @State private var draftTreatmentKind: TransactionTreatmentKind
+    @State private var draftExpenseAssignment: ExpenseAssignment
+    @State private var draftSplitMethod: HouseholdSplitMethod
+    @State private var draftCustomUserPercent: Decimal
+    @State private var draftCustomPartnerPercent: Decimal
+    @State private var draftSettlementNotes: String
     @State private var draftCategory: Category?
     @State private var showingCategoryPicker = false
 
@@ -38,6 +43,19 @@ struct TransactionDetailSheet: View {
         BalanceSnapshotService.mirroredSnapshot(for: transaction, context: modelContext) != nil
     }
 
+    private var isSettlementEditable: Bool {
+        !isBalanceMirror && !transaction.isTransfer && !transaction.isDuplicate && transaction.amount < 0
+    }
+
+    private var customSplitInvalid: Bool {
+        isSettlementEditable
+            && draftExpenseAssignment == .shared
+            && draftSplitMethod == .customPercent
+            && (draftCustomUserPercent < 0
+                || draftCustomPartnerPercent < 0
+                || draftCustomUserPercent + draftCustomPartnerPercent != 100)
+    }
+
     init(transaction: Transaction, onCategoryAssigned: @escaping (CategoryChange) -> Void, onSaved: (() -> Void)? = nil) {
         self.transaction = transaction
         self.onCategoryAssigned = onCategoryAssigned
@@ -48,6 +66,11 @@ struct TransactionDetailSheet: View {
         _draftSignedAmount = State(initialValue: transaction.amount)
         _draftFlowKind = State(initialValue: transaction.flowKind)
         _draftTreatmentKind = State(initialValue: transaction.treatmentKind)
+        _draftExpenseAssignment = State(initialValue: transaction.expenseAssignment)
+        _draftSplitMethod = State(initialValue: transaction.splitMethodOverride)
+        _draftCustomUserPercent = State(initialValue: transaction.customUserPercent ?? 50)
+        _draftCustomPartnerPercent = State(initialValue: transaction.customPartnerPercent ?? 50)
+        _draftSettlementNotes = State(initialValue: transaction.settlementNotes ?? "")
         _draftCategory = State(initialValue: transaction.category)
     }
 
@@ -182,6 +205,11 @@ struct TransactionDetailSheet: View {
                 panelDivider
             }
 
+            if isSettlementEditable {
+                settlementRows
+                panelDivider
+            }
+
             if let account = transaction.account {
                 readOnlyRow("Account", value: account.displayName)
             }
@@ -235,6 +263,60 @@ struct TransactionDetailSheet: View {
                 }
             }
             .padding(.horizontal, 14)
+        }
+    }
+
+    @ViewBuilder
+    private var settlementRows: some View {
+        editRow("Assignment") {
+            Picker("Assignment", selection: $draftExpenseAssignment) {
+                ForEach(ExpenseAssignment.allCases) { assignment in
+                    Text(assignment.displayName).tag(assignment)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        if draftExpenseAssignment == .shared {
+            panelDivider
+            editRow("Split") {
+                Picker("Split", selection: $draftSplitMethod) {
+                    ForEach(HouseholdSplitMethod.allCases) { method in
+                        Text(method.displayName).tag(method)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            if draftSplitMethod == .customPercent {
+                panelDivider
+                editRow("User %") {
+                    TextField("50", value: $draftCustomUserPercent, format: .number)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                }
+                panelDivider
+                editRow("Partner %") {
+                    TextField("50", value: $draftCustomPartnerPercent, format: .number)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                }
+                if customSplitInvalid {
+                    Text("Custom split must add to 100%.")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 6)
+                }
+            }
+        }
+        panelDivider
+        editRow("Settlement Notes") {
+            TextField("Optional", text: $draftSettlementNotes, axis: .vertical)
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1...3)
         }
     }
 
@@ -346,6 +428,7 @@ struct TransactionDetailSheet: View {
             }
             .buttonStyle(.glassProminent)
             .keyboardShortcut(.defaultAction)
+            .disabled(customSplitInvalid)
         }
     }
 
@@ -380,6 +463,20 @@ struct TransactionDetailSheet: View {
         // and never touch flow/movement/transfer here.
         if !isBalanceMirror {
             transaction.setReportingTreatment(draftTreatmentKind)
+        }
+        if isSettlementEditable {
+            transaction.setExpenseAssignment(draftExpenseAssignment)
+            if draftExpenseAssignment == .shared {
+                transaction.setSplitMethodOverride(draftSplitMethod)
+                transaction.customUserPercent = draftSplitMethod == .customPercent ? draftCustomUserPercent : nil
+                transaction.customPartnerPercent = draftSplitMethod == .customPercent ? draftCustomPartnerPercent : nil
+            } else {
+                transaction.setSplitMethodOverride(.monthlyDefault)
+                transaction.customUserPercent = nil
+                transaction.customPartnerPercent = nil
+            }
+            let notes = draftSettlementNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+            transaction.settlementNotes = notes.isEmpty ? nil : notes
         }
 
         if !isBalanceMirror, categoryDidChange, let newCategory = draftCategory {

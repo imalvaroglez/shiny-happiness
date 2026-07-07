@@ -71,6 +71,10 @@ struct AppDataResetServiceTests {
             averageCost: 100,
             context: context
         )
+        context.insert(HouseholdPartnerIncomeEstimate(
+            monthStart: HouseholdPartnerIncomeService.monthStart(for: .now),
+            amount: 20_000
+        ))
 
         try context.save()
     }
@@ -95,6 +99,7 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Statement>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 0)
@@ -117,6 +122,7 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Statement>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 0)
@@ -124,7 +130,7 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<SignRecoveryHint>()) == 0)
 
         let categories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
-        #expect(categories.count == 79)
+        #expect(categories.count == 80)
 
         let rules = try context.fetch(FetchDescriptor<CategoryRule>())
         #expect(rules.count == 43)
@@ -151,6 +157,7 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()) == 0)
     }
 
     @Test("Repair removes all financial orphans when accounts are zero")
@@ -182,6 +189,7 @@ struct AppDataResetServiceTests {
 
         let position = StockPosition(emisoraSerie: "FEMSAUBD", shares: 1, averageCost: 100)
         context.insert(position)
+        context.insert(HouseholdPartnerIncomeEstimate(monthStart: .now, amount: 1))
 
         try context.save()
 
@@ -194,11 +202,12 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<SignRecoveryHint>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Statement>()) == 0)
 
         let categories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
-        #expect(categories.count == 79)
+        #expect(categories.count == 80)
     }
 
     @Test("Repair returns noRepairNeeded when no orphans exist")
@@ -212,7 +221,7 @@ struct AppDataResetServiceTests {
         #expect(outcome == .noRepairNeeded)
 
         let categories = try context.fetchCount(FetchDescriptor<FinanceTracker.Category>())
-        #expect(categories == 79)
+        #expect(categories == 80)
     }
 
     @Test("Repair is a no-op when financial data exists")
@@ -270,7 +279,7 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 0)
 
         let categories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
-        #expect(categories.count == 79)
+        #expect(categories.count == 80)
     }
 
     @Test("StoreFileResetService creates flag and detects it")
