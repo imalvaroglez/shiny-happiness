@@ -6,11 +6,11 @@ import UniformTypeIdentifiers
 struct HouseholdSettlementView: View {
     @Environment(\.modelContext) private var modelContext
 
-    var onReviewTransactions: () -> Void = {}
+    var onReviewTransactions: () -> Void
 
-    @State private var selectedMonth = YearMonth(date: .now)
-    @State private var monthPickerYear = YearMonth(date: .now).year
-    @State private var monthPickerMonth = YearMonth(date: .now).month
+    @State private var selectedMonth: YearMonth
+    @State private var monthPickerYear: Int
+    @State private var monthPickerMonth: Int
     @State private var showingMonthPicker = false
 
     @State private var partnerIncome: Decimal = 0
@@ -29,6 +29,16 @@ struct HouseholdSettlementView: View {
     @State private var saveStatus = "Saved"
     @State private var isLoadingSetup = false
     @State private var pendingSaveTask: Task<Void, Never>?
+
+    private let presenter = HouseholdSettlementPresenter()
+
+    init(initialSelectedMonth: YearMonth? = nil, onReviewTransactions: @escaping () -> Void = {}) {
+        self.onReviewTransactions = onReviewTransactions
+        let month = initialSelectedMonth ?? YearMonth(date: .now)
+        _selectedMonth = State(initialValue: month)
+        _monthPickerYear = State(initialValue: month.year)
+        _monthPickerMonth = State(initialValue: month.month)
+    }
 
     private var setup: HouseholdSettlementSetup {
         HouseholdSettlementSetup(
@@ -51,49 +61,53 @@ struct HouseholdSettlementView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                header
                 if let report {
-                    monthlySetup(report)
-                    warnings(report)
-                    resultCard(report)
-                    breakdown(report)
-                    unassignedSection(report)
+                    let state = screenState(for: report)
+                    header(state)
+                    monthlySetup(state.monthlySetup)
+                    warnings(state.warning)
+                    resultCard(state.summary)
+                    breakdown(state.summary)
+                    unassignedSection(state.transactionSection(.unassigned))
                     transactionSection(
-                        title: "Shared expenses",
-                        emptyTitle: "No shared expenses marked for \(selectedMonth.displayName).",
-                        emptyDescription: "Mark transactions as Shared to include them in this report.",
-                        rows: report.sharedRows
+                        state.transactionSection(.shared),
+                        mode: .shared
                     )
                     transactionSection(
-                        title: "Fer-only expenses",
-                        emptyTitle: "No Fer-only expenses marked for \(selectedMonth.displayName).",
-                        emptyDescription: "Use this section for expenses you paid that belong fully to Fer.",
-                        rows: report.partnerRows
+                        state.transactionSection(.partnerOnly),
+                        mode: .partner
                     )
-                    DisclosureGroup("Personal expenses excluded from settlement", isExpanded: $showingPersonalExpenses) {
-                        transactionRows(report.excludedPersonalRows, mode: .personal)
+                    let personal = state.transactionSection(.personalExcluded)
+                    DisclosureGroup(personal.title, isExpanded: $showingPersonalExpenses) {
+                        transactionRows(personal.rows, mode: .personal)
                     }
                     .padding(16)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityIdentifier(personal.id.rawValue)
+                } else {
+                    header(nil)
                 }
             }
             .padding(.horizontal)
             .padding(.top, 10)
             .padding(.bottom)
         }
-        .navigationTitle("Household Settlement")
+        .accessibilityIdentifier("household.screen")
+        .navigationTitle(HouseholdSettlementPresenter.navigationTitle)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if let report {
                     Button { copy(report) } label: {
                         Label("Copy Summary", systemImage: "doc.on.doc")
                     }
+                    .accessibilityIdentifier("household.copySummary.button")
                     ShareLink(item: report.plainTextSummary) {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                     Button { showingExporter = true } label: {
                         Label("Export", systemImage: "square.and.arrow.down")
                     }
+                    .accessibilityIdentifier("household.export.button")
                 }
             }
         }
@@ -114,7 +128,27 @@ struct HouseholdSettlementView: View {
         .onChange(of: notes) { setupChanged() }
     }
 
-    private var header: some View {
+    private func screenState(for report: HouseholdSettlementReport) -> HouseholdSettlementScreenState {
+        presenter.state(
+            selectedMonth: selectedMonth,
+            setup: setup,
+            report: report,
+            validation: validationState(for: report),
+            saveStatus: saveStatus
+        )
+    }
+
+    private func validationState(for report: HouseholdSettlementReport) -> HouseholdSettlementValidationState {
+        HouseholdSettlementValidationState.make(
+            setup: setup,
+            report: report,
+            customSplitIsValid: splitMethod != .customPercent
+                || (customUserPercent >= 0 && customPartnerPercent >= 0 && customUserPercent + customPartnerPercent == 100),
+            canSave: setupIsValid
+        )
+    }
+
+    private func header(_ state: HouseholdSettlementScreenState?) -> some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
@@ -123,16 +157,17 @@ struct HouseholdSettlementView: View {
                     }
                     .controlSize(.large)
                     .help("Previous month")
+                    .accessibilityIdentifier("household.month.previous")
                     Button {
                         monthPickerYear = selectedMonth.year
                         monthPickerMonth = selectedMonth.month
                         showingMonthPicker = true
                     } label: {
-                        Text(selectedMonth.displayName)
+                        Text(state?.reportMonthTitle ?? selectedMonth.displayName)
                             .font(.largeTitle.weight(.semibold))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("household-settlement-month-heading")
+                    .accessibilityIdentifier("household.month.heading")
                     .popover(isPresented: $showingMonthPicker) {
                         monthPicker
                     }
@@ -141,6 +176,7 @@ struct HouseholdSettlementView: View {
                     }
                     .controlSize(.large)
                     .help("Next month")
+                    .accessibilityIdentifier("household.month.next")
                     if selectedMonth.isCurrentMonth {
                         Text("Current Month")
                             .font(.caption.weight(.medium))
@@ -150,9 +186,10 @@ struct HouseholdSettlementView: View {
                             .background(.blue.opacity(0.12), in: Capsule())
                     }
                 }
-                Text("Review shared and Fer-only expenses paid from your accounts.")
+                Text(state?.subtitle ?? "Review shared and Fer-only expenses paid from your accounts.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("household.subtitle")
             }
             Spacer()
             Text(saveStatus)
@@ -187,72 +224,82 @@ struct HouseholdSettlementView: View {
         .frame(width: 260)
     }
 
-    private func monthlySetup(_ report: HouseholdSettlementReport) -> some View {
-        SectionCard(title: "Monthly Setup") {
+    private func monthlySetup(_ state: HouseholdMonthlySetupState) -> some View {
+        SectionCard(title: state.title) {
             VStack(spacing: 0) {
-                setupRow("Your salary income") {
+                setupRow(state.userSalaryLabel) {
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text(HouseholdSettlementReport.money(report.detectedUserSalaryIncome))
+                        Text(state.userSalaryValue)
                             .font(.callout.weight(.medium))
                             .monospacedDigit()
-                        Text(report.detectedUserSalaryIncome == 0 ? "No salary income detected for this month." : "Detected from salary/compensation transactions only.")
+                            .accessibilityIdentifier("household.userSalary.value")
+                        Text(state.userSalaryHelper)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
-                if report.detectedUserSalaryIncome == 0 && !useManualSalary {
+                if state.showsManualSalaryOverrideButton {
                     Button("Use Manual Override") {
                         useManualSalary = true
                     }
                     .padding(.horizontal, 14)
                     .padding(.bottom, 10)
+                    .accessibilityIdentifier("household.userSalary.overrideButton")
                 }
-                if useManualSalary {
+                if state.showsManualSalaryInput {
                     divider
-                    setupRow("Manual salary override") {
+                    setupRow(state.manualSalaryLabel) {
                         VStack(alignment: .trailing, spacing: 3) {
                             TextField("0.00", value: $manualSalary, format: .number)
                                 .textFieldStyle(.plain)
                                 .multilineTextAlignment(.trailing)
                                 .monospacedDigit()
-                            Text("Used only for this settlement report.")
+                            Text(state.manualSalaryHelper)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
                 divider
-                setupRow("Fer income estimate") {
+                setupRow(state.partnerIncomeLabel) {
                     VStack(alignment: .trailing, spacing: 3) {
                         TextField("0.00", value: $partnerIncome, format: .number)
                             .textFieldStyle(.plain)
                             .multilineTextAlignment(.trailing)
                             .monospacedDigit()
-                        Text("Manual monthly estimate. Used only for this report.")
+                            .accessibilityIdentifier("household.partnerIncome.input")
+                        Text(state.partnerIncomeHelper)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
                 divider
-                setupRow("Split") {
+                setupRow(state.splitLabel) {
                     Picker("Split", selection: $splitMethod) {
-                        Text("Proportional by income").tag(HouseholdSplitMethod.monthlyDefault)
-                        Text("50/50").tag(HouseholdSplitMethod.fiftyFifty)
-                        Text("Custom").tag(HouseholdSplitMethod.customPercent)
+                        Text("Proportional by income")
+                            .tag(HouseholdSplitMethod.monthlyDefault)
+                            .accessibilityIdentifier("household.split.proportional")
+                        Text("50/50")
+                            .tag(HouseholdSplitMethod.fiftyFifty)
+                            .accessibilityIdentifier("household.split.fiftyFifty")
+                        Text("Custom")
+                            .tag(HouseholdSplitMethod.customPercent)
+                            .accessibilityIdentifier("household.split.custom")
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 420)
+                    .accessibilityIdentifier("household.split.picker")
                 }
                 if splitMethod == .customPercent {
                     divider
-                    setupRow("Custom split") {
+                    setupRow(state.customSplitLabel) {
                         HStack(spacing: 12) {
                             percentField("Your share", value: $customUserPercent)
                             percentField("Fer share", value: $customPartnerPercent)
                         }
                     }
-                    if customUserPercent + customPartnerPercent != 100 {
-                        Text("Custom split must add to 100%.")
+                    if let error = state.customSplitError {
+                        Text(error)
                             .font(.caption2)
                             .foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -261,33 +308,37 @@ struct HouseholdSettlementView: View {
                     }
                 }
                 divider
-                setupRow("Notes") {
+                setupRow(state.notesLabel) {
                     TextField("Optional", text: $notes)
                         .textFieldStyle(.plain)
                         .multilineTextAlignment(.trailing)
+                        .accessibilityIdentifier("household.notes.input")
                 }
                 divider
                 HStack {
-                    Button("Copy Previous Month") { copyPreviousMonth() }
-                    Button("Clear") { clearSetup() }
+                    Button(state.copyPreviousTitle) { copyPreviousMonth() }
+                        .accessibilityIdentifier("household.partnerIncome.copyPrevious")
+                    Button(state.clearTitle) { clearSetup() }
+                        .accessibilityIdentifier("household.partnerIncome.clear")
                     Spacer()
-                    Text(setupIsValid ? saveStatus : "Fix setup to save")
+                    Text(state.setupStatusText)
                         .font(.caption)
                         .foregroundStyle(setupIsValid ? Color.secondary : Color.red)
                 }
                 .padding(14)
             }
         }
+        .accessibilityIdentifier("household.setup.card")
     }
 
     @ViewBuilder
-    private func warnings(_ report: HouseholdSettlementReport) -> some View {
-        if !report.warnings.isEmpty {
+    private func warnings(_ warning: HouseholdWarningState?) -> some View {
+        if let warning {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Income assumptions need attention")
+                Text(warning.title)
                     .font(.headline)
-                ForEach(report.warnings, id: \.self) { warning in
-                    Text(warning)
+                ForEach(warning.messages, id: \.self) { message in
+                    Text(message)
                         .font(.callout)
                 }
             }
@@ -298,16 +349,17 @@ struct HouseholdSettlementView: View {
         }
     }
 
-    private func resultCard(_ report: HouseholdSettlementReport) -> some View {
+    private func resultCard(_ state: HouseholdSettlementSummaryState) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("To recover from Fer")
+            Text(state.resultLabel)
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text(HouseholdSettlementReport.money(report.amountToRecoverFromPartner))
+            Text(state.recoverAmount)
                 .font(.system(size: 42, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.orange)
-            Text("Based on shared expenses and Fer-only expenses paid by you.")
+                .accessibilityIdentifier("household.summary.recoverFromFer")
+            Text(state.resultDescription)
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -316,35 +368,29 @@ struct HouseholdSettlementView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private func breakdown(_ report: HouseholdSettlementReport) -> some View {
-        SectionCard(title: "Breakdown") {
+    private func breakdown(_ state: HouseholdSettlementSummaryState) -> some View {
+        SectionCard(title: state.breakdownTitle) {
             VStack(spacing: 0) {
-                amountLine("Total paid by you", report.totalPaidByUser)
-                divider
-                amountLine("Shared expenses", report.totalSharedExpenses)
-                amountLine("Fer shared portion", report.partnerFairShare)
-                amountLine("Fer-only paid by you", report.partnerOnlyTotal)
-                amountLine("Your final cost", report.userFinalCost)
-                divider
-                amountLine("Your salary income", report.userSalaryIncome)
-                amountLine("Fer income estimate", report.partnerIncomeEstimate)
-                labelLine("Split", report.splitLabel)
+                ForEach(Array(state.breakdownLines.enumerated()), id: \.element.id) { index, line in
+                    if index == 1 || index == 5 { divider }
+                    labelLine(line.label, line.value, accessibilityIdentifier: line.id.rawValue)
+                }
             }
         }
     }
 
-    private func unassignedSection(_ report: HouseholdSettlementReport) -> some View {
-        SectionCard(title: "Unassigned expenses this month") {
-            if report.unassignedRows.isEmpty {
+    private func unassignedSection(_ state: HouseholdTransactionSectionState) -> some View {
+        SectionCard(title: state.title) {
+            if state.rows.isEmpty {
                 emptyState(
-                    title: "No unassigned expenses for \(selectedMonth.displayName).",
-                    description: "New expenses that need household classification will appear here.",
-                    actionTitle: "Review \(selectedMonth.displayName) Transactions"
+                    title: state.emptyTitle,
+                    description: state.emptyDescription,
+                    actionTitle: state.actionTitle
                 )
             } else {
                 VStack(spacing: 0) {
                     HStack {
-                        Text("\(report.unassignedRows.count) expense\(report.unassignedRows.count == 1 ? "" : "s") to classify")
+                        Text("\(state.rows.count) expense\(state.rows.count == 1 ? "" : "s") to classify")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -358,20 +404,22 @@ struct HouseholdSettlementView: View {
                     }
                     .padding(14)
                     divider
-                    transactionRows(report.unassignedRows, mode: .unassigned)
+                    transactionRows(state.rows, mode: .unassigned)
                 }
             }
         }
+        .accessibilityIdentifier(state.id.rawValue)
     }
 
-    private func transactionSection(title: String, emptyTitle: String, emptyDescription: String, rows: [HouseholdSettlementRow]) -> some View {
-        SectionCard(title: title) {
-            if rows.isEmpty {
-                emptyState(title: emptyTitle, description: emptyDescription, actionTitle: title == "Shared expenses" ? "Review \(selectedMonth.displayName) Transactions" : nil)
+    private func transactionSection(_ state: HouseholdTransactionSectionState, mode: HouseholdRowMode) -> some View {
+        SectionCard(title: state.title) {
+            if state.rows.isEmpty {
+                emptyState(title: state.emptyTitle, description: state.emptyDescription, actionTitle: state.actionTitle)
             } else {
-                transactionRows(rows, mode: title == "Shared expenses" ? .shared : .partner)
+                transactionRows(state.rows, mode: mode)
             }
         }
+        .accessibilityIdentifier(state.id.rawValue)
     }
 
     @ViewBuilder
@@ -516,11 +564,7 @@ struct HouseholdSettlementView: View {
         }
     }
 
-    private func amountLine(_ label: String, _ amount: Decimal) -> some View {
-        labelLine(label, HouseholdSettlementReport.money(amount))
-    }
-
-    private func labelLine(_ label: String, _ value: String) -> some View {
+    private func labelLine(_ label: String, _ value: String, accessibilityIdentifier: String? = nil) -> some View {
         HStack {
             Text(label)
                 .foregroundStyle(.secondary)
@@ -531,6 +575,7 @@ struct HouseholdSettlementView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+        .accessibilityIdentifier(accessibilityIdentifier ?? "")
     }
 
     private var divider: some View {
@@ -689,4 +734,11 @@ struct SettlementTextFile: FileDocument {
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: Data(text.utf8))
     }
+}
+
+#Preview("Household Settlement Fixture") {
+    NavigationStack {
+        HouseholdSettlementView(initialSelectedMonth: HouseholdSettlementFixture.month)
+    }
+    .modelContainer(HouseholdSettlementFixture.makePreviewContainer())
 }
