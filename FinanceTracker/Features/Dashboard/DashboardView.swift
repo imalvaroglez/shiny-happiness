@@ -158,6 +158,7 @@ struct DashboardView: View {
                 Label("Transactions", systemImage: "list.bullet")
                     .tag(SidebarSelection.transactions)
                 Label("Household Settlement", systemImage: "house")
+                    .accessibilityIdentifier("household.sidebar.item")
                     .tag(SidebarSelection.householdSettlement)
                 Label("Import Statements", systemImage: "doc.badge.plus")
                     .tag(SidebarSelection.importStatements)
