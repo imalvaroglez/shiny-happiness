@@ -5,6 +5,7 @@ struct TransactionFilterBar: View {
 
     @Binding var accountFilterID: UUID?
     @Binding var categoryFilter: CategoryFilter
+    @Binding var assignmentFilter: AssignmentFilter
     @Binding var sortMode: TransactionSortMode
     @Binding var showingRecentlyDeleted: Bool
     let deletedCount: Int
@@ -109,6 +110,18 @@ struct TransactionFilterBar: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Assignment")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("Assignment", selection: $assignmentFilter) {
+                    ForEach(AssignmentFilter.allCases, id: \.self) { filter in
+                        Text(filter.displayName).tag(filter)
+                    }
+                }
+                .labelsHidden()
+            }
+
             if deletedCount > 0 {
                 Toggle(isOn: $showingRecentlyDeleted) {
                     Label("Recently Deleted (\(deletedCount))", systemImage: "trash")
@@ -125,6 +138,9 @@ struct TransactionFilterBar: View {
         }
         if let selectedCategoryName {
             filterChip(selectedCategoryName)
+        }
+        if let selectedAssignmentName {
+            filterChip(selectedAssignmentName)
         }
         if showingRecentlyDeleted {
             filterChip("Deleted")
@@ -144,6 +160,7 @@ struct TransactionFilterBar: View {
         var count = 0
         if accountFilterID != nil { count += 1 }
         if categoryFilter != .all { count += 1 }
+        if assignmentFilter != .all { count += 1 }
         if showingRecentlyDeleted { count += 1 }
         return count
     }
@@ -175,9 +192,14 @@ struct TransactionFilterBar: View {
         }
     }
 
+    private var selectedAssignmentName: String? {
+        assignmentFilter == .all ? nil : assignmentFilter.displayName
+    }
+
     private func clearFilters() {
         accountFilterID = nil
         categoryFilter = .all
+        assignmentFilter = .all
         showingRecentlyDeleted = false
     }
 }

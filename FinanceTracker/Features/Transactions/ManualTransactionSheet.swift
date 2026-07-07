@@ -26,6 +26,7 @@ struct ManualTransactionSheet: View {
     @State private var description = ""
     @State private var amount: Decimal = 0
     @State private var categoryID: UUID?
+    @State private var expenseAssignment: ExpenseAssignment = .unassigned
     @State private var showingCategoryPicker = false
     @State private var errorMessage: String?
 
@@ -163,6 +164,10 @@ struct ManualTransactionSheet: View {
             panelDivider
             categoryPickerRow
         }
+        if kind == .expense || kind == .charge {
+            panelDivider
+            expenseAssignmentRow
+        }
     }
 
     @ViewBuilder
@@ -225,6 +230,18 @@ struct ManualTransactionSheet: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    private var expenseAssignmentRow: some View {
+        row("Assignment") {
+            Picker("Assignment", selection: $expenseAssignment) {
+                ForEach(ExpenseAssignment.allCases) { assignment in
+                    Text(assignment.displayName).tag(assignment)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 180)
         }
     }
 
@@ -297,6 +314,7 @@ struct ManualTransactionSheet: View {
                     signedAmount: -abs(amount),
                     category: selectedCategory,
                     flowKindRaw: TransactionFlowKind.expense.rawValue,
+                    expenseAssignment: expenseAssignment,
                     context: modelContext
                 )
             case .charge:
@@ -308,6 +326,7 @@ struct ManualTransactionSheet: View {
                     signedAmount: -abs(amount),
                     category: selectedCategory,
                     flowKindRaw: TransactionFlowKind.charge.rawValue,
+                    expenseAssignment: expenseAssignment,
                     context: modelContext
                 )
             case .cardCredit:

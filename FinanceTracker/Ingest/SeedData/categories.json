@@ -53,7 +53,7 @@
     {
       "name": "Income",
       "kind": "income",
-      "subcategories": ["Salary", "Freelance", "Interest", "Refund", "Other Income"]
+      "subcategories": ["Salary", "Compensation", "Freelance", "Interest", "Refund", "Other Income"]
     },
     {
       "name": "Investment",

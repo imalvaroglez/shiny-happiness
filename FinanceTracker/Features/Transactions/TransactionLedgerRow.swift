@@ -3,6 +3,9 @@ import SwiftUI
 struct TransactionLedgerRow: View {
     let transaction: Transaction
     let isDeletedMode: Bool
+    var isSelectionMode: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelection: () -> Void = {}
     let onOpenDetail: () -> Void
     let onOpenCategoryPicker: () -> Void
     let onDelete: () -> Void
@@ -11,6 +14,15 @@ struct TransactionLedgerRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            if isSelectionMode {
+                Toggle("", isOn: Binding(
+                    get: { isSelected },
+                    set: { _ in onToggleSelection() }
+                ))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+            }
+
             Circle()
                 .fill(categoryColor.opacity(0.18))
                 .overlay {
@@ -45,7 +57,13 @@ struct TransactionLedgerRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .contentShape(Rectangle())
-        .onTapGesture { onOpenDetail() }
+        .onTapGesture {
+            if isSelectionMode {
+                onToggleSelection()
+            } else {
+                onOpenDetail()
+            }
+        }
         .contextMenu {
             if isDeletedMode {
                 Button("Restore") { onRestore() }
@@ -68,6 +86,9 @@ struct TransactionLedgerRow: View {
         var parts: [String] = []
         if let account = transaction.account?.displayName { parts.append(account) }
         if let card = transaction.cardLast4 { parts.append("••••\(card)") }
+        if transaction.expenseAssignment != .user {
+            parts.append(transaction.expenseAssignment.displayName)
+        }
         return parts
     }
 

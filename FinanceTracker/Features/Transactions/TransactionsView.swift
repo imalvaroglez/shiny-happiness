@@ -15,6 +15,34 @@ enum CategoryFilter: Hashable {
     case specific(UUID)
 }
 
+enum AssignmentFilter: Hashable, CaseIterable {
+    case all
+    case unassigned
+    case user
+    case shared
+    case partner
+
+    var displayName: String {
+        switch self {
+        case .all: "All Assignments"
+        case .unassigned: "Unassigned"
+        case .user: "User"
+        case .shared: "Shared"
+        case .partner: "Fer"
+        }
+    }
+
+    var assignment: ExpenseAssignment? {
+        switch self {
+        case .all: nil
+        case .unassigned: .unassigned
+        case .user: .user
+        case .shared: .shared
+        case .partner: .partner
+        }
+    }
+}
+
 struct TransactionsView: View {
     var resetSignal: Int = 0
 
@@ -30,8 +58,11 @@ struct TransactionsView: View {
     @State private var searchText = ""
     @State private var accountFilterID: UUID?
     @State private var categoryFilter: CategoryFilter = .all
+    @State private var assignmentFilter: AssignmentFilter = .all
     @State private var sortMode: TransactionSortMode = .dateDesc
     @State private var showingRecentlyDeleted = false
+    @State private var selectionMode = false
+    @State private var selectedIDs: Set<UUID> = []
 
     @State private var dayGroups: [TransactionDayGroup] = []
     @State private var lastTxCount: Int = 0
@@ -103,6 +134,13 @@ struct TransactionsView: View {
             result = result.filter { tx in tx.category?.id == id }
         }
 
+        if let assignment = assignmentFilter.assignment {
+            result = result.filter {
+                HouseholdSettlementReportService.isSettlementEligible($0)
+                    && $0.expenseAssignment == assignment
+            }
+        }
+
         if !searchText.isEmpty {
             result = result.filter {
                 $0.descriptionRaw.localizedCaseInsensitiveContains(searchText) ||
@@ -130,6 +168,7 @@ struct TransactionsView: View {
             TransactionFilterBar(
                 accountFilterID: $accountFilterID,
                 categoryFilter: $categoryFilter,
+                assignmentFilter: $assignmentFilter,
                 sortMode: $sortMode,
                 showingRecentlyDeleted: $showingRecentlyDeleted,
                 deletedCount: deletedTransactions.count,
@@ -151,10 +190,28 @@ struct TransactionsView: View {
         .navigationTitle("Transactions")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingManualTransaction = true
-                } label: {
-                    Label("Add Transaction", systemImage: "plus")
+                HStack {
+                    if selectionMode {
+                        Menu {
+                            Button("Mark User") { applyAssignment(.user) }
+                            Button("Mark Shared") { applyAssignment(.shared) }
+                            Button("Mark Partner") { applyAssignment(.partner) }
+                        } label: {
+                            Label("Assign", systemImage: "person.2")
+                        }
+                        .disabled(selectedIDs.isEmpty)
+                    }
+                    if !showingRecentlyDeleted {
+                        Button(selectionMode ? "Done" : "Select") {
+                            selectionMode.toggle()
+                            if !selectionMode { selectedIDs.removeAll() }
+                        }
+                    }
+                    Button {
+                        showingManualTransaction = true
+                    } label: {
+                        Label("Add Transaction", systemImage: "plus")
+                    }
                 }
             }
         }
@@ -191,9 +248,16 @@ struct TransactionsView: View {
         }
         .onChange(of: accountFilterID) { recomputeDisplay() }
         .onChange(of: categoryFilter) { recomputeDisplay() }
+        .onChange(of: assignmentFilter) { recomputeDisplay() }
         .onChange(of: searchText) { recomputeDisplay() }
         .onChange(of: sortMode) { recomputeDisplay() }
-        .onChange(of: showingRecentlyDeleted) { recomputeDisplay() }
+        .onChange(of: showingRecentlyDeleted) {
+            if showingRecentlyDeleted {
+                selectionMode = false
+                selectedIDs.removeAll()
+            }
+            recomputeDisplay()
+        }
         .onAppear {
             fetchTransactions()
             recomputeDisplay()
@@ -205,6 +269,9 @@ struct TransactionsView: View {
         .onChange(of: resetSignal) {
             accountFilterID = nil
             categoryFilter = .all
+            assignmentFilter = .all
+            selectionMode = false
+            selectedIDs.removeAll()
             editingTransaction = nil
             pendingApplyToSimilar = nil
             pendingApplyCandidate = nil
@@ -249,6 +316,9 @@ struct TransactionsView: View {
                                     TransactionLedgerRow(
                                         transaction: tx,
                                         isDeletedMode: showingRecentlyDeleted,
+                                        isSelectionMode: selectionMode,
+                                        isSelected: selectedIDs.contains(tx.id),
+                                        onToggleSelection: { toggleSelection(tx) },
                                         onOpenDetail: { editingTransaction = tx },
                                         onOpenCategoryPicker: {
                                             editingTransaction = tx
@@ -276,6 +346,26 @@ struct TransactionsView: View {
         tx.deletedAt = Date.now
         tx.touch()
         try? modelContext.save()
+        fetchTransactions()
+        recomputeDisplay()
+    }
+
+    private func toggleSelection(_ tx: Transaction) {
+        if selectedIDs.contains(tx.id) {
+            selectedIDs.remove(tx.id)
+        } else {
+            selectedIDs.insert(tx.id)
+        }
+    }
+
+    private func applyAssignment(_ assignment: ExpenseAssignment) {
+        guard !selectedIDs.isEmpty else { return }
+        for tx in allTransactions where selectedIDs.contains(tx.id) && HouseholdSettlementReportService.isSettlementEligible(tx) {
+            tx.setExpenseAssignment(assignment)
+            tx.touch()
+        }
+        try? modelContext.save()
+        selectedIDs.removeAll()
         fetchTransactions()
         recomputeDisplay()
     }

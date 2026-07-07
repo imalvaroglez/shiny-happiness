@@ -22,6 +22,12 @@ final class Transaction: LastModifiedTracking {
     var flowKindRaw: String? = nil
     var movementKindRaw: String?
     var treatmentKindRaw: String?
+    var expenseAssignmentRaw: String?
+    var settlementPaidByRaw: String?
+    var splitMethodOverrideRaw: String?
+    var customUserPercent: Decimal?
+    var customPartnerPercent: Decimal?
+    var settlementNotes: String?
     var lastModifiedAt: Date = Date.now
     var deletedAt: Date? = nil
 
@@ -44,7 +50,13 @@ final class Transaction: LastModifiedTracking {
         installmentPlan: InstallmentPlan? = nil,
         flowKindRaw: String? = nil,
         movementKindRaw: String? = nil,
-        treatmentKindRaw: String? = nil
+        treatmentKindRaw: String? = nil,
+        expenseAssignmentRaw: String? = nil,
+        settlementPaidByRaw: String? = nil,
+        splitMethodOverrideRaw: String? = nil,
+        customUserPercent: Decimal? = nil,
+        customPartnerPercent: Decimal? = nil,
+        settlementNotes: String? = nil
     ) {
         self.id = id
         self.account = account
@@ -65,6 +77,12 @@ final class Transaction: LastModifiedTracking {
         self.flowKindRaw = flowKindRaw
         self.movementKindRaw = movementKindRaw
         self.treatmentKindRaw = treatmentKindRaw
+        self.expenseAssignmentRaw = expenseAssignmentRaw
+        self.settlementPaidByRaw = settlementPaidByRaw
+        self.splitMethodOverrideRaw = splitMethodOverrideRaw
+        self.customUserPercent = customUserPercent
+        self.customPartnerPercent = customPartnerPercent
+        self.settlementNotes = settlementNotes
     }
 
     var categoryName: String {
@@ -101,12 +119,45 @@ final class Transaction: LastModifiedTracking {
         return .regular
     }
 
+    var expenseAssignment: ExpenseAssignment {
+        if let raw = expenseAssignmentRaw, let assignment = ExpenseAssignment(rawValue: raw) {
+            return assignment
+        }
+        return .user
+    }
+
+    var settlementPaidBy: SettlementPaidBy {
+        if let raw = settlementPaidByRaw, let paidBy = SettlementPaidBy(rawValue: raw) {
+            return paidBy
+        }
+        return .user
+    }
+
+    var splitMethodOverride: HouseholdSplitMethod {
+        if let raw = splitMethodOverrideRaw, let method = HouseholdSplitMethod(rawValue: raw) {
+            return method
+        }
+        return .monthlyDefault
+    }
+
     /// Reporting-only treatment assignment. Stores `.regular` as `nil` to keep
     /// persisted data quiet, and never touches flow/movement/transfer — those
     /// are orthogonal to how a transaction is *reported* on the dashboard. The
     /// detail sheet and any test go through here so the contract can't drift.
     func setReportingTreatment(_ kind: TransactionTreatmentKind) {
         treatmentKindRaw = kind == .regular ? nil : kind.rawValue
+    }
+
+    func setExpenseAssignment(_ assignment: ExpenseAssignment) {
+        expenseAssignmentRaw = assignment == .user ? nil : assignment.rawValue
+    }
+
+    func setSettlementPaidBy(_ paidBy: SettlementPaidBy) {
+        settlementPaidByRaw = paidBy == .user ? nil : paidBy.rawValue
+    }
+
+    func setSplitMethodOverride(_ method: HouseholdSplitMethod) {
+        splitMethodOverrideRaw = method == .monthlyDefault ? nil : method.rawValue
     }
 
     static func movementKind(from flowKind: TransactionFlowKind, amount: Decimal, isTransfer: Bool) -> TransactionMovementKind {

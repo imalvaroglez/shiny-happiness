@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    private static let schemaVersion = 3
+    private static let schemaVersion = 4
     private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -77,6 +77,9 @@ enum BackupArchive {
         let stockPositions = try context.fetch(FetchDescriptor<StockPosition>())
         try writeJSON("StockPosition", stockPositions.map { StockPositionSnapshot($0) })
 
+        let partnerEstimates = try context.fetch(FetchDescriptor<HouseholdPartnerIncomeEstimate>())
+        try writeJSON("HouseholdPartnerIncomeEstimate", partnerEstimates.map { HouseholdPartnerIncomeEstimateSnapshot($0) })
+
         let appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
         let sourceStatements = appSupport.appendingPathComponent("FinanceTracker/Statements")
         if fm.fileExists(atPath: sourceStatements.path) {
@@ -107,7 +110,7 @@ enum BackupArchive {
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard [1, 2, 3].contains(manifest.schemaVersion) else {
+        guard [1, 2, 3, 4].contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
 
@@ -147,6 +150,12 @@ enum BackupArchive {
         } else {
             stockPositionsSnap = try loadOptionalJSON(StockPositionSnapshot.self, "StockPosition")
         }
+        let partnerEstimatesSnap: [HouseholdPartnerIncomeEstimateSnapshot]
+        if manifest.schemaVersion >= 4 {
+            partnerEstimatesSnap = try loadJSON(HouseholdPartnerIncomeEstimateSnapshot.self, "HouseholdPartnerIncomeEstimate")
+        } else {
+            partnerEstimatesSnap = try loadOptionalJSON(HouseholdPartnerIncomeEstimateSnapshot.self, "HouseholdPartnerIncomeEstimate")
+        }
 
         let existingAccounts = try context.fetch(FetchDescriptor<Account>())
         let existingBalanceSnapshots = try context.fetch(FetchDescriptor<AccountBalanceSnapshot>())
@@ -158,6 +167,7 @@ enum BackupArchive {
         let existingPendingImports = try context.fetch(FetchDescriptor<PendingImport>())
         let existingSignRecoveryHints = try context.fetch(FetchDescriptor<SignRecoveryHint>())
         let existingStockPositions = try context.fetch(FetchDescriptor<StockPosition>())
+        let existingPartnerEstimates = try context.fetch(FetchDescriptor<HouseholdPartnerIncomeEstimate>())
 
         var accountMap = indexByID(existingAccounts, keyPath: \Account.id)
         var balanceSnapshotMap = indexByID(existingBalanceSnapshots, keyPath: \AccountBalanceSnapshot.id)
@@ -169,6 +179,7 @@ enum BackupArchive {
         var pendingImportMap = indexByID(existingPendingImports, keyPath: \PendingImport.id)
         var signRecoveryHintMap = indexByID(existingSignRecoveryHints, keyPath: \SignRecoveryHint.id)
         var stockPositionMap = indexByID(existingStockPositions, keyPath: \StockPosition.id)
+        var partnerEstimateMap = indexByID(existingPartnerEstimates, keyPath: \HouseholdPartnerIncomeEstimate.id)
 
         func resolveOrInsertAccount(_ id: UUID, _ snap: AccountSnapshot) -> Account {
             if let existing = accountMap[id] {
@@ -320,6 +331,19 @@ enum BackupArchive {
             return obj
         }
 
+        func resolveOrInsertPartnerEstimate(_ id: UUID, _ snap: HouseholdPartnerIncomeEstimateSnapshot) -> HouseholdPartnerIncomeEstimate {
+            if let existing = partnerEstimateMap[id] {
+                if case .mergeKeepingNewer = strategy, snap.lastModifiedAt > existing.lastModifiedAt {
+                    existing.apply(snap)
+                }
+                return existing
+            }
+            let obj = HouseholdPartnerIncomeEstimate(snap)
+            context.insert(obj)
+            partnerEstimateMap[id] = obj
+            return obj
+        }
+
         for snap in accountsSnap { _ = resolveOrInsertAccount(snap.id, snap) }
         for snap in balanceSnapshotsSnap { _ = resolveOrInsertBalanceSnapshot(snap.id, snap) }
         for snap in categoriesSnap { _ = resolveOrInsertCategory(snap.id, snap) }
@@ -330,6 +354,7 @@ enum BackupArchive {
         for snap in pendingImportsSnap { _ = resolveOrInsertPendingImport(snap.id, snap) }
         for snap in signRecoveryHintsSnap { _ = resolveOrInsertSignRecoveryHint(snap.id, snap) }
         for snap in stockPositionsSnap { _ = resolveOrInsertStockPosition(snap.id, snap) }
+        for snap in partnerEstimatesSnap { _ = resolveOrInsertPartnerEstimate(snap.id, snap) }
 
         for snap in accountsSnap {
             guard let obj = accountMap[snap.id] else { continue }
@@ -386,6 +411,10 @@ enum BackupArchive {
         for snap in stockPositionsSnap {
             guard let obj = stockPositionMap[snap.id] else { continue }
             obj.account = snap.accountId.flatMap { accountMap[$0] }
+            if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
+        }
+        for snap in partnerEstimatesSnap {
+            guard let obj = partnerEstimateMap[snap.id] else { continue }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
 
@@ -623,6 +652,55 @@ extension StockPositionSnapshot {
     }
 }
 
+extension HouseholdPartnerIncomeEstimate {
+    convenience init(_ snap: HouseholdPartnerIncomeEstimateSnapshot) {
+        self.init(
+            id: snap.id,
+            monthStart: snap.monthStart,
+            amount: snap.amount,
+            useUserIncomeManualOverride: snap.useUserIncomeManualOverride ?? false,
+            userIncomeManualOverride: snap.userIncomeManualOverride,
+            splitMethodRaw: snap.splitMethodRaw,
+            customUserPercent: snap.customUserPercent,
+            customPartnerPercent: snap.customPartnerPercent,
+            notes: snap.notes,
+            createdAt: snap.createdAt
+        )
+        lastModifiedAt = snap.lastModifiedAt
+    }
+
+    func apply(_ snap: HouseholdPartnerIncomeEstimateSnapshot) {
+        monthStart = snap.monthStart
+        amount = snap.amount
+        useUserIncomeManualOverride = snap.useUserIncomeManualOverride ?? false
+        userIncomeManualOverride = snap.userIncomeManualOverride
+        splitMethodRaw = snap.splitMethodRaw
+        customUserPercent = snap.customUserPercent
+        customPartnerPercent = snap.customPartnerPercent
+        notes = snap.notes
+        createdAt = snap.createdAt
+        lastModifiedAt = snap.lastModifiedAt
+    }
+}
+
+extension HouseholdPartnerIncomeEstimateSnapshot {
+    init(_ estimate: HouseholdPartnerIncomeEstimate) {
+        self.init(
+            id: estimate.id,
+            monthStart: estimate.monthStart,
+            amount: estimate.amount,
+            useUserIncomeManualOverride: estimate.useUserIncomeManualOverride,
+            userIncomeManualOverride: estimate.userIncomeManualOverride,
+            splitMethodRaw: estimate.splitMethodRaw,
+            customUserPercent: estimate.customUserPercent,
+            customPartnerPercent: estimate.customPartnerPercent,
+            notes: estimate.notes,
+            createdAt: estimate.createdAt,
+            lastModifiedAt: estimate.lastModifiedAt
+        )
+    }
+}
+
 extension Statement {
     convenience init(_ snap: StatementSnapshot) {
         self.init(
@@ -707,7 +785,13 @@ extension Transaction {
             transferGroupID: snap.transferGroupID,
             flowKindRaw: snap.flowKindRaw,
             movementKindRaw: snap.movementKindRaw,
-            treatmentKindRaw: snap.treatmentKindRaw
+            treatmentKindRaw: snap.treatmentKindRaw,
+            expenseAssignmentRaw: snap.expenseAssignmentRaw,
+            settlementPaidByRaw: snap.settlementPaidByRaw,
+            splitMethodOverrideRaw: snap.splitMethodOverrideRaw,
+            customUserPercent: snap.customUserPercent,
+            customPartnerPercent: snap.customPartnerPercent,
+            settlementNotes: snap.settlementNotes
         )
         deletedAt = snap.deletedAt
     }
@@ -727,6 +811,12 @@ extension Transaction {
         flowKindRaw = snap.flowKindRaw
         movementKindRaw = snap.movementKindRaw
         treatmentKindRaw = snap.treatmentKindRaw
+        expenseAssignmentRaw = snap.expenseAssignmentRaw
+        settlementPaidByRaw = snap.settlementPaidByRaw
+        splitMethodOverrideRaw = snap.splitMethodOverrideRaw
+        customUserPercent = snap.customUserPercent
+        customPartnerPercent = snap.customPartnerPercent
+        settlementNotes = snap.settlementNotes
         deletedAt = snap.deletedAt
         lastModifiedAt = snap.lastModifiedAt
     }
@@ -754,6 +844,12 @@ extension TransactionSnapshot {
             flowKindRaw: transaction.flowKindRaw,
             movementKindRaw: transaction.movementKindRaw,
             treatmentKindRaw: transaction.treatmentKindRaw,
+            expenseAssignmentRaw: transaction.expenseAssignmentRaw,
+            settlementPaidByRaw: transaction.settlementPaidByRaw,
+            splitMethodOverrideRaw: transaction.splitMethodOverrideRaw,
+            customUserPercent: transaction.customUserPercent,
+            customPartnerPercent: transaction.customPartnerPercent,
+            settlementNotes: transaction.settlementNotes,
             lastModifiedAt: transaction.lastModifiedAt,
             deletedAt: transaction.deletedAt
         )

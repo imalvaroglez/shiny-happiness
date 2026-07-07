@@ -24,6 +24,7 @@ struct DashboardView: View {
         case overview
         case account(UUID)
         case transactions
+        case householdSettlement
         case importStatements
         case settings
     }
@@ -156,6 +157,8 @@ struct DashboardView: View {
             Section {
                 Label("Transactions", systemImage: "list.bullet")
                     .tag(SidebarSelection.transactions)
+                Label("Household Settlement", systemImage: "house")
+                    .tag(SidebarSelection.householdSettlement)
                 Label("Import Statements", systemImage: "doc.badge.plus")
                     .tag(SidebarSelection.importStatements)
                 Label("Settings", systemImage: "gearshape")
@@ -174,6 +177,8 @@ struct DashboardView: View {
             dashboardDetail
         case .transactions:
             TransactionsView(resetSignal: dataResetGeneration)
+        case .householdSettlement:
+            HouseholdSettlementView { sidebarSelection = .transactions }
         case .importStatements:
             ImportView(modelContext: modelContext)
         case .settings:

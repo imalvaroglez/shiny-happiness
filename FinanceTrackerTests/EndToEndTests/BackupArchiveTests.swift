@@ -39,13 +39,34 @@ struct BackupArchiveTests {
                 currency: "MXN",
                 descriptionRaw: "Test transaction #\(i)"
             )
+            if i == 0 {
+                tx.setExpenseAssignment(.shared)
+                tx.setSplitMethodOverride(.customPercent)
+                tx.customUserPercent = 60
+                tx.customPartnerPercent = 40
+                tx.settlementNotes = "Groceries"
+            } else if i == 1 {
+                tx.setExpenseAssignment(.partner)
+            } else if i == 2 {
+                tx.setExpenseAssignment(.unassigned)
+            }
             context.insert(tx)
         }
+        context.insert(HouseholdPartnerIncomeEstimate(
+            monthStart: HouseholdPartnerIncomeService.monthStart(for: .now),
+            amount: 25_000,
+            useUserIncomeManualOverride: true,
+            userIncomeManualOverride: 50_000,
+            splitMethodRaw: HouseholdSplitMethod.customPercent.rawValue,
+            customUserPercent: 80,
+            customPartnerPercent: 20,
+            notes: "Backup test"
+        ))
         try context.save()
         return container
     }
 
-    private func writeEmptyBackup(schemaVersion: Int, includeStockPosition: Bool, to tmp: URL) throws {
+    private func writeEmptyBackup(schemaVersion: Int, includeStockPosition: Bool, includePartnerEstimate: Bool = false, to tmp: URL) throws {
         let modelsDir = tmp.appendingPathComponent("models", isDirectory: true)
         try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
 
@@ -67,6 +88,9 @@ struct BackupArchiveTests {
         try write("SignRecoveryHint", [SignRecoveryHintSnapshot]())
         if includeStockPosition {
             try write("StockPosition", [StockPositionSnapshot]())
+        }
+        if includePartnerEstimate {
+            try write("HouseholdPartnerIncomeEstimate", [HouseholdPartnerIncomeEstimateSnapshot]())
         }
 
         try encoder.encode(BackupManifest(
@@ -141,7 +165,7 @@ struct BackupArchiveTests {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
 
-        #expect(manifest.schemaVersion == 3)
+        #expect(manifest.schemaVersion == 4)
         #expect(!manifest.contentHashes.isEmpty, "Manifest should have content hashes")
 
         for (name, _) in manifest.contentHashes {
@@ -314,6 +338,41 @@ struct BackupArchiveTests {
         #expect(restoredPosition.account?.id == account.id)
     }
 
+    @Test("Household settlement metadata round-trips on v4 backup")
+    func householdSettlementRoundTrip() async throws {
+        let source = try makePopulatedContainer()
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-backup-household-\(UUID()).ftbackup", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        try await BackupArchive.export(to: tmp, from: source.mainContext)
+
+        let target = try makeContainer()
+        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+
+        let transactions = try target.mainContext.fetch(FetchDescriptor<Transaction>())
+        let shared = try #require(transactions.first { $0.expenseAssignment == .shared })
+        let partner = try #require(transactions.first { $0.expenseAssignment == .partner })
+        let unassigned = try #require(transactions.first { $0.expenseAssignment == .unassigned })
+        let estimates = try target.mainContext.fetch(FetchDescriptor<HouseholdPartnerIncomeEstimate>())
+        let estimate = try #require(estimates.first)
+
+        #expect(shared.splitMethodOverride == .customPercent)
+        #expect(shared.customUserPercent == 60)
+        #expect(shared.customPartnerPercent == 40)
+        #expect(shared.settlementNotes == "Groceries")
+        #expect(partner.expenseAssignment == .partner)
+        #expect(unassigned.expenseAssignment == .unassigned)
+        #expect(estimates.count == 1)
+        #expect(estimate.amount == 25_000)
+        #expect(estimate.useUserIncomeManualOverride)
+        #expect(estimate.userIncomeManualOverride == 50_000)
+        #expect(estimate.splitMethod == .customPercent)
+        #expect(estimate.customUserPercent == 80)
+        #expect(estimate.customPartnerPercent == 20)
+        #expect(estimate.notes == "Backup test")
+    }
+
     @Test("Field-selective merge keeps newer holdings and newer quote independently")
     func stockPositionMergeFieldSelective() async throws {
         let base = Date(timeIntervalSince1970: 1_780_000_000)
@@ -394,6 +453,23 @@ struct BackupArchiveTests {
         do {
             try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
             Issue.record("Expected schema 3 restore to require StockPosition.json")
+        } catch {
+            #expect(true)
+        }
+    }
+
+    @Test("Schema 4 backup requires household partner estimate file")
+    func schemaFourBackupRequiresPartnerEstimateFile() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("schema-four-missing-partner-estimate-\(UUID()).ftbackup", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        try writeEmptyBackup(schemaVersion: 4, includeStockPosition: true, includePartnerEstimate: false, to: tmp)
+
+        let target = try makeContainer()
+        do {
+            try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+            Issue.record("Expected schema 4 restore to require HouseholdPartnerIncomeEstimate.json")
         } catch {
             #expect(true)
         }
