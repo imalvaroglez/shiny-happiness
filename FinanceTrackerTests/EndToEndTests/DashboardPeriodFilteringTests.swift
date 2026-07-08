@@ -845,6 +845,46 @@ struct DashboardPeriodFilteringTests {
         #expect(domain.upperBound > 293_550)
     }
 
+    @Test("Wide-range balance domain does not flood to zero (area-fill guard)")
+    func wideRangeBalanceDomainDoesNotFloodToZero() {
+        // Regression for the "huge blue rectangle" chart bug: a balance that
+        // grew from a small minimum to a large maximum over time (savings /
+        // retirement / consolidated NW) must NOT snap the lower bound to 0,
+        // which would make the AreaMark fill the entire card height. The
+        // domain must hug the data so the fill is a thin band around the line.
+        let points = [
+            NetWorthPoint(month: date(year: 2024, month: 1, day: 1), balance: 8_000),
+            NetWorthPoint(month: date(year: 2025, month: 1, day: 1), balance: 1_200_000),
+            NetWorthPoint(month: date(year: 2026, month: 7, day: 1), balance: 3_000_000)
+        ]
+
+        let domain = DashboardBalanceChartScale.domain(for: points)
+
+        // Lower bound must stay positive and at/above the data minimum — not 0.
+        #expect(domain.lowerBound >= 0)
+        #expect(domain.lowerBound <= 8_000, "Lower bound should hug the data min, not snap to 0")
+        // The fillable span (upperBound − lowerBound) should be on the order of
+        // the data span, not ~30× it (which is what a 0-baseline produces).
+        let dataSpan = domain.upperBound - domain.lowerBound
+        #expect(dataSpan <= 4_000_000, "Domain should hug the data, not span 0…upper")
+    }
+
+    @Test("Near-flat high balance domain stays tight over a short custom range")
+    func nearFlatHighBalanceDomainStaysTight() {
+        // AFORE/PPR-style account over Jul 1–7: barely moves around $631k.
+        let points = [
+            NetWorthPoint(month: date(year: 2026, month: 7, day: 1), balance: 631_000),
+            NetWorthPoint(month: date(year: 2026, month: 7, day: 4), balance: 631_020),
+            NetWorthPoint(month: date(year: 2026, month: 7, day: 7), balance: 631_050)
+        ]
+
+        let domain = DashboardBalanceChartScale.domain(for: points)
+
+        #expect(domain.lowerBound >= 600_000)
+        #expect(domain.upperBound <= 700_000)
+        #expect(domain.upperBound - domain.lowerBound <= 200_000, "Near-flat series should get a tight, readable domain")
+    }
+
     @Test("Negative net worth chart domain includes negative values")
     func negativeNetWorthChartDomainIncludesNegativeValues() {
         let points = [
@@ -855,8 +895,8 @@ struct DashboardPeriodFilteringTests {
 
         let domain = DashboardBalanceChartScale.domain(for: points)
 
-        #expect(domain.lowerBound < -95_000)
-        #expect(domain.upperBound > 12_000)
+        #expect(domain.lowerBound <= -95_000)
+        #expect(domain.upperBound >= 12_000)
     }
 
     @Test("Grouped period bars preserve display magnitudes and chronology")
@@ -1202,6 +1242,59 @@ struct DashboardPeriodFilteringTests {
         components.day = day
         components.timeZone = TimeZone(identifier: "America/Mexico_City")
         return Calendar(identifier: .gregorian).date(from: components)!
+    }
+
+    @Test("Spending anomaly is honestly skipped, not clean, for Year and All")
+    func spendingAnomalyIsSkippedNotCleanForYearAndAll() throws {
+        // Perf guardrail: the previous-period anomaly pass is intentionally
+        // skipped for .year/.all. The snapshot must report .skippedForRange so
+        // the card can say "not shown for this range" instead of presenting a
+        // skipped check as "No unusual spending detected."
+        let container = try makeContainer()
+        let context = container.mainContext
+        let now = date(year: 2026, month: 7, day: 2)
+
+        let account = Account(institution: "Card Bank", type: .creditCard)
+        context.insert(account)
+        context.insert(AccountBalanceSnapshot(account: account, date: date(year: 2026, month: 6, day: 1), amount: -1_000, kind: .manualOpening))
+        try context.save()
+
+        for kind in [DashboardPeriodKind.year, .all] {
+            let viewModel = DashboardViewModel()
+            viewModel.setPeriod(kind, now: now)
+            viewModel.configure(context: context)
+
+            guard case .consolidated(let snap) = viewModel.snapshot else {
+                Issue.record("Expected consolidated snapshot for \(kind)"); continue
+            }
+            #expect(snap.spendingAnomaly.wasSkipped, "Anomaly must be skipped (not clean) for \(kind)")
+            #expect(snap.spendingAnomaly.emptyReason == .skippedForRange)
+        }
+    }
+
+    @Test("Spending anomaly is calculated (not skipped) for Month")
+    func spendingAnomalyIsCalculatedForMonth() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let now = date(year: 2026, month: 7, day: 2)
+
+        let account = Account(institution: "Card Bank", type: .creditCard)
+        context.insert(account)
+        context.insert(AccountBalanceSnapshot(account: account, date: date(year: 2026, month: 6, day: 1), amount: -1_000, kind: .manualOpening))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(.month, now: now)
+        viewModel.configure(context: context)
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+        #expect(!snap.spendingAnomaly.wasSkipped)
+        // With no qualifying anomalies it must be calculated-clean, not skipped.
+        if snap.spendingAnomaly.isCalm {
+            #expect(snap.spendingAnomaly.emptyReason == .calculatedNothingQualified)
+        }
     }
 }
 

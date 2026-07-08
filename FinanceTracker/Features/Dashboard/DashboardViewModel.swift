@@ -179,7 +179,7 @@ final class DashboardViewModel {
         let metrics = computeTransactionMetrics(transactions, period: period)
 
         let netWorthAccounts = accounts.filter(\.effectiveIncludeInNetWorth)
-        let (netWorth, netWorthSeries, accountSummaries, retirementAssets, liquidNetWorth, samplers) = computeNetWorth(
+        let (netWorth, netWorthSeries, availableNetWorthSeries, accountSummaries, retirementAssets, liquidNetWorth, samplers) = computeNetWorth(
             context: context,
             period: period,
             accounts: netWorthAccounts,
@@ -193,12 +193,42 @@ final class DashboardViewModel {
             .filter { $0.balanceSourceKind != .insufficientHistory }
             .reduce(Decimal(0)) { $0 + $1.latestBalance }
 
+        // Previous-period pass: skipped for `.all` and `.year`. A same-length
+        // window before those ranges re-scans a large slice of history for a
+        // low-value baseline AND blows the dashboard refresh perf budget (see
+        // `dashboardRefreshStaysResponsiveWithLargerImportedHistory`). The
+        // anomaly card surfaces this honestly as "not shown for this range"
+        // rather than presenting a skipped check as clean. Most actionable over
+        // month/quarter/custom windows.
+        let spendingAnomaly: SpendingAnomalySnapshot
+        if periodKind == .all || periodKind == .year {
+            spendingAnomaly = .skippedForRange
+        } else {
+            let duration = period.dateRange.end.timeIntervalSince(period.dateRange.start)
+            let previousRange = DateRange(
+                start: period.dateRange.start.addingTimeInterval(-duration),
+                end: period.dateRange.start
+            )
+            let previousTransactions = fetchTransactions(context: context, range: previousRange)
+            spendingAnomaly = SpendingAnomalyBuilder.build(
+                current: metrics.spendingByCategory,
+                previous: computeSpendingByCategory(previousTransactions, kindFilter: nil),
+                totalExpenses: abs(metrics.expenses)
+            )
+        }
+
+        // Insights (selector-independent: Pace is calendar-month; Payments is
+        // forward 14-day; Anomaly uses the previous-period spend above).
+        let cardPace = buildCardPace(context: context, accounts: accounts)
+        let upcomingPayments = buildUpcomingPayments(context: context, accounts: accounts, today: periodNow)
+
         return ConsolidatedSnapshot(
             period: period,
             netWorth: netWorth,
             latestNetWorth: latestNetWorth,
             snapshotAsOfDate: latestAsOf,
             netWorthOverTime: netWorthSeries,
+            availableNetWorthOverTime: availableNetWorthSeries,
             monthlyCashFlow: metrics.monthlyCashFlow,
             spendingByCategory: metrics.spendingByCategory,
             totalIncome: metrics.income,
@@ -210,8 +240,36 @@ final class DashboardViewModel {
             latestAccountSummaries: latestAccountSummaries,
             totalTransactions: transactions.count,
             retirementAssets: retirementAssets,
-            liquidNetWorth: liquidNetWorth
+            liquidNetWorth: liquidNetWorth,
+            cardPace: cardPace,
+            upcomingPayments: upcomingPayments,
+            spendingAnomaly: spendingAnomaly
         )
+    }
+
+    /// Raw transaction fetch for an arbitrary window (used for the previous
+    /// period; mirrors `windowedTransactions` but ignores the cache which is
+    /// keyed to the current range).
+    private func fetchTransactions(context: ModelContext, range: DateRange) -> [Transaction] {
+        fetchTransactions(context: context, range: range, accountIDs: [])
+    }
+
+    /// Scope the fetch to a set of account IDs (used by Credit Card Pace so a
+    /// card-only scan stays cheap on large asset-heavy datasets).
+    private func fetchTransactions(context: ModelContext, range: DateRange, accountIDs: [UUID]) -> [Transaction] {
+        let start = range.start
+        let end = range.end
+        let ids = accountIDs
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { tx in
+                tx.postedAt >= start && tx.postedAt <= end
+                    && tx.deletedAt == nil
+                    && tx.account != nil
+                    && (ids.isEmpty || ids.contains(tx.account!.id))
+            },
+            sortBy: [SortDescriptor(\.postedAt, order: .reverse)]
+        )
+        return (try? context.fetch(descriptor)) ?? []
     }
 
     // MARK: - Per-account
@@ -532,6 +590,7 @@ final class DashboardViewModel {
     ) -> (
         current: Decimal,
         series: [NetWorthPoint],
+        availableSeries: [NetWorthPoint],
         summaries: [AccountSummary],
         retirementAssets: Decimal,
         liquidNetWorth: Decimal,
@@ -566,8 +625,17 @@ final class DashboardViewModel {
             .reduce(Decimal(0)) { $0 + $1.latestBalance }
 
         let knownAccountIDs = Set(knownSummaries.map(\.id))
-        let series = computeMonthlyNetWorth(samplers: samplers.filter { knownAccountIDs.contains($0.account.id) }, period: period)
-        return (current, series, summaries, retirementAssets, liquidNetWorth, samplers)
+        let knownSamplers = samplers.filter { knownAccountIDs.contains($0.account.id) }
+        let series = computeMonthlyNetWorth(samplers: knownSamplers, period: period)
+        // Available net worth = total minus retirement accounts (refinement #2).
+        // When no retirement accounts exist, the available series equals the
+        // total series — reuse it instead of recomputing (keeps refresh cheap
+        // for asset-only datasets).
+        let hasRetirement = knownSamplers.contains { $0.account.type == .retirement }
+        let availableSeries = hasRetirement
+            ? computeMonthlyNetWorth(samplers: knownSamplers.filter { $0.account.type != .retirement }, period: period)
+            : series
+        return (current, series, availableSeries, summaries, retirementAssets, liquidNetWorth, samplers)
     }
 
     private func computeAccountSummaries(context: ModelContext, asOf: Date) -> [AccountSummary] {
@@ -818,5 +886,94 @@ final class DashboardViewModel {
                 hasNoInterestPayment: stmt.paymentForNoInterest != nil
             )
         }
+    }
+
+    // MARK: - Insights (Credit Card Pace, Upcoming Payments)
+
+    /// Credit Card Pace is selector-independent and always calendar-month-to-
+    /// date. Charges are non-duplicate, non-MSI-parent card charges (matching
+    /// `computeChargesVsPayments` exclusions). Baseline degrades gracefully.
+    private func buildCardPace(context: ModelContext, accounts: [Account]) -> CardPaceSnapshot {
+        let calendar = Calendar(identifier: .gregorian)
+        let today = periodNow
+
+        // No credit-card accounts ⇒ no pace to compute. Avoid the fetch entirely
+        // (keeps consolidated refresh cheap for asset-only datasets).
+        let cardAccountIDs = accounts.filter { $0.type == .creditCard }.map(\.id)
+        guard !cardAccountIDs.isEmpty,
+              let monthStart = calendar.dateInterval(of: .month, for: today)?.start,
+              let monthInterval = calendar.dateInterval(of: .month, for: today) else {
+            return CardPaceBuilder.build(priorMonthlyCharges: [], spentToDate: 0, dayOfMonth: 1, daysInMonth: 30)
+        }
+        let dayOfMonth = calendar.dateComponents([.day], from: monthStart, to: today).day ?? 1
+        let daysInMonth = calendar.range(of: .day, in: .month, for: today)?.count ?? 30
+
+        let cardTxRange = DateRange(start: calendar.date(byAdding: .month, value: -4, to: monthStart) ?? monthStart, end: today)
+        let cardTx = fetchTransactions(context: context, range: cardTxRange, accountIDs: cardAccountIDs)
+
+        // Prior calendar months (up to 3) before the current month.
+        var priorCharges: [Decimal] = []
+        for monthsAgo in 1...3 {
+            guard let priorMonthStart = calendar.date(byAdding: .month, value: -monthsAgo, to: monthStart),
+                  let priorInterval = calendar.dateInterval(of: .month, for: priorMonthStart) else { continue }
+            let total = cardTx
+                .filter { !$0.isDuplicate && !isSynthesizedMSIPurchase($0) && $0.amount < 0 && priorInterval.contains($0.postedAt) }
+                .reduce(Decimal(0)) { $0 + abs($1.amount) }
+            if total > 0 { priorCharges.append(total) }
+        }
+
+        let spentToDate = cardTx
+            .filter { !$0.isDuplicate && !isSynthesizedMSIPurchase($0) && $0.amount < 0 && monthInterval.contains($0.postedAt) }
+            .reduce(Decimal(0)) { $0 + abs($1.amount) }
+
+        return CardPaceBuilder.build(
+            priorMonthlyCharges: priorCharges,
+            spentToDate: spentToDate,
+            dayOfMonth: dayOfMonth,
+            daysInMonth: daysInMonth
+        )
+    }
+
+    /// Upcoming Payments: forward 14-day window across every liability account's
+    /// latest payment statement. Amount priority is no-interest-first (D12).
+    private func buildUpcomingPayments(context: ModelContext, accounts: [Account], today: Date) -> UpcomingPaymentsSnapshot {
+        let calendar = Calendar(identifier: .gregorian)
+        let liabilityAccountIDs = Set(accounts.filter(\.type.isLiability).map(\.id))
+
+        // Latest payment statement per liability account.
+        let descriptor = FetchDescriptor<Statement>(
+            predicate: #Predicate<Statement> { stmt in
+                stmt.paymentDueDate != nil && stmt.account != nil
+            },
+            sortBy: [SortDescriptor(\.paymentDueDate, order: .forward)]
+        )
+        let statements = ((try? context.fetch(descriptor)) ?? [])
+            .filter { !PaymentMetadataService.isMetadataStatement($0) }
+
+        // Keep the newest statement per account (statements are sorted by due
+        // date ascending; we want the most recent import per account whose due
+        // date is still relevant).
+        var latestByAccount: [UUID: Statement] = [:]
+        for stmt in statements {
+            guard let acctID = stmt.account?.id, liabilityAccountIDs.contains(acctID) else { continue }
+            if let existing = latestByAccount[acctID] {
+                if stmt.importedAt > existing.importedAt { latestByAccount[acctID] = stmt }
+            } else {
+                latestByAccount[acctID] = stmt
+            }
+        }
+
+        let payments: [UpcomingPayment] = latestByAccount.values.compactMap { stmt in
+            guard let due = stmt.paymentDueDate else { return nil }
+            return UpcomingPayment(
+                id: stmt.id,
+                institution: stmt.account?.displayName ?? stmt.account?.institution ?? "Card",
+                noInterestAmount: stmt.paymentForNoInterest,
+                minimumAmount: stmt.minimumPayment,
+                dueDate: due
+            )
+        }
+
+        return UpcomingPaymentsBuilder.build(due: payments, today: today, calendar: calendar)
     }
 }

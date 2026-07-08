@@ -654,6 +654,7 @@ private enum DashboardPreviewFixtures {
             latestNetWorth: composition.totalNetWorth,
             snapshotAsOfDate: now,
             netWorthOverTime: [NetWorthPoint(month: now, balance: composition.totalNetWorth)],
+            availableNetWorthOverTime: [NetWorthPoint(month: now, balance: composition.availableNetWorth)],
             monthlyCashFlow: [],
             spendingByCategory: sampleSpending(),
             totalIncome: 0,
@@ -665,7 +666,10 @@ private enum DashboardPreviewFixtures {
             latestAccountSummaries: summaries,
             totalTransactions: summaries.count,
             retirementAssets: composition.retirement,
-            liquidNetWorth: composition.netLiquidity
+            liquidNetWorth: composition.netLiquidity,
+            cardPace: CardPaceBuilder.build(priorMonthlyCharges: [], spentToDate: 0, dayOfMonth: 1, daysInMonth: 30),
+            upcomingPayments: UpcomingPaymentsSnapshot(due: [], totalPrimary: 0, status: .calm),
+            spendingAnomaly: SpendingAnomalySnapshot(strongest: nil, others: [], emptyReason: .calculatedNothingQualified)
         )
         return overview(snapshot)
     }
@@ -797,6 +801,7 @@ private enum DashboardPreviewFixtures {
             latestNetWorth: composition.totalNetWorth,
             snapshotAsOfDate: period.effectiveNetWorthDate,
             netWorthOverTime: [NetWorthPoint(month: period.effectiveNetWorthDate, balance: composition.totalNetWorth)],
+            availableNetWorthOverTime: [NetWorthPoint(month: period.effectiveNetWorthDate, balance: composition.availableNetWorth)],
             monthlyCashFlow: [],
             spendingByCategory: [],
             totalIncome: 0,
@@ -808,7 +813,10 @@ private enum DashboardPreviewFixtures {
             latestAccountSummaries: summaries,
             totalTransactions: summaries.count,
             retirementAssets: composition.retirement,
-            liquidNetWorth: composition.netLiquidity
+            liquidNetWorth: composition.netLiquidity,
+            cardPace: CardPaceBuilder.build(priorMonthlyCharges: [], spentToDate: 0, dayOfMonth: 1, daysInMonth: 30),
+            upcomingPayments: UpcomingPaymentsSnapshot(due: [], totalPrimary: 0, status: .calm),
+            spendingAnomaly: SpendingAnomalySnapshot(strongest: nil, others: [], emptyReason: .calculatedNothingQualified)
         )
         return overview(snapshot)
     }
@@ -834,6 +842,7 @@ private enum DashboardPreviewFixtures {
             latestNetWorth: composition.totalNetWorth,
             snapshotAsOfDate: period.effectiveNetWorthDate,
             netWorthOverTime: [NetWorthPoint(month: period.effectiveNetWorthDate, balance: composition.totalNetWorth)],
+            availableNetWorthOverTime: [NetWorthPoint(month: period.effectiveNetWorthDate, balance: composition.availableNetWorth)],
             monthlyCashFlow: [],
             spendingByCategory: [],
             totalIncome: 0,
@@ -845,7 +854,10 @@ private enum DashboardPreviewFixtures {
             latestAccountSummaries: summaries,
             totalTransactions: summaries.count,
             retirementAssets: composition.retirement,
-            liquidNetWorth: composition.netLiquidity
+            liquidNetWorth: composition.netLiquidity,
+            cardPace: CardPaceBuilder.build(priorMonthlyCharges: [], spentToDate: 0, dayOfMonth: 1, daysInMonth: 30),
+            upcomingPayments: UpcomingPaymentsSnapshot(due: [], totalPrimary: 0, status: .calm),
+            spendingAnomaly: SpendingAnomalySnapshot(strongest: nil, others: [], emptyReason: .calculatedNothingQualified)
         )
         return overview(snapshot)
     }
@@ -879,6 +891,7 @@ private enum DashboardPreviewFixtures {
             latestNetWorth: netWorth.last?.balance ?? composition.totalNetWorth,
             snapshotAsOfDate: period.effectiveNetWorthDate,
             netWorthOverTime: netWorth,
+            availableNetWorthOverTime: netWorth,
             monthlyCashFlow: cashFlow,
             spendingByCategory: sampleSpending(),
             totalIncome: cashFlow.reduce(Decimal.zero) { $0 + $1.income },
@@ -890,7 +903,10 @@ private enum DashboardPreviewFixtures {
             latestAccountSummaries: summaries,
             totalTransactions: cashFlow.count,
             retirementAssets: composition.retirement,
-            liquidNetWorth: composition.netLiquidity
+            liquidNetWorth: composition.netLiquidity,
+            cardPace: CardPaceBuilder.build(priorMonthlyCharges: [], spentToDate: 0, dayOfMonth: 1, daysInMonth: 30),
+            upcomingPayments: UpcomingPaymentsSnapshot(due: [], totalPrimary: 0, status: .calm),
+            spendingAnomaly: SpendingAnomalySnapshot(strongest: nil, others: [], emptyReason: .calculatedNothingQualified)
         )
         return overview(snapshot, width: width)
     }
@@ -993,6 +1009,7 @@ private enum DashboardPreviewFixtures {
             latestNetWorth: finalNetWorth,
             snapshotAsOfDate: period.effectiveNetWorthDate,
             netWorthOverTime: resolvedNetWorth,
+            availableNetWorthOverTime: resolvedNetWorth,
             monthlyCashFlow: cashFlow,
             spendingByCategory: spending,
             totalIncome: cashFlow.reduce(Decimal.zero) { $0 + $1.income },
@@ -1032,7 +1049,10 @@ private enum DashboardPreviewFixtures {
             ],
             totalTransactions: cashFlow.count,
             retirementAssets: 0,
-            liquidNetWorth: finalNetWorth
+            liquidNetWorth: finalNetWorth,
+            cardPace: CardPaceBuilder.build(priorMonthlyCharges: [], spentToDate: 0, dayOfMonth: 1, daysInMonth: 30),
+            upcomingPayments: UpcomingPaymentsSnapshot(due: [], totalPrimary: 0, status: .calm),
+            spendingAnomaly: SpendingAnomalySnapshot(strongest: nil, others: [], emptyReason: .calculatedNothingQualified)
         )
     }
 
