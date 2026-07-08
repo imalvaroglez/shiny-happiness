@@ -15,13 +15,28 @@ struct ConsolidatedDashboard: View {
     @State private var netWorthHover: Date? = nil
     @State private var cashFlowTrendHover: Date? = nil
     @State private var expandedAccountGroups = Set(DashboardAccountBucket.allCases)
+    /// When true, Spending by Category shows every category instead of top-5 +
+    /// "Other". Toggled by the "Other" warning chip so the user can see exactly
+    /// which smaller categories make up the remainder (the warning is honest
+    /// about Other being an aggregation, not a category).
+    @State private var showAllCategories = false
 
     private var composition: NetWorthComposition { snapshot.netWorthComposition }
 
     var body: some View {
-        VStack(spacing: 16) {
-            heroSummary
-            overviewGrid
+        VStack(alignment: .leading, spacing: DashboardCardTokens.topStackSpacing) {
+            // ① Financial Snapshot
+            financialSnapshotSection
+
+            // ② Insights
+            insightsSection
+
+            // ③ Trends
+            trendsSection
+
+            // ④ Breakdowns
+            breakdownsSection
+
             if !accountGroups.isEmpty { accountsList }
             if !snapshot.recentTransactions.isEmpty { recentTransactionsList }
             if snapshot.totalTransactions == 0 { emptyState }
@@ -31,34 +46,70 @@ struct ConsolidatedDashboard: View {
         }
     }
 
-    // MARK: - Hero
+    // MARK: - ① Financial Snapshot
 
-    private var heroSummary: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 14) {
-                availableNetWorthCard
-                    .frame(minWidth: 330, maxWidth: .infinity)
-                secondaryMetricGrid
-                    .frame(minWidth: 500, maxWidth: 620)
-            }
+    private var financialSnapshotSection: some View {
+        VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
+            DashboardSectionHeader(title: "Financial Snapshot", systemImage: "square.grid.2x2")
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 14) {
+                    availableNetWorthCard
+                        .frame(minWidth: 330, maxWidth: .infinity)
+                    secondaryMetricGrid
+                        .frame(minWidth: 500, maxWidth: 620)
+                }
 
-            VStack(spacing: 12) {
-                availableNetWorthCard
-                secondaryMetricGrid
+                VStack(spacing: 12) {
+                    availableNetWorthCard
+                    secondaryMetricGrid
+                }
             }
         }
     }
 
+    private var availableNetWorthHeroDelta: (percent: Double, tone: DashboardTone)? {
+        guard let delta = NetWorthDeltaBuilder.delta(series: snapshot.availableNetWorthOverTime),
+              let pct = delta.percent else { return nil }
+        return (pct, delta.absolute >= 0 ? .positive : .negative)
+    }
+
+    @ViewBuilder
+    private var availableNetWorthSplit: some View {
+        // Hero enrichment: Liquidity / Patrimonial split + quiet sparkline.
+        // Sparkline source matches the hero metric (available NW, excludes
+        // retirement) — refinement #2.
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 18) {
+                splitItem(label: "Liquidity", value: composition.netLiquidity)
+                splitItem(label: "Patrimonial", value: composition.patrimonial)
+            }
+            DashboardNetWorthSparkline(points: snapshot.availableNetWorthOverTime, tint: .secondary)
+        }
+    }
+
+    private func splitItem(label: String, value: Decimal) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label.uppercased())
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text(MoneyFormat.string(code: snapshot.currencyCode, value))
+                .font(.callout.weight(.semibold).monospacedDigit())
+        }
+    }
+
     private var availableNetWorthCard: some View {
-        OverviewMetricCard(
+        DashboardMetricCard(
             title: "Available Net Worth",
             amount: composition.availableNetWorth,
             currencyCode: snapshot.currencyCode,
-            subtitle: "Liquidity + patrimonial, excluding retirement",
-            footnote: snapshotAsOfText,
+            periodLabel: .asOf(snapshot.snapshotAsOfDate),
             systemImage: "banknote",
-            tint: composition.availableNetWorth >= 0 ? DashboardChartSeriesColor.income : DashboardChartSeriesColor.expense,
-            prominent: true
+            tone: DashboardTone.signed(composition.availableNetWorth),
+            subtitle: "Excluding retirement",
+            prominent: true,
+            deltaPercent: availableNetWorthHeroDelta?.percent,
+            deltaTone: availableNetWorthHeroDelta?.tone ?? .positive,
+            accessory: AnyView(availableNetWorthSplit)
         ) {
             breakdown = .netWorth(period: latestSnapshotPeriod, accounts: snapshot.overviewAccountSummaries)
         }
@@ -66,68 +117,229 @@ struct ConsolidatedDashboard: View {
 
     private var secondaryMetricGrid: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], alignment: .leading, spacing: 12) {
-            OverviewMetricCard(
+            DashboardMetricCard(
                 title: "Total Net Worth",
                 amount: composition.totalNetWorth,
                 currencyCode: snapshot.currencyCode,
-                subtitle: "Includes retirement assets",
-                footnote: snapshotAsOfText,
+                periodLabel: .asOf(snapshot.snapshotAsOfDate),
                 systemImage: "chart.pie",
-                tint: composition.totalNetWorth >= 0 ? DashboardChartSeriesColor.income : DashboardChartSeriesColor.expense
+                tone: DashboardTone.signed(composition.totalNetWorth),
+                subtitle: "Includes retirement"
             ) {
                 breakdown = .netWorth(period: latestSnapshotPeriod, accounts: snapshot.overviewAccountSummaries)
             }
 
-            OverviewMetricCard(
-                title: "Net Cash Flow",
-                amount: snapshot.netCashFlow,
-                currencyCode: snapshot.currencyCode,
-                subtitle: "Income - expenses",
-                footnote: periodLabel,
-                systemImage: "arrow.left.arrow.right",
-                tint: snapshot.netCashFlow >= 0 ? DashboardChartSeriesColor.income : DashboardChartSeriesColor.expense
-            )
-
-            OverviewMetricCard(
+            DashboardMetricCard(
                 title: "Card Liabilities",
                 amount: composition.totalLiabilities,
                 currencyCode: snapshot.currencyCode,
-                subtitle: "Outstanding short-term liabilities",
-                footnote: snapshotAsOfText,
+                periodLabel: .asOf(snapshot.snapshotAsOfDate),
                 systemImage: "creditcard",
-                tint: DashboardChartSeriesColor.expense
+                tone: .negative,
+                subtitle: "Short-term debt"
             ) {
                 breakdown = .netWorth(period: latestSnapshotPeriod, accounts: snapshot.overviewAccountSummaries)
             }
 
-            OverviewMetricCard(
+            DashboardMetricCard(
+                title: "Net Cash Flow",
+                amount: snapshot.netCashFlow,
+                currencyCode: snapshot.currencyCode,
+                periodLabel: .period(periodLabel),
+                systemImage: "arrow.left.arrow.right",
+                tone: DashboardTone.signed(snapshot.netCashFlow),
+                subtitle: "Income − expenses"
+            )
+
+            DashboardMetricCard(
                 title: "Interest Earned",
                 amount: snapshot.totalInterestEarned,
                 currencyCode: snapshot.currencyCode,
-                subtitle: "Period interest income",
-                footnote: periodLabel,
+                periodLabel: .period(periodLabel),
                 systemImage: "percent",
-                tint: .mint
+                tone: .yield,
+                subtitle: "Period interest"
             ) {
                 breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
             }
         }
     }
 
-    // MARK: - Overview grid
+    // MARK: - ② Insights
 
-    private var overviewGrid: some View {
-        ViewThatFits(in: .horizontal) {
-            LazyVGrid(columns: twoChartColumns, alignment: .leading, spacing: 16) {
-                overviewCards
-            }
-            .frame(minWidth: 860)
-
-            LazyVGrid(columns: oneChartColumn, alignment: .leading, spacing: 16) {
-                overviewCards
+    private var insightsSection: some View {
+        VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
+            DashboardSectionHeader(title: "Insights — What Needs Your Attention", systemImage: "sparkles")
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 14) {
+                    cardPaceCard
+                    upcomingPaymentsCard
+                    spendingAnomalyCard
+                }
+                VStack(spacing: 12) {
+                    cardPaceCard
+                    upcomingPaymentsCard
+                    spendingAnomalyCard
+                }
             }
         }
     }
+
+    private var cardPaceCard: some View {
+        let pace = snapshot.cardPace
+        let status = mapPaceStatus(pace.status)
+        let monthLabel = calendarMonthToDateLabel()
+        let dailyAvg = MoneyFormat.string(code: snapshot.currencyCode, pace.dailyAverage)
+        let projected = MoneyFormat.string(code: snapshot.currencyCode, pace.projectedMonthEnd)
+        let spent = MoneyFormat.string(code: snapshot.currencyCode, pace.spentToDate) + " spent"
+
+        return DashboardInsightCard(
+            title: "Credit Card Pace",
+            systemImage: "creditcard.and.123",
+            status: status,
+            statusText: paceStatusText(pace.status),
+            primary: spent,
+            secondaryLines: pace.status == .insufficientHistory
+                ? []
+                : ["Daily avg \(dailyAvg)", "Projected month-end \(projected)"],
+            periodLabel: .calendarMonthToDate(monthLabel),
+            calmMessage: pace.status == .insufficientHistory ? "Not enough history yet" : nil
+        ) {
+            // ponytail: progress bar omitted in insufficient-history state.
+            if pace.status != .insufficientHistory {
+                PaceProgressBar(day: pace.dayOfMonth, days: pace.daysInMonth, status: status)
+            }
+        }
+    }
+
+    private var upcomingPaymentsCard: some View {
+        let payments = snapshot.upcomingPayments
+        let status = mapPaymentStatus(payments.status)
+        let total = MoneyFormat.string(code: snapshot.currencyCode, payments.totalPrimary)
+        let isCalm = payments.due.isEmpty
+
+        var secondary: [String] = []
+        for payment in payments.due.prefix(3) {
+            let amount = MoneyFormat.string(code: snapshot.currencyCode, payment.primaryAmount ?? 0)
+            // No-interest-first (D12): label the primary as "to avoid interest"
+            // when available, and surface the minimum as a smaller secondary.
+            let qualifier: String
+            if payment.hasNoInterest {
+                let minimumText = payment.minimumAmount.map {
+                    " (min \(MoneyFormat.string(code: snapshot.currencyCode, $0)))"
+                } ?? ""
+                qualifier = " to avoid interest\(minimumText)"
+            } else {
+                qualifier = " minimum"
+            }
+            let due = payment.dueDate.formatted(.dateTime.month(.abbreviated).day())
+            secondary.append("\(payment.institution)  \(amount)\(qualifier) · \(due)")
+        }
+
+        return DashboardInsightCard(
+            title: "Upcoming Payments",
+            systemImage: "calendar.badge.clock",
+            status: status,
+            statusText: isCalm ? nil : paymentStatusText(payments.status),
+            primary: isCalm ? "" : "\(total) due in next 14 days",
+            secondaryLines: secondary,
+            periodLabel: .calendarMonthToDate("Next 14 days"),
+            calmMessage: isCalm ? "No payments due soon" : nil
+        ) {
+            EmptyView()
+        }
+    }
+
+    private var spendingAnomalyCard: some View {
+        let anomaly = snapshot.spendingAnomaly
+        let status: InsightStatus = anomaly.isCalm ? .calm : .watch
+
+        if anomaly.wasSkipped {
+            // Honestly distinct from "clean": the check was intentionally not
+            // run for this range (.year/.all perf guardrail).
+            return DashboardInsightCard(
+                title: "Spending Anomaly",
+                systemImage: "chart.bar.xaxis",
+                status: .calm,
+                primary: "",
+                secondaryLines: [],
+                periodLabel: .period(periodLabel),
+                calmMessage: "Not shown for this range — switch to Month or Quarter"
+            ) { EmptyView() }
+        }
+
+        if anomaly.isCalm {
+            return DashboardInsightCard(
+                title: "Spending Anomaly",
+                systemImage: "chart.bar.xaxis",
+                status: .calm,
+                primary: "",
+                secondaryLines: [],
+                periodLabel: .period("vs previous \(periodLabel)"),
+                calmMessage: "No unusual spending detected"
+            ) { EmptyView() }
+        }
+
+        let strongest = anomaly.strongest!
+        let primary = "\(strongest.categoryName) \(formatSignedPercent(strongest.percentChange))"
+        var secondary: [String] = []
+        for other in anomaly.others {
+            secondary.append("\(other.categoryName) \(formatSignedPercent(other.percentChange))")
+        }
+
+        return DashboardInsightCard(
+            title: "Spending Anomaly",
+            systemImage: "chart.bar.xaxis",
+            status: status,
+            statusText: "WATCH",
+            primary: primary,
+            secondaryLines: ["vs previous \(periodLabel)"] + secondary,
+            periodLabel: .period(periodLabel)
+        ) {
+            EmptyView()
+        }
+    }
+
+    // MARK: - ③ Trends
+
+    private var trendsSection: some View {
+        VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
+            DashboardSectionHeader(title: "Trends", systemImage: "chart.line.uptrend.xyaxis")
+            ViewThatFits(in: .horizontal) {
+                LazyVGrid(columns: twoChartColumns, alignment: .leading, spacing: 16) {
+                    cashFlowChart
+                    netWorthChart
+                }
+                .frame(minWidth: 860)
+                LazyVGrid(columns: oneChartColumn, alignment: .leading, spacing: 16) {
+                    cashFlowChart
+                    netWorthChart
+                }
+            }
+        }
+    }
+
+    // MARK: - ④ Breakdowns
+
+    private var breakdownsSection: some View {
+        VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
+            DashboardSectionHeader(title: "Breakdowns", systemImage: "chart.pie")
+            ViewThatFits(in: .horizontal) {
+                LazyVGrid(columns: twoChartColumns, alignment: .leading, spacing: 16) {
+                    netWorthCompositionCard
+                    spendingBars
+                }
+                .frame(minWidth: 860)
+                LazyVGrid(columns: oneChartColumn, alignment: .leading, spacing: 16) {
+                    netWorthCompositionCard
+                    spendingBars
+                }
+            }
+        }
+    }
+
+
+    // MARK: - Overview grid (legacy 6-card grid removed; sections replace it)
 
     private var twoChartColumns: [GridItem] {
         [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
@@ -135,16 +347,6 @@ struct ConsolidatedDashboard: View {
 
     private var oneChartColumn: [GridItem] {
         [GridItem(.flexible(), spacing: 16)]
-    }
-
-    @ViewBuilder
-    private var overviewCards: some View {
-        cashFlowChart
-        netWorthChart
-        netWorthCompositionCard
-        spendingBars
-        interestYieldCard
-        needsAttentionCard
     }
 
     // MARK: - Cash flow
@@ -157,21 +359,13 @@ struct ConsolidatedDashboard: View {
     }
 
     private var cashFlowChart: some View {
-        ChartCard(title: "Cash Flow") {
+        DashboardChartPanel(
+            title: "Cash Flow",
+            subtitle: cashFlowSummarySubtitle,
+            headerAccessory: AnyView(seriesFilter),
+            strokePlot: false
+        ) {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Net Cash Flow")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(MoneyFormat.string(code: snapshot.currencyCode, snapshot.netCashFlow))
-                            .font(.title3.bold().monospacedDigit())
-                            .foregroundStyle(snapshot.netCashFlow >= 0 ? DashboardChartSeriesColor.income : DashboardChartSeriesColor.expense)
-                    }
-                    Spacer()
-                    seriesFilter
-                }
-
                 Text("Transfers between your own accounts are excluded.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -262,7 +456,12 @@ struct ConsolidatedDashboard: View {
     // MARK: - Net worth
 
     private var netWorthChart: some View {
-        ChartCard(title: "Net Worth Trend", subtitle: periodLabel) {
+        DashboardChartPanel(
+            title: "Net Worth Trend",
+            subtitle: periodLabel,
+            headerAccessory: AnyView(netWorthDeltaAccessory),
+            strokePlot: false
+        ) {
             VStack(alignment: .leading, spacing: 8) {
                 if hasReliableNetWorthTrend {
                     DashboardBalanceTimeSeriesChart(
@@ -286,6 +485,13 @@ struct ConsolidatedDashboard: View {
         }
     }
 
+    @ViewBuilder
+    private var netWorthDeltaAccessory: some View {
+        if let delta = NetWorthDeltaBuilder.delta(series: snapshot.netWorthOverTime), let pct = delta.percent {
+            DeltaBadge(percent: pct, tone: delta.absolute >= 0 ? .positive : .negative)
+        }
+    }
+
     private var hasReliableNetWorthTrend: Bool {
         !snapshot.netWorthOverTime.isEmpty
     }
@@ -299,126 +505,121 @@ struct ConsolidatedDashboard: View {
         )
     }
 
-    // MARK: - Spending
+    // MARK: - Spending (matte bars + Other warning, D9/refinement #5)
 
     private var spendingBars: some View {
-        ChartCard(title: "Spending by Category") {
-            DashboardSpendingCategoryBars(
-                entries: snapshot.spendingByCategory,
-                currencyCode: snapshot.currencyCode,
-                limit: 5
-            ) { entry in
-                breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
-            }
-        }
-    }
-
-    // MARK: - Interest and attention
-
-    private var interestYieldCard: some View {
-        OverviewPanel(title: "Interest & Yield", systemImage: "percent") {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Interest earned")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(MoneyFormat.string(code: snapshot.currencyCode, snapshot.totalInterestEarned))
-                            .font(.title3.bold().monospacedDigit())
-                            .foregroundStyle(.mint)
-                    }
-                    Spacer()
-                    Text(periodLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+        DashboardBreakdownPanel(title: "Spending by Category", subtitle: spendingTotalSubtitle, strokePlot: false) {
+            VStack(alignment: .leading, spacing: 8) {
+                DashboardSpendingCategoryBars(
+                    entries: snapshot.spendingByCategory,
+                    currencyCode: snapshot.currencyCode,
+                    limit: showAllCategories ? snapshot.spendingByCategory.count : 5
+                ) { entry in
+                    breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
                 }
 
-                Label("Add account yield rates to estimate weighted yield.", systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var needsAttentionCard: some View {
-        OverviewPanel(title: "Needs Attention", systemImage: "exclamationmark.circle") {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(attentionItems.prefix(4)) { item in
-                    HStack(alignment: .top, spacing: 9) {
-                        Image(systemName: item.systemImage)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(item.tint)
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title)
-                                .font(.caption.weight(.semibold))
-                            Text(item.detail)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                if let other = otherWarning {
+                    // "Other" is the aggregation remainder beyond the top-N
+                    // categories shown — it can include categorized spend, so
+                    // the action expands the list in place (honest about what
+                    // Other contains) rather than routing to uncategorized rows
+                    // that wouldn't explain the amount.
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showAllCategories.toggle() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: showAllCategories ? "chevron.up" : "exclamationmark.triangle.fill")
+                            Text(showAllCategories ? "Showing all categories" : other)
                         }
-                        Spacer()
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(DashboardTone.warning.color, in: Capsule())
                     }
-                    .padding(8)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(showAllCategories ? "Collapse spending categories" : other)
+                    .accessibilityHint("Shows the smaller categories grouped into Other")
                 }
             }
         }
     }
 
-    private var attentionItems: [OverviewAttentionItem] {
-        var items: [OverviewAttentionItem] = []
-
-        if composition.totalLiabilities > 0 {
-            items.append(OverviewAttentionItem(
-                title: "Credit card liabilities",
-                detail: MoneyFormat.string(code: snapshot.currencyCode, composition.totalLiabilities),
-                systemImage: "creditcard",
-                tint: DashboardChartSeriesColor.expense
-            ))
-        }
-
-        items.append(OverviewAttentionItem(
-            title: composition.netLiquidity < 0 ? "Liquidity is negative after cards" : "Liquidity after cards",
-            detail: MoneyFormat.string(code: snapshot.currencyCode, composition.netLiquidity),
-            systemImage: "banknote",
-            tint: composition.netLiquidity >= 0 ? DashboardChartSeriesColor.income : .orange
-        ))
-
-        if let allocation = availableAllocationText {
-            items.append(OverviewAttentionItem(
-                title: "Available allocation",
-                detail: allocation,
-                systemImage: "chart.pie",
-                tint: .cyan
-            ))
-        }
-
-        if composition.hasUncategorized {
-            items.append(OverviewAttentionItem(
-                title: "Review account classification",
-                detail: "\(composition.uncategorizedAccounts.count) uncategorized account\(composition.uncategorizedAccounts.count == 1 ? "" : "s")",
-                systemImage: "questionmark.circle",
-                tint: .orange
-            ))
-        }
-
-        if !hasReliableNetWorthTrend {
-            items.append(OverviewAttentionItem(
-                title: "Trend history is partial",
-                detail: "Net worth trend needs more balance snapshots.",
-                systemImage: "chart.line.uptrend.xyaxis",
-                tint: .secondary
-            ))
-        }
-
-        return items
+    private var spendingTotalSubtitle: String {
+        "Total expenses \(MoneyFormat.string(code: snapshot.currencyCode, abs(snapshot.totalExpenses)))"
     }
 
-    private var availableAllocationText: String? {
-        let display = composition.display(mode: .available)
-        guard let liquidity = display.percentage(for: .liquidity),
-              let patrimonial = display.percentage(for: .patrimonial) else { return nil }
-        return String(format: "%.0f%% liquidity / %.0f%% patrimonial", liquidity, patrimonial)
+    /// Warning copy when "Other" (the aggregation remainder beyond the top 5
+    /// shown) is ≥ 40% of period spending (refinement #5, exact threshold).
+    /// "Other" groups smaller categories — it is not the same as uncategorized.
+    private var otherWarning: String? {
+        let total = snapshot.spendingByCategory.reduce(Decimal(0)) { $0 + $1.amount }
+        guard total > 0 else { return nil }
+        let topN = snapshot.spendingByCategory.prefix(5).reduce(Decimal(0)) { $0 + $1.amount }
+        let otherAmount = max(total - topN, 0)
+        let otherPercent = ((otherAmount / total) as NSDecimalNumber).doubleValue * 100
+        guard otherPercent >= 40 else { return nil }
+        let percentText = String(format: "%.1f%%", otherPercent)
+        return "\(percentText) of spend is in smaller categories — expand to review"
+    }
+
+    // MARK: - Insight status mapping
+
+    private func mapPaceStatus(_ status: CardPaceSnapshot.PaceStatus) -> InsightStatus {
+        switch status {
+        case .calm: return .calm
+        case .watch: return .watch
+        case .critical: return .critical
+        case .insufficientHistory: return .calm
+        }
+    }
+
+    private func paceStatusText(_ status: CardPaceSnapshot.PaceStatus) -> String? {
+        switch status {
+        case .critical: return "ABOVE PACE"
+        case .watch: return "ON PACE"
+        case .calm: return nil
+        case .insufficientHistory: return nil
+        }
+    }
+
+    private func mapPaymentStatus(_ status: UpcomingPaymentsSnapshot.PaymentStatus) -> InsightStatus {
+        switch status {
+        case .calm: return .calm
+        case .watch: return .watch
+        case .critical: return .critical
+        }
+    }
+
+    private func paymentStatusText(_ status: UpcomingPaymentsSnapshot.PaymentStatus) -> String {
+        switch status {
+        case .calm: return ""
+        case .watch: return "DUE SOON"
+        case .critical: return "DUE ≤3 DAYS"
+        }
+    }
+
+    /// "Calendar month to date" label for Credit Card Pace (D5/refinement #7).
+    /// Never "Last 30 days".
+    private func calendarMonthToDateLabel() -> String {
+        let calendar = Calendar(identifier: .gregorian)
+        guard let monthStart = calendar.dateInterval(of: .month, for: snapshot.snapshotAsOfDate)?.start else {
+            return "Calendar month to date"
+        }
+        let today = snapshot.snapshotAsOfDate.formatted(.dateTime.month(.abbreviated).day())
+        let start = monthStart.formatted(.dateTime.month(.abbreviated).day())
+        return start == today ? "Calendar month to date" : "\(start) – today"
+    }
+
+    private func formatSignedPercent(_ value: Double) -> String {
+        String(format: "%+.0f%%", value)
+    }
+
+    private var cashFlowSummarySubtitle: String {
+        let net = MoneyFormat.string(code: snapshot.currencyCode, snapshot.netCashFlow)
+        let income = MoneyFormat.string(code: snapshot.currencyCode, snapshot.totalIncome)
+        let out = MoneyFormat.string(code: snapshot.currencyCode, abs(snapshot.totalExpenses))
+        return "Net \(net) · In \(income) · Out \(out)"
     }
 
     // MARK: - Accounts
@@ -646,85 +847,32 @@ struct ConsolidatedDashboard: View {
     }
 }
 
-private struct OverviewMetricCard: View {
-    let title: String
-    let amount: Decimal
-    let currencyCode: String
-    let subtitle: String
-    let footnote: String
-    let systemImage: String
-    let tint: Color
-    var prominent = false
-    var onTap: (() -> Void)? = nil
-
-    @State private var hovering = false
+/// Day-N-of-month progress bar for the Credit Card Pace card.
+struct PaceProgressBar: View {
+    let day: Int
+    let days: Int
+    let status: InsightStatus
 
     var body: some View {
-        Button {
-            onTap?()
-        } label: {
-            GlassCard(role: prominent ? .hero : .card, interactive: onTap != nil) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: systemImage)
-                        .font(.system(size: prominent ? 19 : 15, weight: .semibold))
-                        .foregroundStyle(tint)
-                        .frame(width: prominent ? 38 : 30, height: prominent ? 38 : 30)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: prominent ? 10 : 6) {
-                        Text(title)
-                            .font(prominent ? .headline : .caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(MoneyFormat.string(code: currencyCode, amount))
-                            .font(.system(size: prominent ? 34 : 21, weight: .bold))
-                            .monospacedDigit()
-                            .foregroundStyle(tint)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                        Text(subtitle)
-                            .font(prominent ? .subheadline : .caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                        Text(footnote)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                    }
-                    Spacer(minLength: 0)
+        let progress = days > 0 ? min(Double(day) / Double(days), 1.0) : 0
+        VStack(alignment: .leading, spacing: 3) {
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.secondary.opacity(0.18))
+                    Capsule()
+                        .fill(status.tone.color)
+                        .frame(width: proxy.size.width * progress)
                 }
-                .padding(prominent ? 18 : 14)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .scaleEffect(hovering && onTap != nil ? 1.01 : 1.0)
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
-
-private struct OverviewPanel<Content: View>: View {
-    let title: String
-    let systemImage: String
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        GlassCard(role: .card, interactive: false) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: systemImage)
-                        .foregroundStyle(.secondary)
-                    Text(title).font(.headline)
-                }
-                content()
+            .frame(height: 5)
+            HStack {
+                Text("Day \(day) of \(days)")
+                Spacer()
+                Text("\(Int((progress * 100).rounded()))% of month")
             }
-            .padding()
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.tertiary)
         }
     }
 }
 
-private struct OverviewAttentionItem: Identifiable {
-    let id = UUID()
-    let title: String
-    let detail: String
-    let systemImage: String
-    let tint: Color
-}

@@ -184,7 +184,7 @@ struct AssetAccountDashboard: View {
 
     private var summaryCards: some View {
         HStack(spacing: 16) {
-            SummaryCard(title: "Balance", amount: snapshot.currentBalance, currencyCode: snapshot.currencyCode)
+            SummaryCard(title: "Balance", amount: snapshot.currentBalance, currencyCode: snapshot.currencyCode, copyableAmount: true)
             SummaryCard(title: "Income", amount: snapshot.totalIncome, currencyCode: snapshot.currencyCode, tint: .green) {
                 breakdown = .income(transactions: snapshot.recentTransactions, total: snapshot.totalIncome)
             }

@@ -9,6 +9,7 @@ struct LiabilityAccountDashboard: View {
     var onEditPaymentDetails: (() -> Void)? = nil
 
     @State private var breakdown: BreakdownRequest? = nil
+    @State private var balanceCopied = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -47,9 +48,15 @@ struct LiabilityAccountDashboard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline) {
+                // Copy what the user sees: the positive amount-owed magnitude.
                 Text(MoneyFormat.string(code: snapshot.currencyCode,snapshot.amountOwed))
                     .font(.title.bold())
                     .foregroundStyle(.red)
+                    .copyBalanceAffordance(
+                        amount: snapshot.amountOwed,
+                        displayedAmount: MoneyFormat.string(code: snapshot.currencyCode, snapshot.amountOwed),
+                        copied: $balanceCopied
+                    )
                 Spacer()
                 if let pct = snapshot.utilizationPercent {
                     Text(String(format: "%.1f%%", pct * 100))
@@ -57,7 +64,12 @@ struct LiabilityAccountDashboard: View {
                         .foregroundStyle(pct > 0.7 ? .red : (pct > 0.3 ? .orange : .green))
                 }
             }
-            if snapshot.account.type == .creditCard, let limit = snapshot.creditLimit {
+            if balanceCopied {
+                Label("Balance copied", systemImage: "checkmark")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            } else if snapshot.account.type == .creditCard, let limit = snapshot.creditLimit {
                 Text("of \(MoneyFormat.string(code: snapshot.currencyCode,limit)) credit limit")
                     .font(.caption2).foregroundStyle(.secondary)
             }
@@ -70,6 +82,7 @@ struct LiabilityAccountDashboard: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .animation(.easeInOut(duration: 0.2), value: balanceCopied)
     }
 
     private var paymentDueCard: some View {

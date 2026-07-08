@@ -172,10 +172,23 @@ enum DashboardBalanceChartScale {
             )
         }
 
-        let span = maxValue - minValue
-        let padding = span * 0.12
-        let lower = minValue > 0 && minValue <= padding ? 0 : niceFloor(minValue - padding)
-        let upper = maxValue < 0 && abs(maxValue) <= padding ? 0 : niceCeil(maxValue + padding)
+        // Hug the data so the AreaMark fill is a thin band around the line,
+        // never a flood from the line down to an arbitrary 0 baseline. The
+        // previous `minValue <= padding ? 0` heuristic snapped the lower bound
+        // to 0 whenever the minimum was small relative to the span — which
+        // happens for any balance that grew over time (savings, retirement,
+        // consolidated net worth over wide history) — producing a "huge blue
+        // rectangle" covering most of the card. Nice-rounding the raw min/max
+        // (no span-proportional padding, no 0-snap) keeps the domain tight for
+        // near-flat, wide, and stray-low-point series alike.
+        let lower = niceFloor(minValue)
+        let upper = niceCeil(maxValue)
+
+        // Guard against a degenerate (e.g. all-equal-after-rounding) domain.
+        if lower >= upper {
+            let bump = max(abs(upper) * 0.08, 1)
+            return DashboardBalanceChartDomain(lowerBound: lower - bump, upperBound: upper + bump)
+        }
 
         return DashboardBalanceChartDomain(
             lowerBound: lower,
@@ -268,6 +281,10 @@ struct DashboardBalanceTimeSeriesChart: View {
             }
         }
         .frame(height: 220)
+        // Defense-in-depth: clip the chart to its frame so an AreaMark can never
+        // render outside the card, even if a future domain change or a stray
+        // data point would otherwise push the fill past the plot bounds.
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .chartBackground { _ in Color.clear }
         .chartPlotStyle { plotArea in
             plotArea
@@ -993,39 +1010,80 @@ struct SummaryCard: View {
     var subtitle: String? = nil
     /// Optional drill-down action. When provided the card is tappable.
     var onTap: (() -> Void)? = nil
+    /// When true, the amount value is click-to-copy (hover underline, tap, and
+    /// a "Copy Balance" context menu). Distinct from `onTap` drill-down. Used
+    /// by the account Balance card. The card-level Button stays disabled (no
+    /// drill-down) so taps on the amount text trigger only the copy.
+    var copyableAmount: Bool = false
 
     @Environment(\.scopedTint) private var scopedTint
     @State private var hovering = false
+    @State private var copied = false
 
     var body: some View {
         let resolvedTint: Color = tint ?? (amount >= 0 ? .green : .red)
-        Button {
-            onTap?()
-        } label: {
-            GlassCard(role: .hero, interactive: onTap != nil) {
-                VStack(spacing: 4) {
-                    Text(title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(MoneyFormat.string(amount, code: currencyCode))
-                        .font(.title2.bold())
-                        .monospacedDigit()
-                        .foregroundStyle(resolvedTint)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
+        // The card is a Button only when there's a drill-down (`onTap`). A
+        // copy-only Balance card must NOT be wrapped in a (disabled) Button —
+        // that would disable the amount's tap/context-menu and swallow clicks.
+        // Render the glass surface directly and let the amount's own
+        // copy affordance handle interaction.
+        if onTap != nil {
+            Button {
+                onTap?()
+            } label: {
+                cardContent(resolvedTint: resolvedTint)
+                    .scaleEffect(hovering ? 1.01 : 1.0)
+                    .animation(.easeInOut(duration: 0.18), value: hovering)
             }
-            .scaleEffect(hovering && onTap != nil ? 1.01 : 1.0)
-            .animation(.easeInOut(duration: 0.18), value: hovering)
+            .buttonStyle(.plain)
+            .onHover { hovering = $0 }
+        } else {
+            cardContent(resolvedTint: resolvedTint)
         }
-        .buttonStyle(.plain)
-        .disabled(onTap == nil)
-        .onHover { hovering = $0 }
+    }
+
+    @ViewBuilder
+    private func cardContent(resolvedTint: Color) -> some View {
+        GlassCard(role: .hero, interactive: onTap != nil) {
+            VStack(spacing: 4) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                amountText(resolvedTint: resolvedTint)
+                if copied {
+                    Label("Balance copied", systemImage: "checkmark")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
+                } else if let subtitle {
+                    Text(subtitle)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .animation(.easeInOut(duration: 0.2), value: copied)
+        }
+    }
+
+    /// The amount value, with the copy affordance attached when `copyableAmount`
+    /// is set. The modifier self-contains the clipboard write.
+    @ViewBuilder
+    private func amountText(resolvedTint: Color) -> some View {
+        let displayed = MoneyFormat.string(amount, code: currencyCode)
+        if copyableAmount {
+            Text(displayed)
+                .font(.title2.bold())
+                .monospacedDigit()
+                .foregroundStyle(resolvedTint)
+                .copyBalanceAffordance(amount: amount, displayedAmount: displayed, copied: $copied)
+        } else {
+            Text(displayed)
+                .font(.title2.bold())
+                .monospacedDigit()
+                .foregroundStyle(resolvedTint)
+        }
     }
 }
 
@@ -1153,12 +1211,14 @@ enum CategoryPalette {
 
     private static func swatch(index: Int) -> Color {
         let hue = Double((index * 137) % 360) / 360.0
-        let saturation = [0.70, 0.62, 0.78, 0.66][index % 4]
-        let lightBrightness = [0.78, 0.70, 0.74, 0.66][(index / 4) % 4]
-        let darkBrightness = min(lightBrightness + 0.16, 0.92)
+        // Matte/desaturated categorical palette (D9): capped saturation removes
+        // the glossy, saturated "plastic" feel so the bars match the matte cards.
+        let saturation = [0.54, 0.50, 0.58, 0.48][index % 4]
+        let lightBrightness = [0.72, 0.66, 0.70, 0.64][(index / 4) % 4]
+        let darkBrightness = min(lightBrightness + 0.14, 0.88)
         return Color(
             light: Color(hue: hue, saturation: saturation, brightness: lightBrightness),
-            dark: Color(hue: hue, saturation: max(saturation - 0.08, 0.54), brightness: darkBrightness)
+            dark: Color(hue: hue, saturation: max(saturation - 0.06, 0.42), brightness: darkBrightness)
         )
     }
 
@@ -1283,7 +1343,7 @@ struct DashboardSpendingCategoryBars: View {
                         Capsule()
                             .fill(.secondary.opacity(0.13))
                         Capsule()
-                            .fill(color.gradient)
+                            .fill(color)
                             .frame(width: max(3, proxy.size.width * CGFloat(widthRatio)))
                     }
                 }

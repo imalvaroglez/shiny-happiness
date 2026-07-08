@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-07
+
+### Added
+
+- **Redesigned dashboard.** The consolidated dashboard is now organized into four sections — Financial Snapshot, Insights, Trends, and Breakdowns — so it reads as one intentional surface instead of separate widgets.
+- **Available Net Worth hero.** A wide hero card anchors the dashboard with Available Net Worth, a Liquidity/Patrimonial split, a versus-previous-period delta, and a quiet inline sparkline that hides on narrow windows.
+- **Actionable insight cards.** New Credit Card Pace (calendar-month-to-date spend, daily average, projected month-end, and a threshold-based above/on-pace status), Upcoming Payments (next 14 days, pay-to-avoid-interest first), and Spending Anomaly (categories up materially versus the prior period, or a calm "No unusual spending" state).
+- **Reusable dashboard components.** A shared card/panel system (`DashboardMetricCard`, `DashboardInsightCard`, `DashboardChartPanel`, `DashboardSectionHeader`) and a semantic tone system keep every card on one visual language.
+- **Copy balance to clipboard.** On account dashboards, click the Balance value (or right-click → Copy Balance) to copy the raw numeric amount with no currency symbol, grouping, or localization; a transient "Balance copied" confirmation appears.
+- **Dashboard regression tests.** Added presenter/snapshot tests for the insight builders, period/as-of label semantics, the chart domain flood guard, and the raw amount formatter.
+
+### Changed
+
+- **Matte spending bars.** Spending by Category now uses flat, desaturated bars instead of the glossy gradient, and an "in smaller categories — expand to review" warning appears when the grouped remainder is at least 40% of spend.
+- **Insights are threshold-based.** Insight cards default to calm states and only escalate to watch/critical when a threshold is crossed; Spending Anomaly is honestly reported as "Not shown for this range" for Year/All (where the prior-period pass is skipped for performance).
+
+### Fixed
+
+- **Balance/net-worth chart fill.** The area fill under the Net Worth Trend and Balance Over Time lines no longer floods the card. The y-axis domain now hugs the data instead of snapping to a zero baseline, and the chart is clipped to its card as a guard.
+
 ## [0.9.1] - 2026-07-07
 
 ### Added

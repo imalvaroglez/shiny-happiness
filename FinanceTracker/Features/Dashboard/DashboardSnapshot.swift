@@ -70,6 +70,10 @@ struct ConsolidatedSnapshot {
     let latestNetWorth: Decimal
     let snapshotAsOfDate: Date
     let netWorthOverTime: [NetWorthPoint]
+    /// Available net worth over time (excludes retirement). The hero metric is
+    /// Available Net Worth, so the hero sparkline + delta read this series, not
+    /// `netWorthOverTime` (refinement #2).
+    let availableNetWorthOverTime: [NetWorthPoint]
     let monthlyCashFlow: [MonthlyCashFlow]
     let spendingByCategory: [CategorySpending]
     let totalIncome: Decimal
@@ -84,6 +88,10 @@ struct ConsolidatedSnapshot {
     let retirementAssets: Decimal
     /// Σ of liquid non-retirement asset balances + liability balances (already negative).
     let liquidNetWorth: Decimal
+    /// Selector-independent insight snapshots.
+    let cardPace: CardPaceSnapshot
+    let upcomingPayments: UpcomingPaymentsSnapshot
+    let spendingAnomaly: SpendingAnomalySnapshot
 
     var netCashFlow: Decimal { totalIncome + totalExpenses }
 

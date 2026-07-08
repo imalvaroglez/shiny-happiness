@@ -770,10 +770,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "New Household Settlement report calculates what to recover from Fer each month.",
-        "Classify expenses as yours, shared, Fer-only, or unassigned from transactions or the report.",
-        "Add monthly Fer income estimates and optional salary overrides without affecting core financial metrics.",
-        "Copy, share, or export a WhatsApp-friendly settlement summary.",
+        "Redesigned dashboard with four clear sections: Financial Snapshot, Insights, Trends, and Breakdowns.",
+        "New insight cards: Credit Card Pace, Upcoming Payments, and Spending Anomaly — calm unless something needs your attention.",
+        "Click any account Balance to copy the raw amount to your clipboard.",
+        "Matte spending bars and a bounded net-worth chart that no longer floods its card.",
     ]
 
     private var lastBackupDate: String? {
