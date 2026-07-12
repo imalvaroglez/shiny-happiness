@@ -160,18 +160,26 @@ struct HouseholdSettlementSummaryState {
 
 struct HouseholdTransactionSectionState: Identifiable {
     enum ID: String {
-        case unassigned = "household.unassigned.section"
+        case partnerOnly = "household.ferOnly.section"
         case shared = "household.shared.section"
-        case partnerOnly = "household.partnerOnly.section"
-        case personalExcluded = "household.personalExcluded.section"
+        case userOnly = "household.userOnly.section"
     }
 
     let id: ID
     let title: String
-    let emptyTitle: String
-    let emptyDescription: String
-    let actionTitle: String?
-    let rows: [HouseholdSettlementRow]
+    let countText: String
+    let subtotal: String
+    let initiallyExpanded: Bool
+    let rows: [HouseholdTransactionRowState]
+}
+
+struct HouseholdTransactionRowState: Identifiable {
+    let row: HouseholdSettlementRow
+    let amount: String
+    let metadata: String
+    let status: String
+
+    var id: UUID { row.id }
 }
 
 struct HouseholdSettlementPresenter {
@@ -195,7 +203,7 @@ struct HouseholdSettlementPresenter {
         return HouseholdSettlementScreenState(
             navigationTitle: Self.navigationTitle,
             reportMonthTitle: monthTitle,
-            subtitle: "Review shared and Fer-only expenses paid from your accounts.",
+            subtitle: "Review Household expenses you explicitly included — Mine, Shared, and Fer.",
             selectedYearMonth: selectedMonth,
             monthlySetup: monthlySetup(
                 setup: setup,
@@ -206,7 +214,7 @@ struct HouseholdSettlementPresenter {
             ),
             warning: warning(report: report, validation: validation),
             summary: summary(report: report, splitText: splitText),
-            transactionSections: transactionSections(report: report, monthTitle: monthTitle)
+            transactionSections: transactionSections(report: report)
         )
     }
 
@@ -251,17 +259,21 @@ struct HouseholdSettlementPresenter {
     }
 
     private func summary(report: HouseholdSettlementReport, splitText: String) -> HouseholdSettlementSummaryState {
-        HouseholdSettlementSummaryState(
+        let count = report.includedTransactionCount
+        let resultDescription = count == 0
+            ? "Based only on transactions included in Household Settlement."
+            : "Based only on \(count) transaction\(count == 1 ? "" : "s") included in Household Settlement."
+        return HouseholdSettlementSummaryState(
             resultLabel: "To recover from Fer",
             recoverAmount: formatters.currency(report.amountToRecoverFromPartner, "MXN"),
-            resultDescription: "Based on shared expenses and Fer-only expenses paid by you.",
+            resultDescription: resultDescription,
             breakdownTitle: "Breakdown",
             breakdownLines: [
-                .init(id: .totalPaidByUser, label: "Total paid by you", value: formatters.currency(report.totalPaidByUser, "MXN")),
-                .init(id: .sharedExpenses, label: "Shared expenses", value: formatters.currency(report.totalSharedExpenses, "MXN")),
+                .init(id: .totalPaidByUser, label: "Total household expenses paid by you", value: formatters.currency(report.totalPaidByUser, "MXN")),
+                .init(id: .sharedExpenses, label: "Shared household expenses", value: formatters.currency(report.totalSharedExpenses, "MXN")),
                 .init(id: .partnerSharedPortion, label: "Fer shared portion", value: formatters.currency(report.partnerFairShare, "MXN")),
                 .init(id: .partnerOnlyPaidByUser, label: "Fer-only paid by you", value: formatters.currency(report.partnerOnlyTotal, "MXN")),
-                .init(id: .userFinalCost, label: "Your final cost", value: formatters.currency(report.userFinalCost, "MXN")),
+                .init(id: .userFinalCost, label: "Your final household cost", value: formatters.currency(report.userFinalCost, "MXN")),
                 .init(id: .userSalary, label: "Your salary income", value: formatters.currency(report.userSalaryIncome, "MXN")),
                 .init(id: .partnerIncome, label: "Fer income estimate", value: formatters.currency(report.partnerIncomeEstimate, "MXN")),
                 .init(id: .split, label: "Split", value: splitText),
@@ -299,41 +311,87 @@ struct HouseholdSettlementPresenter {
         )
     }
 
-    private func transactionSections(report: HouseholdSettlementReport, monthTitle: String) -> [HouseholdTransactionSectionState] {
+    private func transactionSections(report: HouseholdSettlementReport) -> [HouseholdTransactionSectionState] {
         [
             HouseholdTransactionSectionState(
-                id: .unassigned,
-                title: "Unassigned expenses this month",
-                emptyTitle: "No unassigned expenses for \(monthTitle).",
-                emptyDescription: "New expenses that need household classification will appear here.",
-                actionTitle: "Review \(monthTitle) Transactions",
-                rows: report.unassignedRows
+                id: .partnerOnly,
+                title: "Fer-only expenses",
+                countText: countText(report.ferRows.count),
+                subtotal: subtotal(report.ferRows),
+                initiallyExpanded: false,
+                rows: rowStates(report.ferRows, report: report)
             ),
             HouseholdTransactionSectionState(
                 id: .shared,
                 title: "Shared expenses",
-                emptyTitle: "No shared expenses marked for \(monthTitle).",
-                emptyDescription: "Mark transactions as Shared to include them in this report.",
-                actionTitle: "Review \(monthTitle) Transactions",
-                rows: report.sharedRows
+                countText: countText(report.sharedRows.count),
+                subtotal: subtotal(report.sharedRows),
+                initiallyExpanded: false,
+                rows: rowStates(report.sharedRows, report: report)
             ),
             HouseholdTransactionSectionState(
-                id: .partnerOnly,
-                title: "Fer-only expenses",
-                emptyTitle: "No Fer-only expenses marked for \(monthTitle).",
-                emptyDescription: "Use this section for expenses you paid that belong fully to Fer.",
-                actionTitle: nil,
-                rows: report.partnerRows
-            ),
-            HouseholdTransactionSectionState(
-                id: .personalExcluded,
-                title: "Personal expenses excluded from settlement",
-                emptyTitle: "No personal expenses excluded.",
-                emptyDescription: "",
-                actionTitle: nil,
-                rows: report.excludedPersonalRows
+                id: .userOnly,
+                title: "Your household expenses",
+                countText: countText(report.userRows.count),
+                subtotal: subtotal(report.userRows),
+                initiallyExpanded: false,
+                rows: rowStates(report.userRows, report: report)
             ),
         ]
+    }
+
+    private func countText(_ count: Int) -> String {
+        "\(count) transaction\(count == 1 ? "" : "s")"
+    }
+
+    private func subtotal(_ rows: [HouseholdSettlementRow]) -> String {
+        let total = rows.reduce(Decimal.zero) { $0 + $1.amount }
+        return formatters.currency(total, rows.first?.transaction.currency ?? "MXN")
+    }
+
+    private func rowStates(
+        _ rows: [HouseholdSettlementRow],
+        report: HouseholdSettlementReport
+    ) -> [HouseholdTransactionRowState] {
+        rows.map { row in
+            let transaction = row.transaction
+            let currency = transaction.currency
+            let allocation = transaction.resolvedHouseholdAllocation
+            var metadata = [
+                transaction.account?.displayName ?? "No account",
+                transaction.category?.name ?? "Uncategorized",
+            ]
+            let status: String
+            switch allocation {
+            case .user:
+                metadata.append("User")
+                status = "Your cost: \(formatters.currency(row.userShare, currency))"
+            case .shared:
+                metadata.append(contentsOf: ["Shared", report.splitMethod.displayName])
+                status = "Fer \(formatters.currency(row.partnerShare, currency)) / You \(formatters.currency(row.userShare, currency))"
+            case .partner:
+                metadata.append("Fer")
+                status = "Recoverable: 100%"
+            case .custom:
+                let userPercent = row.amount == 0 ? Decimal.zero : row.userShare / row.amount
+                let ferPercent = row.amount == 0 ? Decimal.zero : row.partnerShare / row.amount
+                metadata.append(contentsOf: [
+                    "Shared",
+                    "Custom split",
+                    "You \(formatters.percent(userPercent)) / Fer \(formatters.percent(ferPercent))",
+                ])
+                status = "Fer \(formatters.currency(row.partnerShare, currency)) / You \(formatters.currency(row.userShare, currency))"
+            }
+            if let notes = transaction.settlementNotes, !notes.isEmpty {
+                metadata.append(notes)
+            }
+            return HouseholdTransactionRowState(
+                row: row,
+                amount: formatters.currency(row.amount, currency),
+                metadata: metadata.joined(separator: " · "),
+                status: status
+            )
+        }
     }
 
     private func splitLabel(_ report: HouseholdSettlementReport) -> String {

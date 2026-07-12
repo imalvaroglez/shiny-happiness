@@ -139,7 +139,7 @@ private struct PendingReviewRow: View {
             merchantNormalized: description,
             cardLast4: pending.cardLast4,
             source: .pendingResolution,
-            expenseAssignmentRaw: amount < 0 ? ExpenseAssignment.unassigned.rawValue : nil
+            householdScopeRaw: HouseholdScope.excluded.rawValue
         )
         modelContext.insert(txn)
         pending.resolvedTransaction = txn
@@ -185,7 +185,8 @@ private struct PendingReviewRow: View {
             amount: 0,
             currency: pending.account?.currency ?? "MXN",
             descriptionRaw: "Suppressed — kept deleted",
-            source: .pendingResolution
+            source: .pendingResolution,
+            householdScopeRaw: HouseholdScope.excluded.rawValue
         )
         if let txn = pending.resolvedTransaction {
             modelContext.insert(txn)

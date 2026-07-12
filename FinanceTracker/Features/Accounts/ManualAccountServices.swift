@@ -219,7 +219,8 @@ enum BalanceSnapshotService {
             isDuplicate: true,
             source: .manual,
             movementKindRaw: TransactionMovementKind.adjustment.rawValue,
-            treatmentKindRaw: TransactionTreatmentKind.valuationAdjustment.rawValue
+            treatmentKindRaw: TransactionTreatmentKind.valuationAdjustment.rawValue,
+            householdScopeRaw: HouseholdScope.excluded.rawValue
         )
         context.insert(tx)
     }
@@ -237,6 +238,7 @@ enum ManualTransactionService {
         flowKindRaw: String? = nil,
         treatmentKindRaw: String? = nil,
         expenseAssignment: ExpenseAssignment = .user,
+        householdScope: HouseholdScope = .excluded,
         context: ModelContext
     ) throws -> Transaction {
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -257,7 +259,8 @@ enum ManualTransactionService {
                 isTransfer: false
             ).rawValue,
             treatmentKindRaw: treatmentKindRaw ?? defaultTreatmentKind(account: account, description: trimmed).rawValue,
-            expenseAssignmentRaw: expenseAssignment == .user ? nil : expenseAssignment.rawValue
+            expenseAssignmentRaw: expenseAssignment == .user ? nil : expenseAssignment.rawValue,
+            householdScopeRaw: householdScope.rawValue
         )
         context.insert(tx)
         try context.save()
@@ -312,7 +315,8 @@ enum ManualTransferService {
             source: .manual,
             transferGroupID: groupID,
             movementKindRaw: TransactionMovementKind.transfer.rawValue,
-            treatmentKindRaw: transferTreatment(source: source, destination: destination).rawValue
+            treatmentKindRaw: transferTreatment(source: source, destination: destination).rawValue,
+            householdScopeRaw: HouseholdScope.excluded.rawValue
         )
         let inflow = Transaction(
             account: destination,
@@ -326,7 +330,8 @@ enum ManualTransferService {
             source: .manual,
             transferGroupID: groupID,
             movementKindRaw: TransactionMovementKind.transfer.rawValue,
-            treatmentKindRaw: transferTreatment(source: source, destination: destination).rawValue
+            treatmentKindRaw: transferTreatment(source: source, destination: destination).rawValue,
+            householdScopeRaw: HouseholdScope.excluded.rawValue
         )
         context.insert(outflow)
         context.insert(inflow)

@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    private static let schemaVersion = 4
+    private static let schemaVersion = 6
     private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -110,7 +110,7 @@ enum BackupArchive {
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard [1, 2, 3, 4].contains(manifest.schemaVersion) else {
+        guard [1, 2, 3, 4, 5, 6].contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
 
@@ -399,6 +399,14 @@ enum BackupArchive {
             if obj.treatmentKindRaw == nil {
                 obj.treatmentKindRaw = inferredBackupTreatmentKind(obj).rawValue
             }
+            // Derive explicit Household scope from legacy assignment only when the
+            // live row still has none. Already-explicit scope (from a v6 snapshot
+            // or preserved through merge) always wins and is never re-derived.
+            if obj.householdScopeRaw == nil {
+                obj.setHouseholdScope(
+                    HouseholdScopeResolver.resolveScope(assignmentRaw: snap.expenseAssignmentRaw)
+                )
+            }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
         for snap in pendingImportsSnap {
@@ -418,6 +426,7 @@ enum BackupArchive {
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
 
+        _ = HouseholdAllocationRepairService.repair(transactions: Array(transactionMap.values))
         try context.save()
 
         let statementsSource = bundleURL.appendingPathComponent(statementsSubdirectory)
@@ -790,8 +799,9 @@ extension Transaction {
             settlementPaidByRaw: snap.settlementPaidByRaw,
             splitMethodOverrideRaw: snap.splitMethodOverrideRaw,
             customUserPercent: snap.customUserPercent,
-            customPartnerPercent: snap.customPartnerPercent,
-            settlementNotes: snap.settlementNotes
+            customPartnerPercent: snap.customFerAmount ?? snap.customPartnerPercent,
+            settlementNotes: snap.settlementNotes,
+            householdScopeRaw: snap.householdScopeRaw
         )
         deletedAt = snap.deletedAt
     }
@@ -812,10 +822,13 @@ extension Transaction {
         movementKindRaw = snap.movementKindRaw
         treatmentKindRaw = snap.treatmentKindRaw
         expenseAssignmentRaw = snap.expenseAssignmentRaw
-        settlementPaidByRaw = snap.settlementPaidByRaw
+        // settlementPaidByRaw now carries household scope. An explicit snapshot
+        // value wins; otherwise preserve the live value so a legacy (nil-scope)
+        // snapshot cannot clobber the user's explicit included/excluded choice.
+        settlementPaidByRaw = snap.settlementPaidByRaw ?? settlementPaidByRaw
         splitMethodOverrideRaw = snap.splitMethodOverrideRaw
         customUserPercent = snap.customUserPercent
-        customPartnerPercent = snap.customPartnerPercent
+        customPartnerPercent = snap.customFerAmount ?? snap.customPartnerPercent
         settlementNotes = snap.settlementNotes
         deletedAt = snap.deletedAt
         lastModifiedAt = snap.lastModifiedAt
@@ -849,6 +862,8 @@ extension TransactionSnapshot {
             splitMethodOverrideRaw: transaction.splitMethodOverrideRaw,
             customUserPercent: transaction.customUserPercent,
             customPartnerPercent: transaction.customPartnerPercent,
+            customFerAmount: transaction.customFerAmount,
+            householdScopeRaw: transaction.householdScopeRaw,
             settlementNotes: transaction.settlementNotes,
             lastModifiedAt: transaction.lastModifiedAt,
             deletedAt: transaction.deletedAt

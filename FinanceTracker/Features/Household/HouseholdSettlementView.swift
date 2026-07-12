@@ -6,8 +6,6 @@ import UniformTypeIdentifiers
 struct HouseholdSettlementView: View {
     @Environment(\.modelContext) private var modelContext
 
-    var onReviewTransactions: () -> Void
-
     @State private var selectedMonth: YearMonth
     @State private var monthPickerYear: Int
     @State private var monthPickerMonth: Int
@@ -23,21 +21,21 @@ struct HouseholdSettlementView: View {
 
     @State private var report: HouseholdSettlementReport?
     @State private var monthTransactions: [Transaction] = []
-    @State private var selectedTransactionIDs: Set<UUID> = []
-    @State private var showingPersonalExpenses = false
+    @State private var expandedSections: Set<HouseholdTransactionSectionState.ID> = []
     @State private var showingExporter = false
     @State private var saveStatus = "Saved"
     @State private var isLoadingSetup = false
     @State private var pendingSaveTask: Task<Void, Never>?
 
     private let presenter = HouseholdSettlementPresenter()
+    private let onReviewTransactions: ((YearMonth) -> Void)?
 
-    init(initialSelectedMonth: YearMonth? = nil, onReviewTransactions: @escaping () -> Void = {}) {
-        self.onReviewTransactions = onReviewTransactions
+    init(initialSelectedMonth: YearMonth? = nil, onReviewTransactions: ((YearMonth) -> Void)? = nil) {
         let month = initialSelectedMonth ?? YearMonth(date: .now)
         _selectedMonth = State(initialValue: month)
         _monthPickerYear = State(initialValue: month.year)
         _monthPickerMonth = State(initialValue: month.month)
+        self.onReviewTransactions = onReviewTransactions
     }
 
     private var setup: HouseholdSettlementSetup {
@@ -62,28 +60,19 @@ struct HouseholdSettlementView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if let report {
-                    let state = screenState(for: report)
-                    header(state)
-                    monthlySetup(state.monthlySetup)
-                    warnings(state.warning)
-                    resultCard(state.summary)
-                    breakdown(state.summary)
-                    unassignedSection(state.transactionSection(.unassigned))
-                    transactionSection(
-                        state.transactionSection(.shared),
-                        mode: .shared
-                    )
-                    transactionSection(
-                        state.transactionSection(.partnerOnly),
-                        mode: .partner
-                    )
-                    let personal = state.transactionSection(.personalExcluded)
-                    DisclosureGroup(personal.title, isExpanded: $showingPersonalExpenses) {
-                        transactionRows(personal.rows, mode: .personal)
+                    header(screenState(for: report))
+                    monthlySetup(screenState(for: report).monthlySetup)
+                    if report.hasIncludedTransactions {
+                        let state = screenState(for: report)
+                        warnings(state.warning)
+                        resultCard(state.summary)
+                        breakdown(state.summary)
+                        ForEach(state.transactionSections) { section in
+                            transactionSection(section)
+                        }
+                    } else {
+                        emptyState
                     }
-                    .padding(16)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .accessibilityIdentifier(personal.id.rawValue)
                 } else {
                     header(nil)
                 }
@@ -96,6 +85,12 @@ struct HouseholdSettlementView: View {
         .navigationTitle(HouseholdSettlementPresenter.navigationTitle)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                if onReviewTransactions != nil {
+                    Button { onReviewTransactions?(selectedMonth) } label: {
+                        Label("Review transactions", systemImage: "list.bullet.rectangle.portrait")
+                    }
+                    .accessibilityIdentifier("household.reviewTransactions.button")
+                }
                 if let report {
                     Button { copy(report) } label: {
                         Label("Copy Summary", systemImage: "doc.on.doc")
@@ -186,7 +181,7 @@ struct HouseholdSettlementView: View {
                             .background(.blue.opacity(0.12), in: Capsule())
                     }
                 }
-                Text(state?.subtitle ?? "Review shared and Fer-only expenses paid from your accounts.")
+                Text(state?.subtitle ?? "Review Household expenses you explicitly included — Mine, Shared, and Fer.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("household.subtitle")
@@ -349,6 +344,25 @@ struct HouseholdSettlementView: View {
         }
     }
 
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("No household expenses included for this month.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Button {
+                onReviewTransactions?(selectedMonth)
+            } label: {
+                Label("Review transactions", systemImage: "list.bullet.rectangle.portrait")
+            }
+            .buttonStyle(.glassProminent)
+            .accessibilityIdentifier("household.empty.reviewTransactions")
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("household.empty.state")
+    }
+
     private func resultCard(_ state: HouseholdSettlementSummaryState) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(state.resultLabel)
@@ -379,77 +393,45 @@ struct HouseholdSettlementView: View {
         }
     }
 
-    private func unassignedSection(_ state: HouseholdTransactionSectionState) -> some View {
-        SectionCard(title: state.title) {
-            if state.rows.isEmpty {
-                emptyState(
-                    title: state.emptyTitle,
-                    description: state.emptyDescription,
-                    actionTitle: state.actionTitle
-                )
-            } else {
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("\(state.rows.count) expense\(state.rows.count == 1 ? "" : "s") to classify")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        ControlGroup {
-                            Button("Mine") { bulkAssign(.user) }
-                            Button("Shared") { bulkAssign(.shared) }
-                            Button("Fer") { bulkAssign(.partner) }
-                        }
-                        .controlSize(.small)
-                        .disabled(selectedTransactionIDs.isEmpty)
-                    }
-                    .padding(14)
-                    divider
-                    transactionRows(state.rows, mode: .unassigned)
-                }
+    private func transactionSection(_ state: HouseholdTransactionSectionState) -> some View {
+        DisclosureGroup(isExpanded: expansionBinding(for: state.id)) {
+            if !state.rows.isEmpty {
+                transactionRows(state.rows)
             }
+        } label: {
+            HStack(spacing: 12) {
+                Text(state.title)
+                    .font(.headline)
+                    .accessibilityIdentifier("\(state.id.rawValue).header")
+                Text(state.countText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(state.subtotal)
+                    .font(.callout.weight(.semibold))
+                    .monospacedDigit()
+            }
+            .contentShape(Rectangle())
+            .accessibilityIdentifier("\(state.id.rawValue).disclosure")
+            .accessibilityValue(expandedSections.contains(state.id) ? "Expanded" : "Collapsed")
         }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityIdentifier(state.id.rawValue)
     }
 
-    private func transactionSection(_ state: HouseholdTransactionSectionState, mode: HouseholdRowMode) -> some View {
-        SectionCard(title: state.title) {
-            if state.rows.isEmpty {
-                emptyState(title: state.emptyTitle, description: state.emptyDescription, actionTitle: state.actionTitle)
-            } else {
-                transactionRows(state.rows, mode: mode)
-            }
-        }
-        .accessibilityIdentifier(state.id.rawValue)
-    }
-
-    @ViewBuilder
-    private func transactionRows(_ rows: [HouseholdSettlementRow], mode: HouseholdRowMode) -> some View {
-        if rows.isEmpty {
-            Text("No personal expenses excluded.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .padding(14)
-        } else {
-            LazyVStack(spacing: 0) {
-                ForEach(rows) { row in
-                    householdTransactionRow(row, mode: mode)
-                    if row.id != rows.last?.id { divider }
-                }
+    private func transactionRows(_ rows: [HouseholdTransactionRowState]) -> some View {
+        LazyVStack(spacing: 0) {
+            ForEach(rows) { row in
+                householdTransactionRow(row)
+                if row.id != rows.last?.id { divider }
             }
         }
     }
 
-    private func householdTransactionRow(_ row: HouseholdSettlementRow, mode: HouseholdRowMode) -> some View {
-        let tx = row.transaction
+    private func householdTransactionRow(_ state: HouseholdTransactionRowState) -> some View {
+        let tx = state.row.transaction
         return HStack(alignment: .center, spacing: 12) {
-            if mode == .unassigned {
-                Toggle("", isOn: Binding(
-                    get: { selectedTransactionIDs.contains(tx.id) },
-                    set: { isOn in toggleSelection(tx, selected: isOn) }
-                ))
-                .labelsHidden()
-                .frame(width: 24)
-            }
             Text(tx.postedAt, format: .dateTime.day().month(.abbreviated))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -458,21 +440,21 @@ struct HouseholdSettlementView: View {
                 Text(tx.merchantNormalized.isEmpty ? tx.descriptionRaw : tx.merchantNormalized)
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
-                Text(rowMetadata(row, mode: mode))
+                Text(state.metadata)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
-                Text(HouseholdSettlementReport.money(row.amount, code: tx.currency))
+                Text(state.amount)
                     .font(.callout.weight(.semibold))
                     .monospacedDigit()
-                statusLabel(row, mode: mode)
+                Text(state.status)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            if mode == .unassigned {
-                assignmentControl(for: tx)
-            }
+            assignmentControl(for: tx)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -491,52 +473,17 @@ struct HouseholdSettlementView: View {
         .fixedSize()
     }
 
-    private func statusLabel(_ row: HouseholdSettlementRow, mode: HouseholdRowMode) -> some View {
-        let text: String
-        switch mode {
-        case .unassigned:
-            text = "Needs review"
-        case .shared:
-            text = "Fer \(HouseholdSettlementReport.money(row.partnerShare, code: row.transaction.currency)) / You \(HouseholdSettlementReport.money(row.userShare, code: row.transaction.currency))"
-        case .partner:
-            text = "Recoverable: 100%"
-        case .personal:
-            text = "Excluded"
-        }
-        return Text(text)
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-    }
-
-    private func rowMetadata(_ row: HouseholdSettlementRow, mode: HouseholdRowMode) -> String {
-        let tx = row.transaction
-        var parts = [
-            tx.account?.displayName ?? "No account",
-            tx.category?.name ?? "Uncategorized",
-            tx.expenseAssignment.displayName
-        ]
-        if mode == .shared {
-            parts.append(tx.splitMethodOverride.displayName)
-        }
-        if let notes = tx.settlementNotes, !notes.isEmpty {
-            parts.append(notes)
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func emptyState(title: String, description: String, actionTitle: String?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.callout.weight(.medium))
-            Text(description)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if let actionTitle {
-                Button(actionTitle) { onReviewTransactions() }
+    private func expansionBinding(for id: HouseholdTransactionSectionState.ID) -> Binding<Bool> {
+        Binding(
+            get: { expandedSections.contains(id) },
+            set: { expanded in
+                if expanded {
+                    expandedSections.insert(id)
+                } else {
+                    expandedSections.remove(id)
+                }
             }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        )
     }
 
     private func setupRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
@@ -592,7 +539,6 @@ struct HouseholdSettlementView: View {
 
     private func loadSetupAndReport() {
         isLoadingSetup = true
-        selectedTransactionIDs.removeAll()
         let monthStart = selectedMonth.startDate
         let estimate = HouseholdPartnerIncomeService.estimate(for: monthStart, context: modelContext)
         let savedSetup = HouseholdSettlementSetup(estimate)
@@ -677,31 +623,10 @@ struct HouseholdSettlementView: View {
         notes = ""
     }
 
-    private func toggleSelection(_ tx: Transaction, selected: Bool) {
-        if selected {
-            selectedTransactionIDs.insert(tx.id)
-        } else {
-            selectedTransactionIDs.remove(tx.id)
-        }
-    }
-
-    private func bulkAssign(_ assignment: ExpenseAssignment) {
-        guard !selectedTransactionIDs.isEmpty else { return }
-        let ids = selectedTransactionIDs
-        for row in report?.unassignedRows ?? [] where ids.contains(row.id) {
-            row.transaction.setExpenseAssignment(assignment)
-            row.transaction.touch()
-        }
-        try? modelContext.save()
-        selectedTransactionIDs.removeAll()
-        recomputeReport()
-    }
-
     private func assign(_ tx: Transaction, _ assignment: ExpenseAssignment) {
         tx.setExpenseAssignment(assignment)
         tx.touch()
         try? modelContext.save()
-        selectedTransactionIDs.remove(tx.id)
         recomputeReport()
     }
 
@@ -709,13 +634,6 @@ struct HouseholdSettlementView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(report.plainTextSummary, forType: .string)
     }
-}
-
-private enum HouseholdRowMode {
-    case unassigned
-    case shared
-    case partner
-    case personal
 }
 
 struct SettlementTextFile: FileDocument {

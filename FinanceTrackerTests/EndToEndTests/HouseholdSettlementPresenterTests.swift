@@ -34,12 +34,18 @@ struct HouseholdSettlementPresenterTests {
 
         #expect(result.navigationTitle == "Household Settlement")
         #expect(result.reportMonthTitle == "June 2026")
-        #expect(result.subtitle == "Review shared and Fer-only expenses paid from your accounts.")
+        #expect(result.subtitle == "Review Household expenses you explicitly included — Mine, Shared, and Fer.")
         #expect(!result.monthlySetup.rowLabels.contains("Report Month"))
         #expect(result.monthlySetup.partnerIncomeHelper == "Manual monthly estimate. Used only for this report.")
         #expect(result.summary.resultLabel == "To recover from Fer")
-        #expect(result.summary.recoverAmount == "$1,783.28")
+        #expect(result.summary.recoverAmount == "$3,249.95")
         #expect(summaryLine(.split, in: result).value == "You 86.84% / Fer 13.16%")
+        // Household-scoped breakdown labels and count-aware description.
+        #expect(summaryLine(.totalPaidByUser, in: result).label == "Total household expenses paid by you")
+        #expect(summaryLine(.sharedExpenses, in: result).label == "Shared household expenses")
+        #expect(summaryLine(.userFinalCost, in: result).label == "Your final household cost")
+        #expect(result.transactionSection(.userOnly).title == "Your household expenses")
+        #expect(result.summary.resultDescription.contains("included in Household Settlement"))
     }
 
     @Test("Fixture recover amount comes from calculator")
@@ -47,7 +53,7 @@ struct HouseholdSettlementPresenterTests {
         let report = HouseholdSettlementFixture.report()
 
         #expect(roundedCents(report.amountToRecoverFromPartner) == HouseholdSettlementFixture.expectedRecoverAmount)
-        #expect(state(report: report).summary.recoverAmount == "$1,783.28")
+        #expect(state(report: report).summary.recoverAmount == "$3,249.95")
     }
 
     @Test("Income warnings are exposed as presentation state")
@@ -108,6 +114,51 @@ struct HouseholdSettlementPresenterTests {
         #expect(result.monthlySetup.setupStatusText == "Fix setup to save")
     }
 
+    @Test("Sections are ordered, summarized, and initially collapsed")
+    func orderedCollapsedSections() {
+        let result = state()
+
+        #expect(result.transactionSections.map(\.id) == [.partnerOnly, .shared, .userOnly])
+        #expect(result.transactionSections.allSatisfy { !$0.initiallyExpanded })
+        #expect(result.transactionSection(.partnerOnly).countText == "1 transaction")
+        #expect(result.transactionSection(.shared).countText == "4 transactions")
+        #expect(result.transactionSection(.userOnly).countText == "1 transaction")
+        #expect(result.transactionSection(.partnerOnly).subtotal == "$500.00")
+        #expect(result.transactionSection(.userOnly).subtotal == "$900.00")
+        #expect(result.transactionSection(.shared).rows.contains {
+            $0.metadata.contains("Shared · Proportional by income")
+        })
+    }
+
+    @Test("Custom rows stay in Shared with derived exact metadata")
+    func customRowPresentation() throws {
+        let expense = category("Mixed purchase", kind: .expense)
+        let custom = transaction(amount: -2_200, category: expense, assignment: .user)
+        try custom.setCustomFerAmount(Decimal(string: "1466.67")!)
+        let setup = HouseholdSettlementSetup(
+            partnerIncomeEstimate: 500,
+            useUserIncomeManualOverride: true,
+            userIncomeManualOverride: 500
+        )
+        let report = report([custom], setup: setup)
+        let row = state(setup: setup, report: report).transactionSection(.shared).rows.first
+
+        #expect(row?.metadata.contains("Shared · Custom split") == true)
+        #expect(row?.metadata.contains("You 33.33% / Fer 66.67%") == true)
+        #expect(row?.amount == "$2,200.00")
+    }
+
+    @Test("Empty reports retain three compact zero-value headers")
+    func emptySectionHeaders() {
+        let setup = HouseholdSettlementSetup(partnerIncomeEstimate: 0, splitMethod: .fiftyFifty)
+        let report = report([], setup: setup)
+        let result = state(setup: setup, report: report)
+
+        #expect(result.transactionSections.count == 3)
+        #expect(result.transactionSections.allSatisfy { $0.countText == "0 transactions" })
+        #expect(result.transactionSections.allSatisfy { $0.subtotal == "$0.00" })
+    }
+
     private func summaryLine(
         _ id: HouseholdSettlementSummaryState.Line.ID,
         in state: HouseholdSettlementScreenState
@@ -142,6 +193,7 @@ struct HouseholdSettlementPresenterTests {
             descriptionRaw: category.name,
             category: category
         )
+        tx.setHouseholdScope(.included)
         tx.setExpenseAssignment(assignment)
         return tx
     }

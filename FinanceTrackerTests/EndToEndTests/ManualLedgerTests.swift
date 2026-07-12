@@ -317,6 +317,7 @@ struct ManualLedgerTests {
 
         #expect(tx.amount == 50_000, "Income should be positive")
         #expect(tx.source == .manual)
+        #expect(!HouseholdSettlementReportService.isSettlementEligible(tx))
     }
 
     @Test("Debit expense creates negative transaction")
@@ -336,6 +337,11 @@ struct ManualLedgerTests {
         )
 
         #expect(tx.amount == -85, "Expense should be negative")
+        #expect(tx.expenseAssignment == .user)
+        #expect(tx.expenseAssignmentRaw == nil)
+        #expect(HouseholdSettlementReportService.isSettlementEligible(tx))
+        #expect(tx.householdScope == .excluded, "New manual expenses default to excluded from Household Settlement")
+        #expect(tx.householdScopeRaw == "excluded")
     }
 
     @Test("Credit-card charge creates negative transaction")

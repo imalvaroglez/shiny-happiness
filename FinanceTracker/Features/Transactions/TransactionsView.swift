@@ -17,34 +17,59 @@ enum CategoryFilter: Hashable {
 
 enum AssignmentFilter: Hashable, CaseIterable {
     case all
-    case unassigned
     case user
     case shared
     case partner
+    case custom
 
     var displayName: String {
         switch self {
         case .all: "All Assignments"
-        case .unassigned: "Unassigned"
         case .user: "User"
         case .shared: "Shared"
         case .partner: "Fer"
+        case .custom: "Custom split"
         }
     }
 
     var assignment: ExpenseAssignment? {
         switch self {
         case .all: nil
-        case .unassigned: .unassigned
         case .user: .user
         case .shared: .shared
         case .partner: .partner
+        case .custom: .custom
         }
     }
 }
 
+enum HouseholdInclusionFilter: Hashable, CaseIterable {
+    case all
+    case included
+    case notIncluded
+
+    var displayName: String {
+        switch self {
+        case .all: "All Transactions"
+        case .included: "Included in Household"
+        case .notIncluded: "Not included in Household"
+        }
+    }
+}
+
+/// One-shot navigation intent: open Transactions with a preconfigured month +
+/// Household inclusion filter. Each preset carries a unique token so it is
+/// applied exactly once.
+struct TransactionFilterPreset: Identifiable, Equatable {
+    let id = UUID()
+    let month: YearMonth?
+    let inclusion: HouseholdInclusionFilter
+}
+
 struct TransactionsView: View {
     var resetSignal: Int = 0
+    var preset: TransactionFilterPreset? = nil
+    var onPresetConsumed: ((TransactionFilterPreset) -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Query private var accounts: [Account]
@@ -59,6 +84,9 @@ struct TransactionsView: View {
     @State private var accountFilterID: UUID?
     @State private var categoryFilter: CategoryFilter = .all
     @State private var assignmentFilter: AssignmentFilter = .all
+    @State private var householdInclusionFilter: HouseholdInclusionFilter = .all
+    @State private var presetMonth: YearMonth?
+    @State private var consumedPresetID: UUID?
     @State private var sortMode: TransactionSortMode = .dateDesc
     @State private var showingRecentlyDeleted = false
     @State private var selectionMode = false
@@ -84,6 +112,17 @@ struct TransactionsView: View {
         categories
             .filter { $0.parent?.id == parent.id }
             .sorted { $0.name < $1.name }
+    }
+
+    /// Applies a preset exactly once (token-guarded), then hands control back so
+    /// the user can edit filters. Never reapplies on later appearances, reset
+    /// signals, or direct sidebar navigation.
+    private func consumePresetIfNeeded() {
+        guard let preset, preset.id != consumedPresetID else { return }
+        consumedPresetID = preset.id
+        if let month = preset.month { presetMonth = month }
+        householdInclusionFilter = preset.inclusion
+        onPresetConsumed?(preset)
     }
 
     private func fetchTransactions() {
@@ -141,6 +180,26 @@ struct TransactionsView: View {
             }
         }
 
+        switch householdInclusionFilter {
+        case .all:
+            break
+        case .included:
+            result = result.filter {
+                HouseholdSettlementReportService.isSettlementEligible($0)
+                    && $0.isIncludedInHouseholdSettlement
+            }
+        case .notIncluded:
+            result = result.filter {
+                HouseholdSettlementReportService.isSettlementEligible($0)
+                    && !$0.isIncludedInHouseholdSettlement
+            }
+        }
+
+        if let month = presetMonth {
+            let calendar = Calendar(identifier: .gregorian)
+            result = result.filter { calendar.isDate($0.postedAt, equalTo: month.startDate, toGranularity: .month) }
+        }
+
         if !searchText.isEmpty {
             result = result.filter {
                 $0.descriptionRaw.localizedCaseInsensitiveContains(searchText) ||
@@ -169,6 +228,8 @@ struct TransactionsView: View {
                 accountFilterID: $accountFilterID,
                 categoryFilter: $categoryFilter,
                 assignmentFilter: $assignmentFilter,
+                householdInclusionFilter: $householdInclusionFilter,
+                presetMonth: $presetMonth,
                 sortMode: $sortMode,
                 showingRecentlyDeleted: $showingRecentlyDeleted,
                 deletedCount: deletedTransactions.count,
@@ -249,6 +310,7 @@ struct TransactionsView: View {
         .onChange(of: accountFilterID) { recomputeDisplay() }
         .onChange(of: categoryFilter) { recomputeDisplay() }
         .onChange(of: assignmentFilter) { recomputeDisplay() }
+        .onChange(of: householdInclusionFilter) { recomputeDisplay() }
         .onChange(of: searchText) { recomputeDisplay() }
         .onChange(of: sortMode) { recomputeDisplay() }
         .onChange(of: showingRecentlyDeleted) {
@@ -259,6 +321,12 @@ struct TransactionsView: View {
             recomputeDisplay()
         }
         .onAppear {
+            consumePresetIfNeeded()
+            fetchTransactions()
+            recomputeDisplay()
+        }
+        .onChange(of: preset) {
+            consumePresetIfNeeded()
             fetchTransactions()
             recomputeDisplay()
         }
@@ -270,6 +338,8 @@ struct TransactionsView: View {
             accountFilterID = nil
             categoryFilter = .all
             assignmentFilter = .all
+            householdInclusionFilter = .all
+            presetMonth = nil
             selectionMode = false
             selectedIDs.removeAll()
             editingTransaction = nil
@@ -325,7 +395,8 @@ struct TransactionsView: View {
                                         },
                                         onDelete: { softDelete(tx) },
                                         onRestore: { restore(tx) },
-                                        onApplyToSimilar: { beginApplyToSimilar(tx) }
+                                        onApplyToSimilar: { beginApplyToSimilar(tx) },
+                                        onToggleHousehold: { toggleHouseholdInclusion(tx) }
                                     )
                                     if index < group.transactions.count - 1 {
                                         DashboardSeparator()
@@ -361,11 +432,22 @@ struct TransactionsView: View {
     private func applyAssignment(_ assignment: ExpenseAssignment) {
         guard !selectedIDs.isEmpty else { return }
         for tx in allTransactions where selectedIDs.contains(tx.id) && HouseholdSettlementReportService.isSettlementEligible(tx) {
+            // Any explicit quick assignment (including Mine) proves Household intent:
+            // include the transaction and set the assignment.
+            tx.setHouseholdScope(.included)
             tx.setExpenseAssignment(assignment)
             tx.touch()
         }
         try? modelContext.save()
         selectedIDs.removeAll()
+        fetchTransactions()
+        recomputeDisplay()
+    }
+
+    private func toggleHouseholdInclusion(_ tx: Transaction) {
+        tx.setHouseholdScope(tx.isIncludedInHouseholdSettlement ? .excluded : .included)
+        tx.touch()
+        try? modelContext.save()
         fetchTransactions()
         recomputeDisplay()
     }

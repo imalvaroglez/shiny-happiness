@@ -174,6 +174,7 @@
 		F4901D08D52CA33C9A3D9FF5 /* HouseholdSettlementKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C993AEDD0F93127B9F78877C /* HouseholdSettlementKind.swift */; };
 		F4E1BF58F45908526146BFEB /* DashboardScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7D19D8C4A0F082760E74186 /* DashboardScope.swift */; };
 		F5DB3DDF765B96ACE07C2188 /* BackupModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750478702E1F74AF19265F62 /* BackupModels.swift */; };
+		F64F0325C721CC53653B88F5 /* HouseholdInclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BEEAF60DAD3D262734994E1 /* HouseholdInclusionTests.swift */; };
 		F6EF7475044393425338B9EC /* ConsolidatedDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C2CD008ED3068A1C7FF4C2 /* ConsolidatedDashboard.swift */; };
 		FA6555FD0FDADDF1307B9E70 /* HouseholdSettlementReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FEBB15355E0E96F56D3E126 /* HouseholdSettlementReportTests.swift */; };
 		FC94419B05C6E83DDDCD8B52 /* FinanceTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C7D22FF552A54C707D08AA2 /* FinanceTrackerApp.swift */; };
@@ -288,6 +289,7 @@
 		94C2CD008ED3068A1C7FF4C2 /* ConsolidatedDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidatedDashboard.swift; sourceTree = "<group>"; };
 		989ACDB4A037230E6C8E9080 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
 		9AEE9B7A28C2B8F8F246426D /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		9BEEAF60DAD3D262734994E1 /* HouseholdInclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseholdInclusionTests.swift; sourceTree = "<group>"; };
 		9E4BE0266F3DA957DDA0B8E0 /* DataBursatilClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataBursatilClientTests.swift; sourceTree = "<group>"; };
 		9F208E365E81EBE4E7DD2591 /* BackupScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupScheduler.swift; sourceTree = "<group>"; };
 		A24A6CE11C6370FEE1842953 /* BackupArchiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupArchiveTests.swift; sourceTree = "<group>"; };
@@ -597,6 +599,7 @@
 				DB404350F819D865D89629CD /* DashboardInsightBuilderTests.swift */,
 				F521469BFF0E58922383AB0A /* DashboardPeriodFilteringTests.swift */,
 				76945E0492AC714D84088096 /* EndToEndPDFTests.swift */,
+				9BEEAF60DAD3D262734994E1 /* HouseholdInclusionTests.swift */,
 				1120D54B1148DC01A73564D8 /* HouseholdSettlementPresenterTests.swift */,
 				1FEBB15355E0E96F56D3E126 /* HouseholdSettlementReportTests.swift */,
 				B725ADC4FF020A95041D0F41 /* ManualLedgerTests.swift */,
@@ -1086,6 +1089,7 @@
 				C80B8FA576C355F255DC67C0 /* EndToEndPDFTests.swift in Sources */,
 				539BF185CCDC45F9F61BCB30 /* FixtureLoader.swift in Sources */,
 				E3F543AB5E6335C626BD1438 /* HoldingsFingerprintTests.swift in Sources */,
+				F64F0325C721CC53653B88F5 /* HouseholdInclusionTests.swift in Sources */,
 				3DBDD12DF035D48D6245C4A6 /* HouseholdSettlementPresenterTests.swift in Sources */,
 				FA6555FD0FDADDF1307B9E70 /* HouseholdSettlementReportTests.swift in Sources */,
 				12A0A265B49384F8908150A2 /* IncomingTransferRulesTests.swift in Sources */,
@@ -1219,7 +1223,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260707.3;
+				CURRENT_PROJECT_VERSION = 20260712.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1229,7 +1233,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.10.0;
+				MARKETING_VERSION = 0.11.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app.dev;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = "FinanceTracker Dev";
@@ -1263,7 +1267,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260707.3;
+				CURRENT_PROJECT_VERSION = 20260712.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1273,7 +1277,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.10.0;
+				MARKETING_VERSION = 0.11.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = FinanceTracker;

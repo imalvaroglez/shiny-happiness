@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-12
+
+### Added
+
+- **Explicit Household inclusion.** Household Settlement is now opt-in: a transaction participates only when explicitly included via a new `householdScope` field (`excluded`/`included`), separate from assignment. New imported and manual eligible expenses default to `excluded`, so personal expenses no longer inflate Total paid by you, Your final household cost, or the report sections. Inclusion is toggled from Transaction Details (and a Household toggle in the manual sheet), surfaced with a house badge, a Not-included/Included list filter, and Add-to/Remove-from-Household quick actions. Any explicit Mine/Shared/Fer quick assignment on an excluded transaction includes it.
+- **Exact Household allocations.** Transactions can now use a Custom split with an exact Fer currency amount while preserving the original bank transaction.
+
+### Changed
+
+- **Household report is inclusion-scoped.** The calculator filters by explicit inclusion (not just technical eligibility); the "User-only expenses" section is renamed "Your household expenses"; breakdown labels gain "household" wording; an empty month shows a compact "No household expenses included" state with a Review transactions action that opens the Transactions list pre-filtered to the report's month + Not-included.
+- **Inclusion-aware migration.** Existing Shared/Fer/Custom expenses migrate to `included` (exact Custom amounts preserved); legacy default-User expenses migrate to `excluded` since the persisted form cannot distinguish an explicit Mine from the old automatic default. The one-time mapping is idempotent and runs from the existing launch repair hook. Missing/unknown scope decodes as `excluded`. Backup schema bumps v5 → v6 to carry the field; old snapshots derive scope from legacy assignment via a shared resolver.
+- **Scope storage.** Household scope is persisted by repurposing the previously-unused `settlementPaidByRaw` column rather than adding a new persisted property, so existing on-disk stores open with no SwiftData schema migration (adding an additive-optional property is not migratable under this app's explicit migration plan, and redefining the V5 model in place fails to reopen existing stores).
+- **Household assignment cleanup.** New eligible expenses default to User, the Unassigned queue is removed, and Fer-only, Shared, and User-only expenses appear in compact collapsible sections.
+- **Household totals and migration.** Total paid now reconciles every eligible expense, final user cost subtracts Fer recovery, and legacy percentage overrides migrate once to fixed exact amounts.
+
 ## [0.10.0] - 2026-07-07
 
 ### Added

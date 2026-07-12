@@ -116,7 +116,7 @@ Household Settlement is a planning/report layer, not accounting truth. Partner i
 
 - Keep report calculators pure where practical: selected month + setup + already-fetched transactions in, report rows/totals/warnings out. This makes behavior testable without SwiftUI or production stores.
 - Fetch the month once for interactive report screens, then recompute pure report state from cached in-memory rows while the user edits setup or assignment. Refetch only when the selected month changes or an external data change must be observed.
-- Default legacy missing `expenseAssignmentRaw` to `.user` so old history does not become a review backlog. New imported/manual regular expenses should get explicit `.unassigned` so the current month surfaces a focused classification queue.
+- Missing, legacy Unassigned, and unknown `expenseAssignmentRaw` values resolve to `.user`. New imported/manual regular expenses default to User; Household Settlement has no Unassigned classification queue.
 - Salary used for proportional household split is only regular income categorized as `Income > Salary` or `Income > Compensation`. Do not include interest, refunds, cashback, reimbursements, transfers, investment income, one-time adjustments, or other income.
 - Partner labels are user-facing as `Fer`; user labels should read as "Your" where possible. Do not introduce multi-partner abstractions until actually requested.
 - Month-first report UI should show the selected month as the main content heading. Avoid duplicating the feature title inside the body when the navigation title already names the screen, and avoid repeating the selected month inside setup cards.

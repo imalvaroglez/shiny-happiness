@@ -19,7 +19,7 @@ struct Normalizer {
                 isTransfer: raw.isTransfer
             ).rawValue,
             treatmentKindRaw: TransactionTreatmentKind.regular.rawValue,
-            expenseAssignmentRaw: raw.amount < 0 && !raw.isTransfer ? ExpenseAssignment.unassigned.rawValue : nil
+            householdScopeRaw: HouseholdScope.excluded.rawValue
         )
     }
 

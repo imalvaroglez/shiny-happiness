@@ -35,20 +35,17 @@ struct BackupArchiveTests {
                 account: account,
                 statement: statement,
                 postedAt: .now.addingTimeInterval(TimeInterval(-i * 86400)),
-                amount: Decimal(100 + i),
+                amount: -Decimal(100 + i),
                 currency: "MXN",
                 descriptionRaw: "Test transaction #\(i)"
             )
             if i == 0 {
-                tx.setExpenseAssignment(.shared)
-                tx.setSplitMethodOverride(.customPercent)
-                tx.customUserPercent = 60
-                tx.customPartnerPercent = 40
+                try tx.setCustomFerAmount(40)
                 tx.settlementNotes = "Groceries"
             } else if i == 1 {
                 tx.setExpenseAssignment(.partner)
             } else if i == 2 {
-                tx.setExpenseAssignment(.unassigned)
+                tx.expenseAssignmentRaw = "unassigned"
             }
             context.insert(tx)
         }
@@ -152,6 +149,77 @@ struct BackupArchiveTests {
         try? FileManager.default.removeItem(at: tmp)
     }
 
+    @Test("mergeKeepingNewer preserves an explicit live scope against a legacy nil-scope snapshot")
+    func mergePreservesExplicitScope() async throws {
+        // Live row is explicitly EXCLUDED by the user but retains a latent .shared
+        // assignment. A legacy (nil-scope) backup snapshot whose lastModifiedAt is
+        // newer must NOT re-include it: already-explicit scope always wins.
+        let target = try makeContainer()
+        let targetContext = target.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: targetContext)
+        let account = Account(institution: "Test Bank", type: .checking, currency: "MXN", nickname: "Checking")
+        targetContext.insert(account)
+        let food = FinanceTracker.Category(name: "Rent", kind: .expense)
+        targetContext.insert(food)
+        let tx = Transaction(
+            account: account,
+            postedAt: .now,
+            amount: -1_000,
+            descriptionRaw: "Rent",
+            category: food
+        )
+        tx.setExpenseAssignment(.shared)
+        tx.setHouseholdScope(.excluded)   // explicit user exclusion
+        tx.lastModifiedAt = .now.addingTimeInterval(-60)
+        targetContext.insert(tx)
+        try targetContext.save()
+
+        // Build a backup from a fresh container with the same tx id, shared+included.
+        let source = try makeContainer()
+        let sourceContext = source.mainContext
+        let sAccount = Account(institution: "Test Bank", type: .checking, currency: "MXN", nickname: "Checking")
+        sourceContext.insert(sAccount)
+        let sFood = FinanceTracker.Category(name: "Rent", kind: .expense)
+        sourceContext.insert(sFood)
+        let sTx = Transaction(
+            id: tx.id,
+            account: sAccount,
+            postedAt: .now,
+            amount: -1_000,
+            descriptionRaw: "Rent",
+            category: sFood
+        )
+        sTx.setExpenseAssignment(.shared)
+        sTx.setHouseholdScope(.included)  // newer backup says included
+        sTx.lastModifiedAt = .now          // newer than the live row → merge applies it
+        sourceContext.insert(sTx)
+        try sourceContext.save()
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-backup-scope-merge-\(UUID()).ftbackup", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try await BackupArchive.export(to: tmp, from: sourceContext)
+
+        // Strip the scope-carrying columns from the exported snapshot to simulate
+        // a legacy (pre-scope) backup. Scope is persisted in settlementPaidByRaw
+        // (repurposed); householdScopeRaw is a redundant alias also written by export.
+        let txURL = tmp.appendingPathComponent("models/Transaction.json")
+        var json = try JSONSerialization.jsonObject(with: Data(contentsOf: txURL)) as? [[String: Any]] ?? []
+        for i in json.indices {
+            json[i].removeValue(forKey: "householdScopeRaw")
+            json[i].removeValue(forKey: "settlementPaidByRaw")
+        }
+        let stripped = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted])
+        try stripped.write(to: txURL)
+
+        try await BackupArchive.restore(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
+
+        let restored = try #require(targetContext.fetch(FetchDescriptor<Transaction>()).first { $0.id == tx.id })
+        #expect(restored.householdScopeRaw == "excluded",
+               "explicit live exclusion must survive a legacy nil-scope merge")
+        #expect(restored.expenseAssignment == .shared)
+    }
+
     @Test("Manifest content hashes match the JSON files on disk")
     func manifestIntegrity() async throws {
         let source = try makePopulatedContainer()
@@ -165,7 +233,7 @@ struct BackupArchiveTests {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
 
-        #expect(manifest.schemaVersion == 4)
+        #expect(manifest.schemaVersion == 6)
         #expect(!manifest.contentHashes.isEmpty, "Manifest should have content hashes")
 
         for (name, _) in manifest.contentHashes {
@@ -338,7 +406,7 @@ struct BackupArchiveTests {
         #expect(restoredPosition.account?.id == account.id)
     }
 
-    @Test("Household settlement metadata round-trips on v4 backup")
+    @Test("Household settlement exact allocations round-trip on v5 backup")
     func householdSettlementRoundTrip() async throws {
         let source = try makePopulatedContainer()
         let tmp = FileManager.default.temporaryDirectory
@@ -351,18 +419,22 @@ struct BackupArchiveTests {
         try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
 
         let transactions = try target.mainContext.fetch(FetchDescriptor<Transaction>())
-        let shared = try #require(transactions.first { $0.expenseAssignment == .shared })
+        let custom = try #require(transactions.first { $0.expenseAssignment == .custom })
         let partner = try #require(transactions.first { $0.expenseAssignment == .partner })
-        let unassigned = try #require(transactions.first { $0.expenseAssignment == .unassigned })
+        let user = try #require(transactions.first { $0.expenseAssignment == .user })
         let estimates = try target.mainContext.fetch(FetchDescriptor<HouseholdPartnerIncomeEstimate>())
         let estimate = try #require(estimates.first)
 
-        #expect(shared.splitMethodOverride == .customPercent)
-        #expect(shared.customUserPercent == 60)
-        #expect(shared.customPartnerPercent == 40)
-        #expect(shared.settlementNotes == "Groceries")
+        #expect(custom.customFerAmount == 40)
+        #expect(custom.customUserPercent == nil)
+        #expect(custom.splitMethodOverride == .monthlyDefault)
+        #expect(custom.settlementNotes == "Groceries")
         #expect(partner.expenseAssignment == .partner)
-        #expect(unassigned.expenseAssignment == .unassigned)
+        #expect(user.expenseAssignmentRaw == nil)
+        // Legacy scope derived from assignment on restore: custom/partner → included, user/unassigned → excluded.
+        #expect(custom.householdScope == .included)
+        #expect(partner.householdScope == .included)
+        #expect(user.householdScope == .excluded)
         #expect(estimates.count == 1)
         #expect(estimate.amount == 25_000)
         #expect(estimate.useUserIncomeManualOverride)
@@ -371,6 +443,41 @@ struct BackupArchiveTests {
         #expect(estimate.customUserPercent == 80)
         #expect(estimate.customPartnerPercent == 20)
         #expect(estimate.notes == "Backup test")
+    }
+
+    @Test("Schema 4 percentage overrides restore as exact Custom allocations")
+    func schemaFourHouseholdOverrideMigration() async throws {
+        let source = try makePopulatedContainer()
+        let sourceTransactions = try source.mainContext.fetch(FetchDescriptor<Transaction>())
+        let legacy = try #require(sourceTransactions.first { $0.expenseAssignment == .custom })
+        legacy.setExpenseAssignment(.shared)
+        legacy.setSplitMethodOverride(.customPercent)
+        legacy.customUserPercent = 60
+        legacy.customPartnerPercent = 40
+        try source.mainContext.save()
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-backup-household-v4-\(UUID()).ftbackup", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try await BackupArchive.export(to: tmp, from: source.mainContext)
+
+        let manifestURL = tmp.appendingPathComponent("manifest.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.schemaVersion = 4
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: manifestURL)
+
+        let target = try makeContainer()
+        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        let restored = try target.mainContext.fetch(FetchDescriptor<Transaction>())
+        let custom = try #require(restored.first { $0.expenseAssignment == .custom })
+
+        #expect(custom.customFerAmount == 40)
+        #expect(custom.customUserPercent == nil)
+        #expect(custom.splitMethodOverrideRaw == nil)
     }
 
     @Test("Field-selective merge keeps newer holdings and newer quote independently")

@@ -26,7 +26,8 @@ struct ManualTransactionSheet: View {
     @State private var description = ""
     @State private var amount: Decimal = 0
     @State private var categoryID: UUID?
-    @State private var expenseAssignment: ExpenseAssignment = .unassigned
+    @State private var expenseAssignment: ExpenseAssignment = .user
+    @State private var includeInHousehold: Bool = false
     @State private var showingCategoryPicker = false
     @State private var errorMessage: String?
 
@@ -166,7 +167,14 @@ struct ManualTransactionSheet: View {
         }
         if kind == .expense || kind == .charge {
             panelDivider
-            expenseAssignmentRow
+            row("Include in Household") {
+                Toggle("", isOn: $includeInHousehold)
+                    .labelsHidden()
+            }
+            if includeInHousehold {
+                panelDivider
+                expenseAssignmentRow
+            }
         }
     }
 
@@ -236,8 +244,8 @@ struct ManualTransactionSheet: View {
     private var expenseAssignmentRow: some View {
         row("Assignment") {
             Picker("Assignment", selection: $expenseAssignment) {
-                ForEach(ExpenseAssignment.allCases) { assignment in
-                    Text(assignment.displayName).tag(assignment)
+                ForEach(ExpenseAssignment.quickCases) { assignment in
+                    Text(assignment == .user ? "Mine" : assignment.displayName).tag(assignment)
                 }
             }
             .labelsHidden()
@@ -315,6 +323,7 @@ struct ManualTransactionSheet: View {
                     category: selectedCategory,
                     flowKindRaw: TransactionFlowKind.expense.rawValue,
                     expenseAssignment: expenseAssignment,
+                    householdScope: includeInHousehold ? .included : .excluded,
                     context: modelContext
                 )
             case .charge:
@@ -327,6 +336,7 @@ struct ManualTransactionSheet: View {
                     category: selectedCategory,
                     flowKindRaw: TransactionFlowKind.charge.rawValue,
                     expenseAssignment: expenseAssignment,
+                    householdScope: includeInHousehold ? .included : .excluded,
                     context: modelContext
                 )
             case .cardCredit:

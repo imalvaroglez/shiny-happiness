@@ -6,6 +6,8 @@ struct TransactionFilterBar: View {
     @Binding var accountFilterID: UUID?
     @Binding var categoryFilter: CategoryFilter
     @Binding var assignmentFilter: AssignmentFilter
+    @Binding var householdInclusionFilter: HouseholdInclusionFilter
+    @Binding var presetMonth: YearMonth?
     @Binding var sortMode: TransactionSortMode
     @Binding var showingRecentlyDeleted: Bool
     let deletedCount: Int
@@ -122,6 +124,18 @@ struct TransactionFilterBar: View {
                 .labelsHidden()
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Household")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("Household", selection: $householdInclusionFilter) {
+                    ForEach(HouseholdInclusionFilter.allCases, id: \.self) { filter in
+                        Text(filter.displayName).tag(filter)
+                    }
+                }
+                .labelsHidden()
+            }
+
             if deletedCount > 0 {
                 Toggle(isOn: $showingRecentlyDeleted) {
                     Label("Recently Deleted (\(deletedCount))", systemImage: "trash")
@@ -133,6 +147,9 @@ struct TransactionFilterBar: View {
 
     @ViewBuilder
     private var activeFilterChips: some View {
+        if let presetMonth {
+            filterChip(presetMonth.displayName)
+        }
         if let selectedAccountName {
             filterChip(selectedAccountName)
         }
@@ -141,6 +158,9 @@ struct TransactionFilterBar: View {
         }
         if let selectedAssignmentName {
             filterChip(selectedAssignmentName)
+        }
+        if householdInclusionFilter != .all {
+            filterChip(householdInclusionFilter.displayName)
         }
         if showingRecentlyDeleted {
             filterChip("Deleted")
@@ -158,9 +178,11 @@ struct TransactionFilterBar: View {
 
     private var activeFilterCount: Int {
         var count = 0
+        if presetMonth != nil { count += 1 }
         if accountFilterID != nil { count += 1 }
         if categoryFilter != .all { count += 1 }
         if assignmentFilter != .all { count += 1 }
+        if householdInclusionFilter != .all { count += 1 }
         if showingRecentlyDeleted { count += 1 }
         return count
     }
@@ -197,9 +219,11 @@ struct TransactionFilterBar: View {
     }
 
     private func clearFilters() {
+        presetMonth = nil
         accountFilterID = nil
         categoryFilter = .all
         assignmentFilter = .all
+        householdInclusionFilter = .all
         showingRecentlyDeleted = false
     }
 }

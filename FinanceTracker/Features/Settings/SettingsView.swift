@@ -770,10 +770,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Redesigned dashboard with four clear sections: Financial Snapshot, Insights, Trends, and Breakdowns.",
-        "New insight cards: Credit Card Pace, Upcoming Payments, and Spending Anomaly — calm unless something needs your attention.",
-        "Click any account Balance to copy the raw amount to your clipboard.",
-        "Matte spending bars and a bounded net-worth chart that no longer floods its card.",
+        "Household Settlement is now opt-in: include only the expenses you actually share, so personal spending no longer inflates your totals.",
+        "A house icon marks included transactions, with Add-to / Remove-from-Household quick actions and an Included / Not-included filter.",
+        "Any explicit Mine, Shared, or Fer choice on an expense now adds it to Household automatically.",
+        "A cleaner report: “Your household expenses” replaces the old User-only section, with a focused empty state and a Review-transactions shortcut.",
     ]
 
     private var lastBackupDate: String? {
