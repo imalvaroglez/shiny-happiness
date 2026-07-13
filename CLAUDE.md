@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+The end-to-end change workflow (request → verification → independent review → human approval → release → install → rollback) and the approval gates live in [`docs/LOOPS.md`](docs/LOOPS.md). For non-trivial changes, prefer an orchestrated multi-agent workflow: parallel read-only exploration, scoped implementation, and fresh-context independent review. See `docs/LOOPS.md` for role boundaries and approval gates.
+
 ## Build & Run
 
 ```bash
