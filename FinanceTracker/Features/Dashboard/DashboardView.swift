@@ -17,6 +17,7 @@ struct DashboardView: View {
     @State private var showingPaymentDetails = false
     @State private var showingPositionsSheet = false
     @State private var dataResetGeneration = 0
+    @State private var pendingTransactionPreset: TransactionFilterPreset?
 
     @Query(sort: \Account.nickname) private var accounts: [Account]
 
@@ -57,6 +58,7 @@ struct DashboardView: View {
             let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
             guard outcome != .hardResetRequested else { return }
             SeedDataLoader.bootstrapIfNeeded(context: modelContext)
+            HouseholdAllocationRepairService.repairIfNeeded(context: modelContext)
             viewModel.setPeriod(selectedRange)
             viewModel.configure(context: modelContext)
             await BackupScheduler.runIfNeeded(context: modelContext)
@@ -177,9 +179,19 @@ struct DashboardView: View {
         case .overview, .account:
             dashboardDetail
         case .transactions:
-            TransactionsView(resetSignal: dataResetGeneration)
+            TransactionsView(
+                resetSignal: dataResetGeneration,
+                preset: pendingTransactionPreset,
+                onPresetConsumed: { _ in pendingTransactionPreset = nil }
+            )
         case .householdSettlement:
-            HouseholdSettlementView { sidebarSelection = .transactions }
+            HouseholdSettlementView(onReviewTransactions: { month in
+                pendingTransactionPreset = TransactionFilterPreset(
+                    month: month,
+                    inclusion: .notIncluded
+                )
+                sidebarSelection = .transactions
+            })
         case .importStatements:
             ImportView(modelContext: modelContext)
         case .settings:

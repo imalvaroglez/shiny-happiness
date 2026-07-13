@@ -11,6 +11,7 @@ struct TransactionLedgerRow: View {
     let onDelete: () -> Void
     let onRestore: () -> Void
     let onApplyToSimilar: () -> Void
+    var onToggleHousehold: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 12) {
@@ -47,6 +48,14 @@ struct TransactionLedgerRow: View {
 
             Spacer()
 
+            if transaction.isIncludedInHouseholdSettlement {
+                Image(systemName: "house.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Included in Household Settlement")
+                    .accessibilityIdentifier("transaction.row.householdBadge")
+            }
+
             categoryChip
 
             Text(MoneyFormat.string(transaction.amount, code: transaction.currency))
@@ -71,6 +80,14 @@ struct TransactionLedgerRow: View {
                 Button("Edit") { onOpenDetail() }
                 Button("Change Category") { onOpenCategoryPicker() }
                 Button("Apply to Similar…") { onApplyToSimilar() }
+                if isHouseholdEligible {
+                    Divider()
+                    if transaction.isIncludedInHouseholdSettlement {
+                        Button("Remove from Household") { onToggleHousehold() }
+                    } else {
+                        Button("Add to Household") { onToggleHousehold() }
+                    }
+                }
                 Divider()
                 Button("Delete", role: .destructive) { onDelete() }
             }
@@ -80,6 +97,10 @@ struct TransactionLedgerRow: View {
     private var primaryLabel: String {
         let merchant = transaction.merchantNormalized
         return merchant.isEmpty ? transaction.descriptionRaw : merchant
+    }
+
+    private var isHouseholdEligible: Bool {
+        HouseholdSettlementReportService.isSettlementEligible(transaction)
     }
 
     private var metadataParts: [String] {

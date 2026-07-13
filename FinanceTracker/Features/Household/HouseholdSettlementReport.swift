@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 
 struct YearMonth: Hashable, Identifiable {
@@ -110,20 +111,23 @@ struct HouseholdSettlementReport {
     let splitMethod: HouseholdSplitMethod
     let usingManualUserIncome: Bool
     let warnings: [String]
-    let unassignedRows: [HouseholdSettlementRow]
     let sharedRows: [HouseholdSettlementRow]
-    let partnerRows: [HouseholdSettlementRow]
-    let excludedPersonalRows: [HouseholdSettlementRow]
+    let ferRows: [HouseholdSettlementRow]
+    let userRows: [HouseholdSettlementRow]
     let blockedReason: String?
 
     var totalHouseholdIncome: Decimal { userSalaryIncome + partnerIncomeEstimate }
     var totalSharedExpenses: Decimal { sharedRows.reduce(0) { $0 + $1.amount } }
     var userFairShare: Decimal { sharedRows.reduce(0) { $0 + $1.userShare } }
     var partnerFairShare: Decimal { sharedRows.reduce(0) { $0 + $1.partnerShare } }
-    var partnerOnlyTotal: Decimal { partnerRows.reduce(0) { $0 + $1.amount } }
-    var totalPaidByUser: Decimal { totalSharedExpenses + partnerOnlyTotal }
+    var partnerOnlyTotal: Decimal { ferRows.reduce(0) { $0 + $1.amount } }
+    var userOnlyTotal: Decimal { userRows.reduce(0) { $0 + $1.amount } }
+    var totalPaidByUser: Decimal { totalSharedExpenses + partnerOnlyTotal + userOnlyTotal }
     var amountToRecoverFromPartner: Decimal { partnerFairShare + partnerOnlyTotal }
-    var userFinalCost: Decimal { userFairShare }
+    var userFinalCost: Decimal { totalPaidByUser - amountToRecoverFromPartner }
+    /// Count of explicitly included transactions across all three sections.
+    var includedTransactionCount: Int { sharedRows.count + ferRows.count + userRows.count }
+    var hasIncludedTransactions: Bool { includedTransactionCount > 0 }
 
     var splitLabel: String {
         guard splitAvailable else { return "Unavailable" }
@@ -147,6 +151,11 @@ struct HouseholdSettlementReport {
             "",
             "Fer-only expenses paid by you:",
             Self.money(partnerOnlyTotal),
+            "",
+            "Total paid by you:",
+            Self.money(totalPaidByUser),
+            "Your final cost:",
+            Self.money(userFinalCost),
             "",
             "Total to recover from Fer:",
             Self.money(amountToRecoverFromPartner)
@@ -284,6 +293,64 @@ enum HouseholdSettlementReportService {
     }
 }
 
+@MainActor
+enum HouseholdAllocationRepairService {
+    static func repairIfNeeded(context: ModelContext) {
+        guard ((try? context.fetchCount(FetchDescriptor<Account>())) ?? 0) > 0 else { return }
+        let transactions = (try? context.fetch(FetchDescriptor<Transaction>())) ?? []
+        guard repair(transactions: transactions) else { return }
+        do {
+            try context.save()
+        } catch {
+            Logger.app.error("Failed to persist Household allocation repair: \(error)")
+        }
+    }
+
+    @discardableResult
+    static func repair(transactions: [Transaction]) -> Bool {
+        var changed = false
+        for transaction in transactions {
+            let before = Snapshot(transaction)
+
+            // Normalize legacy allocation overrides (50/50, custom-percent → exact Custom).
+            if HouseholdSettlementReportService.isSettlementEligible(transaction) {
+                try? transaction.setHouseholdAllocation(transaction.resolvedHouseholdAllocation)
+            }
+
+            // One-time Household scope migration: only rows with no explicit scope.
+            // Derive from legacy assignment via the shared resolver, then persist the
+            // explicit raw so this never re-runs and never re-includes an excluded tx.
+            if transaction.householdScopeRaw == nil {
+                transaction.setHouseholdScope(
+                    HouseholdScopeResolver.resolveScope(assignmentRaw: transaction.expenseAssignmentRaw)
+                )
+            }
+
+            if Snapshot(transaction) != before {
+                transaction.touch()
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    private struct Snapshot: Equatable {
+        let assignment: String?
+        let split: String?
+        let userPercent: Decimal?
+        let partnerValue: Decimal?
+        let scope: String?
+
+        init(_ transaction: Transaction) {
+            assignment = transaction.expenseAssignmentRaw
+            split = transaction.splitMethodOverrideRaw
+            userPercent = transaction.customUserPercent
+            partnerValue = transaction.customPartnerPercent
+            scope = transaction.householdScopeRaw
+        }
+    }
+}
+
 enum HouseholdSettlementCalculator {
     static func build(monthStart: Date, transactions: [Transaction], setup: HouseholdSettlementSetup) -> HouseholdSettlementReport {
         let classifier = TransactionClassifier()
@@ -299,9 +366,15 @@ enum HouseholdSettlementCalculator {
             customPartner: setup.customPartnerPercent
         )
 
-        let expenseRows = transactions.filter { classifier.classify(transaction: $0).countsAsRegularExpense }
-        let sharedTransactions = expenseRows.filter { $0.expenseAssignment == .shared }
-        let needsMonthlySplit = sharedTransactions.contains { $0.splitMethodOverride == .monthlyDefault }
+        let expenseRows = transactions.filter {
+            classifier.classify(transaction: $0).countsAsRegularExpense
+                && $0.householdScope == .included
+        }
+        let sharedTransactions = expenseRows.filter {
+            if case .shared = $0.resolvedHouseholdAllocation { return true }
+            return false
+        }
+        let needsMonthlySplit = !sharedTransactions.isEmpty
         let blocked = needsMonthlySplit && !monthlyShares.available
         let warnings = warnings(
             setup: setup,
@@ -312,18 +385,27 @@ enum HouseholdSettlementCalculator {
         )
         let blockedReason = blocked ? warnings.first ?? "Income assumptions are incomplete." : nil
 
-        let sharedRows = sharedTransactions.map {
-            sharedRow($0, monthlyShares: monthlyShares, monthlyDefaultBlocked: blocked)
+        var sharedRows: [HouseholdSettlementRow] = []
+        var ferRows: [HouseholdSettlementRow] = []
+        var userRows: [HouseholdSettlementRow] = []
+        for transaction in expenseRows {
+            let amount = abs(transaction.amount)
+            switch transaction.resolvedHouseholdAllocation {
+            case .user:
+                userRows.append(HouseholdSettlementRow(transaction: transaction, amount: amount, userShare: amount, partnerShare: 0))
+            case .shared:
+                sharedRows.append(sharedRow(transaction, monthlyShares: monthlyShares, monthlyDefaultBlocked: blocked))
+            case .partner:
+                ferRows.append(HouseholdSettlementRow(transaction: transaction, amount: amount, userShare: 0, partnerShare: amount))
+            case .custom(let ferAmount):
+                sharedRows.append(HouseholdSettlementRow(
+                    transaction: transaction,
+                    amount: amount,
+                    userShare: amount - ferAmount,
+                    partnerShare: ferAmount
+                ))
+            }
         }
-        let partnerRows = expenseRows
-            .filter { $0.expenseAssignment == .partner }
-            .map { HouseholdSettlementRow(transaction: $0, amount: abs($0.amount), userShare: 0, partnerShare: abs($0.amount)) }
-        let personalRows = expenseRows
-            .filter { $0.expenseAssignment == .user }
-            .map { HouseholdSettlementRow(transaction: $0, amount: abs($0.amount), userShare: abs($0.amount), partnerShare: 0) }
-        let unassignedRows = expenseRows
-            .filter { $0.expenseAssignment == .unassigned }
-            .map { HouseholdSettlementRow(transaction: $0, amount: abs($0.amount), userShare: 0, partnerShare: 0) }
 
         return HouseholdSettlementReport(
             monthStart: monthStart,
@@ -336,10 +418,9 @@ enum HouseholdSettlementCalculator {
             splitMethod: setup.splitMethod,
             usingManualUserIncome: setup.useUserIncomeManualOverride,
             warnings: warnings,
-            unassignedRows: unassignedRows,
             sharedRows: sharedRows,
-            partnerRows: partnerRows,
-            excludedPersonalRows: personalRows,
+            ferRows: ferRows,
+            userRows: userRows,
             blockedReason: blockedReason
         )
     }
@@ -402,21 +483,9 @@ enum HouseholdSettlementCalculator {
         monthlyDefaultBlocked: Bool
     ) -> HouseholdSettlementRow {
         let amount = abs(transaction.amount)
-        let rowShares: (user: Decimal, partner: Decimal)
-        switch transaction.splitMethodOverride {
-        case .monthlyDefault:
-            rowShares = monthlyDefaultBlocked ? (0, 0) : (monthlyShares.user, monthlyShares.partner)
-        case .fiftyFifty:
-            rowShares = (Decimal(string: "0.5")!, Decimal(string: "0.5")!)
-        case .customPercent:
-            if let user = transaction.customUserPercent,
-               let partner = transaction.customPartnerPercent,
-               user >= 0, partner >= 0, user + partner == 100 {
-                rowShares = (user / 100, partner / 100)
-            } else {
-                rowShares = monthlyShares.available ? (monthlyShares.user, monthlyShares.partner) : (0, 0)
-            }
-        }
+        let rowShares = monthlyDefaultBlocked
+            ? (user: Decimal.zero, partner: Decimal.zero)
+            : (user: monthlyShares.user, partner: monthlyShares.partner)
         return HouseholdSettlementRow(
             transaction: transaction,
             amount: amount,

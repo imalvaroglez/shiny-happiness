@@ -96,6 +96,8 @@ struct TransactionSnapshot: Codable {
     var splitMethodOverrideRaw: String?
     var customUserPercent: Decimal?
     var customPartnerPercent: Decimal?
+    var customFerAmount: Decimal? = nil
+    var householdScopeRaw: String? = nil
     var settlementNotes: String?
     var lastModifiedAt: Date
     var deletedAt: Date?

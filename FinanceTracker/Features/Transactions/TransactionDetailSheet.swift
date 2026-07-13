@@ -22,10 +22,9 @@ struct TransactionDetailSheet: View {
     @State private var draftFlowKind: TransactionFlowKind
     @State private var draftTreatmentKind: TransactionTreatmentKind
     @State private var draftExpenseAssignment: ExpenseAssignment
-    @State private var draftSplitMethod: HouseholdSplitMethod
-    @State private var draftCustomUserPercent: Decimal
-    @State private var draftCustomPartnerPercent: Decimal
+    @State private var draftCustomFerAmount: Decimal?
     @State private var draftSettlementNotes: String
+    @State private var draftIncluded: Bool
     @State private var draftCategory: Category?
     @State private var showingCategoryPicker = false
 
@@ -44,16 +43,25 @@ struct TransactionDetailSheet: View {
     }
 
     private var isSettlementEditable: Bool {
-        !isBalanceMirror && !transaction.isTransfer && !transaction.isDuplicate && transaction.amount < 0
+        !isBalanceMirror && HouseholdSettlementReportService.isSettlementEligible(transaction)
     }
 
     private var customSplitInvalid: Bool {
-        isSettlementEditable
-            && draftExpenseAssignment == .shared
-            && draftSplitMethod == .customPercent
-            && (draftCustomUserPercent < 0
-                || draftCustomPartnerPercent < 0
-                || draftCustomUserPercent + draftCustomPartnerPercent != 100)
+        draftExpenseAssignment == .custom && customSplitError != nil
+    }
+
+    private var customSplitError: String? {
+        guard isSettlementEditable, draftExpenseAssignment == .custom else { return nil }
+        guard let amount = draftCustomFerAmount else { return "Enter Fer's portion." }
+        if amount < 0 { return "Fer’s portion cannot be negative." }
+        if amount > abs(displayAmount) { return "Fer’s portion cannot exceed the original amount." }
+        if amount != amount.currencyRounded { return "Use no more than two decimal places." }
+        return nil
+    }
+
+    private var customUserAmount: Decimal? {
+        guard customSplitError == nil, let ferAmount = draftCustomFerAmount else { return nil }
+        return abs(displayAmount) - ferAmount
     }
 
     init(transaction: Transaction, onCategoryAssigned: @escaping (CategoryChange) -> Void, onSaved: (() -> Void)? = nil) {
@@ -67,11 +75,10 @@ struct TransactionDetailSheet: View {
         _draftFlowKind = State(initialValue: transaction.flowKind)
         _draftTreatmentKind = State(initialValue: transaction.treatmentKind)
         _draftExpenseAssignment = State(initialValue: transaction.expenseAssignment)
-        _draftSplitMethod = State(initialValue: transaction.splitMethodOverride)
-        _draftCustomUserPercent = State(initialValue: transaction.customUserPercent ?? 50)
-        _draftCustomPartnerPercent = State(initialValue: transaction.customPartnerPercent ?? 50)
+        _draftCustomFerAmount = State(initialValue: transaction.customFerAmount)
         _draftSettlementNotes = State(initialValue: transaction.settlementNotes ?? "")
         _draftCategory = State(initialValue: transaction.category)
+        _draftIncluded = State(initialValue: transaction.isIncludedInHouseholdSettlement)
     }
 
     var body: some View {
@@ -83,6 +90,11 @@ struct TransactionDetailSheet: View {
         }
         .padding(24)
         .frame(width: 600)
+        .onChange(of: draftExpenseAssignment) {
+            if draftExpenseAssignment == .custom, draftCustomFerAmount == nil {
+                draftCustomFerAmount = (abs(displayAmount) / 2).currencyRounded
+            }
+        }
         .sheet(isPresented: $showingCategoryPicker) {
             CategoryPickerView(transaction: transaction) { category, keyword in
                 draftCategory = category
@@ -268,48 +280,75 @@ struct TransactionDetailSheet: View {
 
     @ViewBuilder
     private var settlementRows: some View {
-        editRow("Assignment") {
-            Picker("Assignment", selection: $draftExpenseAssignment) {
-                ForEach(ExpenseAssignment.allCases) { assignment in
-                    Text(assignment.displayName).tag(assignment)
-                }
-            }
-            .labelsHidden()
-            .frame(maxWidth: .infinity, alignment: .trailing)
+        editRow("Include in Household Settlement") {
+            Toggle("", isOn: $draftIncluded)
+                .labelsHidden()
+                .accessibilityIdentifier("transaction.household.includeToggle")
         }
-        if draftExpenseAssignment == .shared {
+        if draftIncluded {
             panelDivider
-            editRow("Split") {
-                Picker("Split", selection: $draftSplitMethod) {
-                    ForEach(HouseholdSplitMethod.allCases) { method in
-                        Text(method.displayName).tag(method)
+            editRow("Assignment") {
+                Picker("Assignment", selection: $draftExpenseAssignment) {
+                    ForEach(ExpenseAssignment.allCases) { assignment in
+                        Text(assignment == .user ? "Mine" : assignment.displayName)
+                            .accessibilityIdentifier("transaction.assignment.\(assignment.rawValue)")
+                            .tag(assignment)
                     }
                 }
                 .labelsHidden()
                 .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityIdentifier("transaction.assignment.picker")
             }
-            if draftSplitMethod == .customPercent {
-                panelDivider
-                editRow("User %") {
-                    TextField("50", value: $draftCustomUserPercent, format: .number)
-                        .textFieldStyle(.plain)
-                        .multilineTextAlignment(.trailing)
-                }
-                panelDivider
-                editRow("Partner %") {
-                    TextField("50", value: $draftCustomPartnerPercent, format: .number)
-                        .textFieldStyle(.plain)
-                        .multilineTextAlignment(.trailing)
-                }
-                if customSplitInvalid {
-                    Text("Custom split must add to 100%.")
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 6)
+            if draftExpenseAssignment == .custom {
+            panelDivider
+            editRow("Fer’s portion") {
+                HStack(spacing: 8) {
+                    TextField(
+                        "0.00",
+                        value: $draftCustomFerAmount,
+                        format: .number.precision(.fractionLength(0...2))
+                    )
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .accessibilityIdentifier("transaction.customSplit.ferAmount")
+                    Text(transaction.currency)
+                        .foregroundStyle(.secondary)
                 }
             }
+            panelDivider
+            editRow("Your portion") {
+                Text(customUserAmount.map { MoneyFormat.string($0, code: transaction.currency) } ?? "—")
+                    .monospacedDigit()
+                    .accessibilityIdentifier("transaction.customSplit.userAmount")
+            }
+            if let userAmount = customUserAmount,
+               let ferAmount = draftCustomFerAmount,
+               abs(displayAmount) > 0 {
+                Text("You \(HouseholdSettlementReport.percent(userAmount / abs(displayAmount))) / Fer \(HouseholdSettlementReport.percent(ferAmount / abs(displayAmount)))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 6)
+                    .accessibilityLabel("You \(HouseholdSettlementReport.percent(userAmount / abs(displayAmount))), Fer \(HouseholdSettlementReport.percent(ferAmount / abs(displayAmount)))")
+            }
+            if let customSplitError {
+                Text(customSplitError)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 6)
+            }
+        }
+        } else {
+            Text("Only included transactions appear in Household Settlement and affect the amount to recover from Fer.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 6)
         }
         panelDivider
         editRow("Settlement Notes") {
@@ -429,6 +468,8 @@ struct TransactionDetailSheet: View {
             .buttonStyle(.glassProminent)
             .keyboardShortcut(.defaultAction)
             .disabled(customSplitInvalid)
+            .accessibilityIdentifier("transaction.save.button")
+            .accessibilityValue(customSplitInvalid ? "Disabled: invalid custom split" : "Enabled")
         }
     }
 
@@ -465,16 +506,22 @@ struct TransactionDetailSheet: View {
             transaction.setReportingTreatment(draftTreatmentKind)
         }
         if isSettlementEditable {
-            transaction.setExpenseAssignment(draftExpenseAssignment)
-            if draftExpenseAssignment == .shared {
-                transaction.setSplitMethodOverride(draftSplitMethod)
-                transaction.customUserPercent = draftSplitMethod == .customPercent ? draftCustomUserPercent : nil
-                transaction.customPartnerPercent = draftSplitMethod == .customPercent ? draftCustomPartnerPercent : nil
-            } else {
-                transaction.setSplitMethodOverride(.monthlyDefault)
-                transaction.customUserPercent = nil
-                transaction.customPartnerPercent = nil
+            // Write the assignment/custom first; only persist scope once that
+            // succeeds so a validation error can't leave a half-mutated row.
+            if draftIncluded {
+                if draftExpenseAssignment == .custom, let ferAmount = draftCustomFerAmount {
+                    do {
+                        try transaction.setCustomFerAmount(ferAmount)
+                    } catch {
+                        return
+                    }
+                } else {
+                    transaction.setExpenseAssignment(draftExpenseAssignment)
+                }
             }
+            // Scope is always persisted explicitly. Exclusion preserves any latent
+            // assignment/custom as inactive metadata (do not clear them here).
+            transaction.setHouseholdScope(draftIncluded ? .included : .excluded)
             let notes = draftSettlementNotes.trimmingCharacters(in: .whitespacesAndNewlines)
             transaction.settlementNotes = notes.isEmpty ? nil : notes
         }

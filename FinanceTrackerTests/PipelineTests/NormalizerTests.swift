@@ -3,6 +3,7 @@ import Foundation
 @testable import FinanceTracker
 
 @Suite("Normalizer")
+@MainActor
 struct NormalizerTests {
 
     @Test("Normalizes single RawTransaction to Transaction with relationships")
@@ -35,6 +36,10 @@ struct NormalizerTests {
         #expect(tx.isTransfer == false)
         #expect(tx.isDuplicate == false)
         #expect(tx.fxRateToBase == 1)
+        #expect(tx.expenseAssignment == .user)
+        #expect(tx.expenseAssignmentRaw == nil)
+        #expect(tx.householdScope == .excluded, "New imports default to excluded from Household Settlement")
+        #expect(tx.householdScopeRaw == "excluded")
     }
 
     @Test("Normalizes multiple RawTransactions")
@@ -56,8 +61,11 @@ struct NormalizerTests {
 
         #expect(transactions.count == 2)
         #expect(transactions[0].amount == -500)
+        #expect(transactions[0].expenseAssignment == .user)
+        #expect(HouseholdSettlementReportService.isSettlementEligible(transactions[0]))
         #expect(transactions[1].amount == 25000)
         #expect(transactions[1].isTransfer == true)
+        #expect(!HouseholdSettlementReportService.isSettlementEligible(transactions[1]))
         for tx in transactions {
             #expect(tx.account === account)
             #expect(tx.statement === statement)

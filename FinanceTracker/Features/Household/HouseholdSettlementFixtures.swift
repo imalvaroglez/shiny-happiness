@@ -3,7 +3,7 @@ import SwiftData
 
 enum HouseholdSettlementFixture {
     static let month = YearMonth(year: 2026, month: 6)
-    static let expectedRecoverAmount = Decimal(string: "1783.28")!
+    static let expectedRecoverAmount = Decimal(string: "3249.95")!
 
     static var setup: HouseholdSettlementSetup {
         HouseholdSettlementSetup(partnerIncomeEstimate: 9_000)
@@ -35,14 +35,26 @@ enum HouseholdSettlementFixture {
         let internet = Category(name: "Internet", kind: .expense)
         let partner = Category(name: "Partner", kind: .expense)
         let personal = Category(name: "Personal", kind: .expense)
-        [salary, rent, maintenance, internet, partner, personal].forEach(context.insert)
+        let furniture = Category(name: "Furniture", kind: .expense)
+        let mixed = Category(name: "Mixed Purchase", kind: .expense)
+        [salary, rent, maintenance, internet, partner, personal, furniture, mixed].forEach(context.insert)
 
         context.insert(transaction(account: account, day: 5, amount: 59_379.31, category: salary))
-        context.insert(transaction(account: account, day: 6, amount: -8_000, category: rent, assignment: .shared))
-        context.insert(transaction(account: account, day: 7, amount: -1_000, category: maintenance, assignment: .shared))
-        context.insert(transaction(account: account, day: 8, amount: -750, category: internet, assignment: .shared))
-        context.insert(transaction(account: account, day: 9, amount: -500, category: partner, assignment: .partner))
-        context.insert(transaction(account: account, day: 10, amount: -300, category: personal, assignment: .user))
+        context.insert(transaction(account: account, day: 6, amount: -8_000, category: rent, assignment: .shared, scope: .included))
+        context.insert(transaction(account: account, day: 7, amount: -1_000, category: maintenance, assignment: .shared, scope: .included))
+        context.insert(transaction(account: account, day: 8, amount: -750, category: internet, assignment: .shared, scope: .included))
+        context.insert(transaction(account: account, day: 9, amount: -500, category: partner, assignment: .partner, scope: .included))
+        context.insert(transaction(account: account, day: 10, amount: -300, category: personal, assignment: .user, scope: .excluded))
+        context.insert(transaction(account: account, day: 12, amount: -900, category: furniture, assignment: .user, scope: .included))
+        context.insert(transaction(
+            account: account,
+            day: 11,
+            amount: -2_200,
+            category: mixed,
+            assignment: .custom,
+            customFerAmount: Decimal(string: "1466.67")!,
+            scope: .included
+        ))
         try HouseholdPartnerIncomeService.upsert(
             month: month.startDate,
             amount: setup.partnerIncomeEstimate,
@@ -77,13 +89,25 @@ enum HouseholdSettlementFixture {
         let internet = Category(name: "Internet", kind: .expense)
         let partner = Category(name: "Partner", kind: .expense)
         let personal = Category(name: "Personal", kind: .expense)
+        let furniture = Category(name: "Furniture", kind: .expense)
+        let mixed = Category(name: "Mixed Purchase", kind: .expense)
         return [
             transaction(account: account, day: 5, amount: 59_379.31, category: salary),
-            transaction(account: account, day: 6, amount: -8_000, category: rent, assignment: .shared),
-            transaction(account: account, day: 7, amount: -1_000, category: maintenance, assignment: .shared),
-            transaction(account: account, day: 8, amount: -750, category: internet, assignment: .shared),
-            transaction(account: account, day: 9, amount: -500, category: partner, assignment: .partner),
-            transaction(account: account, day: 10, amount: -300, category: personal, assignment: .user),
+            transaction(account: account, day: 6, amount: -8_000, category: rent, assignment: .shared, scope: .included),
+            transaction(account: account, day: 7, amount: -1_000, category: maintenance, assignment: .shared, scope: .included),
+            transaction(account: account, day: 8, amount: -750, category: internet, assignment: .shared, scope: .included),
+            transaction(account: account, day: 9, amount: -500, category: partner, assignment: .partner, scope: .included),
+            transaction(account: account, day: 10, amount: -300, category: personal, assignment: .user, scope: .excluded),
+            transaction(account: account, day: 12, amount: -900, category: furniture, assignment: .user, scope: .included),
+            transaction(
+                account: account,
+                day: 11,
+                amount: -2_200,
+                category: mixed,
+                assignment: .custom,
+                customFerAmount: Decimal(string: "1466.67")!,
+                scope: .included
+            ),
         ]
     }
 
@@ -93,7 +117,9 @@ enum HouseholdSettlementFixture {
         day: Int,
         amount: Decimal,
         category: Category,
-        assignment: ExpenseAssignment = .user
+        assignment: ExpenseAssignment = .user,
+        customFerAmount: Decimal? = nil,
+        scope: HouseholdScope = .excluded
     ) -> Transaction {
         let postedAt = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 6, day: day))!
         let tx = Transaction(
@@ -102,9 +128,16 @@ enum HouseholdSettlementFixture {
             amount: amount,
             descriptionRaw: category.name,
             merchantNormalized: category.name,
-            category: category
+            category: category,
+            householdScopeRaw: scope.rawValue
         )
-        tx.setExpenseAssignment(assignment)
+        if scope == .included {
+            if let customFerAmount {
+                try! tx.setCustomFerAmount(customFerAmount)
+            } else {
+                tx.setExpenseAssignment(assignment)
+            }
+        }
         return tx
     }
 }
