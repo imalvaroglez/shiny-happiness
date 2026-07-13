@@ -13,6 +13,28 @@
 
 No external dependencies — pure Apple frameworks (SwiftUI, SwiftData, Swift Charts, PDFKit).
 
+## Workflow
+
+The authoritative end-to-end change workflow — request → specification →
+automated verification → independent review → **human development approval** →
+release preparation → backup confirmation → build → installation → rollback —
+is documented in [`docs/LOOPS.md`](docs/LOOPS.md). Read it before starting
+non-trivial work and before any release or production install. It defines the
+workflow states, the two independent review gates, the exact build/test
+commands, the backup and `.app` replacement protocols, and the rollback rules.
+
+This `AGENTS.md` remains the architecture, style, and production-data-safety
+contract; `docs/LOOPS.md` governs process. Key boundary the workflow enforces:
+**"ready for development validation" and passing tests do not authorize
+release or installation** — only an explicit user message does, and
+installation is a separate gate.
+
+For non-trivial changes, prefer an orchestrated multi-agent workflow: parallel
+read-only exploration, scoped implementation, and fresh-context independent
+review. See `docs/LOOPS.md` for role boundaries and approval gates.
+
+
+
 ## Build, Test, and Development Commands
 
 - `xcodegen generate` regenerates `FinanceTracker.xcodeproj` from `project.yml`; **run after adding, moving, or deleting any Swift file**. Never edit `.xcodeproj` directly (AD-005).
