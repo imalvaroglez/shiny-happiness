@@ -445,6 +445,79 @@ struct BackupArchiveTests {
         #expect(estimate.notes == "Backup test")
     }
 
+    @Test("Repurposed settlementPaidByRaw scope values round-trip exactly")
+    func scopeValuesRoundTrip() async throws {
+        let source = try makeContainer()
+        let context = source.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+        let account = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Checking")
+        context.insert(account)
+        let food = FinanceTracker.Category(name: "Rent", kind: .expense)
+        context.insert(food)
+        let included = Transaction(account: account, postedAt: .now, amount: -1_000, descriptionRaw: "Rent", category: food)
+        included.setExpenseAssignment(.shared)
+        included.setHouseholdScope(.included)
+        let excluded = Transaction(account: account, postedAt: .now, amount: -50, descriptionRaw: "Coffee", category: food)
+        excluded.setHouseholdScope(.excluded)
+        context.insert(included)
+        context.insert(excluded)
+        try context.save()
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-backup-scope-rt-\(UUID()).ftbackup", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try await BackupArchive.export(to: tmp, from: context)
+
+        let target = try makeContainer()
+        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+
+        let restored = try target.mainContext.fetch(FetchDescriptor<Transaction>())
+        #expect(restored.first { $0.descriptionRaw == "Rent" }?.householdScopeRaw == "included")
+        #expect(restored.first { $0.descriptionRaw == "Rent" }?.householdScope == .included)
+        #expect(restored.first { $0.descriptionRaw == "Coffee" }?.householdScopeRaw == "excluded")
+        #expect(restored.first { $0.descriptionRaw == "Coffee" }?.householdScope == .excluded)
+    }
+
+    @Test("Legacy SettlementPaidBy raw values are not misread as scope on restore")
+    func legacySettlementPaidByRawNotMisreadAsScope() async throws {
+        // The scope column (settlementPaidByRaw) is repurposed. A legacy backup
+        // could in principle carry dead SettlementPaidBy raws ("user"/"partner"/
+        // "unknown"). None of those are valid HouseholdScope raws, so restore must
+        // treat them as legacy and re-derive scope from assignment, not interpret
+        // them as scope.
+        let source = try makePopulatedContainer()
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-backup-legacy-spb-\(UUID()).ftbackup", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try await BackupArchive.export(to: tmp, from: source.mainContext)
+
+        // Inject legacy SettlementPaidBy raws into the exported snapshot.
+        let txURL = tmp.appendingPathComponent("models/Transaction.json")
+        var json = try JSONSerialization.jsonObject(with: Data(contentsOf: txURL)) as? [[String: Any]] ?? []
+        for i in json.indices {
+            let tx = json[i]
+            // settlementPaidByRaw holds legacy values; ensure no householdScopeRaw
+            // alias is present so the derive path runs.
+            var t = tx
+            t.removeValue(forKey: "householdScopeRaw")
+            t["settlementPaidByRaw"] = "partner"  // a dead SettlementPaidBy raw, not a scope
+            json[i] = t
+        }
+        try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted]).write(to: txURL)
+
+        let target = try makeContainer()
+        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+
+        let restored = try target.mainContext.fetch(FetchDescriptor<Transaction>())
+        // "partner" is not a valid HouseholdScope → decodes to .excluded (never .included).
+        // The legacy raw must NOT be honored as scope.
+        #expect(restored.allSatisfy { $0.householdScope != .included || $0.expenseAssignment == .custom || $0.expenseAssignment == .partner || $0.expenseAssignment == .shared },
+               "no transaction should be 'included' solely because of a legacy SettlementPaidBy raw")
+        // Concretely: a user-assigned tx with a stale 'partner' settlementPaidByRaw is excluded.
+        let user = try #require(restored.first { $0.expenseAssignment == .user })
+        #expect(user.householdScope == .excluded)
+    }
+
     @Test("Schema 4 percentage overrides restore as exact Custom allocations")
     func schemaFourHouseholdOverrideMigration() async throws {
         let source = try makePopulatedContainer()
