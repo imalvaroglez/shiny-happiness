@@ -21,17 +21,36 @@ SUPPORTED_SCHEMA = {4, 5, 6}
 
 # Mismas ubicaciones que StoreFileResetService / BackupScheduler.
 DEFAULT_BACKUP_DIRS = [
+    # Exports manuales del usuario (lo más fresco típicamente; la app escribe aquí
+    # cuando el usuario hace Export). Se busca PRIMERO por mtime.
+    Path.home() / "Documents/finanzas/FinanceTracker",
+    # Backups automáticos del contenedor de producción.
     Path.home() / "Library/Containers/com.financeTracker.app/Data/Library/Application Support/FinanceTracker/Backups",
+    # Dev / testing (suelen estar vacíos o con datos de prueba).
     Path.home() / "Library/Containers/com.financeTracker.app.dev/Data/Library/Application Support/FinanceTracker/Backups",
 ]
 
+# Antigüedad (horas) a partir de la cual load_dataset avisa que el dato podría estar desfasado
+# respecto a la app en vivo. Solo advisory; no bloquea.
+STALE_AFTER_HOURS = 24
+
+
+def _is_dev_or_testing(p: Path) -> bool:
+    return ("com.financeTracker.app.dev" in str(p)) or ("com.financeTracker.app.testing" in str(p))
+
+
+def _mtime(p: Path) -> datetime:
+    """mtime del bundle como datetime tz-aware (UTC)."""
+    return datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+
 
 def latest_backup() -> Path:
-    """El .ftbackup más reciente CON DATOS REALES.
+    """El .ftbackup más reciente CON DATOS REALES, buscando en TODAS las ubicaciones
+    conocidas y comparando mtime real (no el nombre del archivo).
 
-    Hay varios containers (app=producción, app.dev, app.testing). Los de dev/testing
-    suelen estar vacíos. Entre todos los bundles, tomamos el más reciente cuyo
-    Transaction.json tenga filas, prefiriendo producción si hay empate de timestamp.
+    Orden de preferencia ante empate de mtime: prod > dev/testing.
+    Antes se miraba solo el contenedor y se ordenaba por nombre — eso hacía que un
+    export manual fresco en ~/Documents se ignorara. Ahora gana el genuinamente más fresco.
     """
     candidates: List[Path] = []
     for d in DEFAULT_BACKUP_DIRS:
@@ -53,22 +72,26 @@ def latest_backup() -> Path:
         except (json.JSONDecodeError, ValueError):
             return 0
 
-    # ordenar: producción primero, luego por timestamp descendente
-    prod_first = sorted(
-        candidates,
-        key=lambda p: ("com.financeTracker.app.dev" in str(p) or "com.financeTracker.app.testing" in str(p), p.name),
-        reverse=False,  # prod (False) antes que dev/testing (True)
-    )
-    # entre los que tienen datos, el más reciente
+    # De-priorizar dev/testing: mismo mtime → prod gana. La clave de orden es
+    # (mtime asc, es_dev asc); max() se queda con el mayor → mtime más alto, y entre
+    # iguales, prod (False=0) pierde ante dev (True=1)... así que invertimos: queremos
+    # que prod gane en empate → clave (mtime, NO es_dev) para que prod(1) > dev(0).
+    def sort_key(p: Path):
+        return (_mtime(p), 0 if _is_dev_or_testing(p) else 1)
+
     with_data = [p for p in candidates if tx_count(p) > 0]
-    if with_data:
-        return max(with_data, key=lambda p: p.name)
-    # sin datos en ningún bundle → el más reciente de producción, o el último absoluto
-    prod = [p for p in candidates if "com.financeTracker.app" in str(p)
-            and "dev" not in str(p) and "testing" not in str(p)]
-    if prod:
-        return max(prod, key=lambda p: p.name)
-    return max(candidates, key=lambda p: p.name)
+    pool = with_data if with_data else candidates
+    return max(pool, key=sort_key)
+
+
+def _stale_note(bundle: Path) -> str:
+    """Mensaje advisory si el bundle cargado pasa de STALE_AFTER_HOURS."""
+    age_h = (datetime.now(timezone.utc) - _mtime(bundle)).total_seconds() / 3600
+    if age_h > STALE_AFTER_HOURS:
+        return (f"⚠️ Este bundle tiene {age_h:.0f}h de antigüedad (mtime {bundle.name}). "
+                "Los backups automáticos de la app pueden estar estancados; para datos al "
+                "día, exporta uno fresco (Settings → Backup & Data → Export backup).")
+    return ""
 
 
 def _parse_iso(s: str) -> Optional[datetime]:
@@ -148,9 +171,14 @@ def summarize(ds: Dict[str, Any]) -> str:
     span = date_span(live)
 
     lines = []
-    lines.append(f"📦 {ds['bundle'].name}")
+    bundle = ds["bundle"]
+    lines.append(f"📦 {bundle.name}")
+    lines.append(f"   origen: {bundle.parent}  ·  mtime {_mtime(bundle).strftime('%Y-%m-%d %H:%M UTC')}")
     lines.append(f"   schemaVersion={m.get('schemaVersion')}  appVersion={m.get('appVersion')}  "
                  f"createdAt={m.get('createdAt')}")
+    stale = _stale_note(bundle)
+    if stale:
+        lines.append(f"   {stale}")
     lines.append(f"   transacciones vivas: {len(live)} / {len(ds['transactions'])} "
                  f"(soft-deleted: {len(ds['transactions']) - len(live)})")
     if span:
