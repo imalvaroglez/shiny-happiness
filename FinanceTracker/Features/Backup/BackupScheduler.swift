@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 
 #if os(macOS)
@@ -11,6 +12,7 @@ enum BackupScheduler {
         do {
             appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
         } catch {
+            Logger.app.error("BackupScheduler: no se resolvió Application Support: \(error.localizedDescription)")
             return
         }
         let backupsDir = appSupport.appendingPathComponent("FinanceTracker/Backups")
@@ -18,6 +20,7 @@ enum BackupScheduler {
         do {
             try fm.createDirectory(at: backupsDir, withIntermediateDirectories: true)
         } catch {
+            Logger.app.error("BackupScheduler: no se pudo crear \(backupsDir.path): \(error.localizedDescription)")
             return
         }
 
@@ -34,7 +37,11 @@ enum BackupScheduler {
             } catch {
                 attrs = .distantPast
             }
-            if Date.now.timeIntervalSince(attrs) < 86400 { return }
+            if Date.now.timeIntervalSince(attrs) < 86400 {
+                Logger.app.debug("BackupScheduler: último backup tiene <24h (\(mostRecent.lastPathComponent)); se omite.")
+                return
+            }
+            Logger.app.info("BackupScheduler: último backup \(mostRecent.lastPathComponent) tiene >24h; generando uno nuevo.")
         }
 
         let timestamp = formatter.string(from: Date.now)
@@ -43,9 +50,13 @@ enum BackupScheduler {
         do {
             try await BackupArchive.export(to: bundleURL, from: context)
         } catch {
+            // Antes este error se tragaba en silencio: el backup fallaba y no quedaba
+            // evidencia, así que los backups automáticos se estancaban sin aviso.
+            Logger.app.error("BackupScheduler: export falló para \(bundleURL.lastPathComponent): \(error.localizedDescription)")
             return
         }
 
+        Logger.app.info("BackupScheduler: backup generado \(bundleURL.lastPathComponent).")
         pruneSnapshots(in: backupsDir)
     }
 

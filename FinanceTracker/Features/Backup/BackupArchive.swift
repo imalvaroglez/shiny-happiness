@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 import SwiftData
 
 #if os(macOS)
@@ -88,7 +89,13 @@ enum BackupArchive {
                 let relative = file.path.replacingOccurrences(of: sourceStatements.path + "/", with: "")
                 let dest = statementsDir.appendingPathComponent(relative)
                 try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try fm.copyItem(at: file, to: dest)
+                do {
+                    try fm.copyItem(at: file, to: dest)
+                } catch {
+                    // Un statement que no se pueda copiar no debe abortar todo el backup;
+                    // se loguea y se continúa con el resto.
+                    Logger.app.error("BackupArchive: no se pudo copiar statement \(file.lastPathComponent): \(error.localizedDescription)")
+                }
             }
         }
 
