@@ -62,25 +62,41 @@ enum BackupScheduler {
 
     static func pruneSnapshots(in directory: URL) {
         let fm = FileManager.default
-        let bundles = backupURLs(in: directory)
-        guard bundles.count > 1 else { return }
+        // backupURLs devuelve mtime ascendente; aquí queremos DESCENDENTE para que los
+        // buckets (diario/semanal/mensual) se llenen con el bundle MÁS RECIENTE de cada
+        // período, no con el más viejo. Iterar ascendente hacía que un bundle recién
+        // creado quedara fuera de los 7 diarios (ya ocupados por viejos) y de los
+        // buckets semana/mes (ya con representante viejo), y terminaba BORRADO por la
+        // poda — el scheduler generaba su backup y lo eliminaba en la línea siguiente.
+        let bundles = backupURLs(in: directory).sorted { urlBefore($0, $1, fm: fm) }.reversed()
+        let bundlesArray = Array(bundles)
+        guard bundlesArray.count > 1 else { return }
 
         let calendar = Calendar(identifier: .gregorian)
 
-        var dailyKept: Set<URL> = []
+        // El más reciente SIEMPRE se conserva (es el backup que acaba de crear el
+        // scheduler, o el último bueno). Esto es la red de seguridad: ningún bug de
+        // bucketing puede borrarlo.
+        guard let mostRecent = bundlesArray.first else { return }
+        var keep: Set<URL> = [mostRecent]
+
+        var dailyCount = 0
         var weeklyBuckets: [Int: URL] = [:]
         var monthlyBuckets: [Int: URL] = [:]
 
-        for url in bundles {
+        for url in bundlesArray {
             guard let modDate = try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date else { continue }
 
-            if dailyKept.count < 7 {
-                dailyKept.insert(url)
+            // Los 7 más recientes como retención diaria.
+            if dailyCount < 7 {
+                keep.insert(url)
+                dailyCount += 1
             }
 
             let weekOfYear = calendar.component(.weekOfYear, from: modDate)
             let yearForWeek = calendar.component(.yearForWeekOfYear, from: modDate)
             let weekKey = yearForWeek * 100 + weekOfYear
+            // Primer match en orden DESCENDENTE = el más reciente de esa semana.
             if weeklyBuckets[weekKey] == nil {
                 weeklyBuckets[weekKey] = url
             }
@@ -93,19 +109,18 @@ enum BackupScheduler {
             }
         }
 
-        var keep = dailyKept
-        let weeklyValues = Array(weeklyBuckets.values)
-        let sortedWeekly = weeklyValues.sorted { urlBefore($0, $1, fm: fm) }
-        for url in sortedWeekly.suffix(4) {
+        // Conservar los 4 buckets semanales y 12 mensuales MÁS RECIENTES (suffix de
+        // los valores ordenados ascendentemente = los más nuevos).
+        let weeklyValues = Array(weeklyBuckets.values).sorted { urlBefore($0, $1, fm: fm) }
+        for url in weeklyValues.suffix(4) {
             keep.insert(url)
         }
-        let monthlyValues = Array(monthlyBuckets.values)
-        let sortedMonthly = monthlyValues.sorted { urlBefore($0, $1, fm: fm) }
-        for url in sortedMonthly.suffix(12) {
+        let monthlyValues = Array(monthlyBuckets.values).sorted { urlBefore($0, $1, fm: fm) }
+        for url in monthlyValues.suffix(12) {
             keep.insert(url)
         }
 
-        for url in bundles {
+        for url in bundlesArray {
             if !keep.contains(url) {
                 try? fm.removeItem(at: url)
             }
