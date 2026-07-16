@@ -1,0 +1,53 @@
+# Python tooling for the .claude/skills/finanzas skill scripts.
+#
+# The shipped skill is stdlib-only at runtime (runs under bare `python3` in any
+# Claude session). This file only governs the DEV environment — tests, property
+# checks, and the linter — managed with Poetry.
+#
+# Run:   poetry install
+#        poetry run pytest
+#        poetry run ruff check .
+
+[tool.poetry]
+name = "finanzas-skill-tooling"
+version = "0.1.0"
+description = "Tests + linters for the FinanceTracker finanzas skill (analysis scripts). Not packaged; dev-only."
+authors = ["Álvaro González"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+hypothesis = ">=6.100"
+ruff = ">=0.5"
+
+[build-system]
+requires = ["poetry-core>=2.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+# Only lint files this change owns/edits. The other skill scripts predate this
+# change and were never linted; touching them now would bloat the diff.
+extend-exclude = [
+    ".claude/skills/finanzas/_shared",
+    ".claude/skills/finanzas/habits",
+    ".claude/skills/finanzas/debt",
+    ".claude/skills/finanzas/income",
+    ".claude/skills/finanzas/review",
+    ".claude/skills/finanzas/recategorize",
+]
+
+[tool.ruff.lint]
+# pycodestyle (E), pyflakes (F), isort (I), pyupgrade (UP), bugbear (B).
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

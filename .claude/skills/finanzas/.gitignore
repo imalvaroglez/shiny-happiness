@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+
+# Poetry / pytest / ruff (dev tooling; el runtime del skill sigue siendo stdlib-only)
+.venv/
+dist/
+.pytest_cache/
+.coverage
+.ruff_cache/
+*.egg-info/
