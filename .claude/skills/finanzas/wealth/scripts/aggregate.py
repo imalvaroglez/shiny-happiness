@@ -6,14 +6,16 @@ from __future__ import annotations
 
 import sys
 from collections import defaultdict
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 _SHARED = str(Path(__file__).resolve().parents[2] / "_shared")
 sys.path.insert(0, _SHARED)
+
+import balance as _balance  # noqa: E402 — puerto de AccountBalanceResolver.swift
 
 LIQUIDITY_RAW_LIQUID = {"liquid"}
 
@@ -25,40 +27,41 @@ class AccountView:
     nickname: str
     type: str
     currency: str
-    liquidity_raw: Optional[str]
-    include_in_net_worth: Optional[bool]
-    latest_balance: Optional[Decimal]
-    latest_balance_date: Optional[str]
+    liquidity_raw: str | None
+    include_in_net_worth: bool | None
+    latest_balance: Decimal | None
+    latest_balance_date: str | None
     source: str  # "snapshot" | "statement" | "none"
 
 
-def _effective_include_nw(a: Dict[str, Any]) -> bool:
+def _effective_include_nw(a: dict[str, Any]) -> bool:
     v = a.get("includeInNetWorth")
     if v is None:
         return a.get("type") != "other"
     return v
 
 
-def _account_views(ds) -> List[AccountView]:
+def _account_views(ds, as_of=None) -> list[AccountView]:
+    """Saldo por cuenta vía el resolver (snapshot/statement base + transacciones
+    posteriores). Reemplaza el max(snapshots) ad hoc que dejaba saldos congelados.
+
+    as_of: datetime o 'YYYY-MM-DD' string. None = último instante conocido del bundle."""
+    if as_of is None:
+        as_of_dt = _balance.as_of_default(ds)
+    elif isinstance(as_of, str):
+        as_of_dt = _parse_day(as_of)
+    else:
+        as_of_dt = as_of
     out = []
     for a in ds["models"]["Account"]:
         aid = a["id"]
-        snaps = [s for s in ds["snapshots"] if s.get("accountId") == aid]
-        latest_snap = max(snaps, key=lambda s: s.get("date", "")) if snaps else None
-        stmts = [s for s in ds["statements"] if s.get("accountId") == aid and s.get("closingBalance") is not None]
-        latest_stmt = max(stmts, key=lambda s: s.get("periodEnd", "")) if stmts else None
-
-        balance, date, source = None, None, "none"
-        # snapshot > statement para activos; statement (closing) es buen anchor para pasivos
-        if latest_snap and latest_snap.get("amount") is not None:
-            balance = Decimal(str(latest_snap["amount"]))
-            date = (latest_snap.get("date") or "")[:10]
-            source = "snapshot"
-        elif latest_stmt:
-            balance = Decimal(str(latest_stmt["closingBalance"]))
-            date = (latest_stmt.get("periodEnd") or "")[:10]
-            source = "statement"
-
+        r = _balance.resolve(ds, aid, as_of_dt)
+        if r.source_kind == "insufficient":
+            balance, date, source = None, None, "none"
+        else:
+            balance = r.amount
+            date = (r.source_date.isoformat()[:10]) if r.source_date else None
+            source = "statement" if r.anchor_kind == "statement" else "snapshot"
         out.append(AccountView(
             id=aid,
             institution=a.get("institution", ""),
@@ -74,9 +77,9 @@ def _account_views(ds) -> List[AccountView]:
     return out
 
 
-def net_worth_at(ds, as_of: Optional[str] = None) -> Tuple[Decimal, str]:
+def net_worth_at(ds, as_of: str | None = None) -> tuple[Decimal, str]:
     """Net worth a una fecha (None = último conocido). Devuelve (monto, nota de fuente)."""
-    views = [v for v in _account_views(ds) if _effective_include_nw({
+    views = [v for v in _account_views(ds, as_of) if _effective_include_nw({
         "includeInNetWorth": v.include_in_net_worth, "type": v.type}) and v.latest_balance is not None]
     total = sum((v.latest_balance for v in views), Decimal(0))
     # nota de frescura
@@ -87,7 +90,7 @@ def net_worth_at(ds, as_of: Optional[str] = None) -> Tuple[Decimal, str]:
     return total, note
 
 
-def net_worth_series(ds) -> List[Tuple[str, Decimal]]:
+def net_worth_series(ds) -> list[tuple[str, Decimal]]:
     """Serie de net worth a lo largo del tiempo, sampleando en cada fecha de snapshot única.
     Simplificado: para cada fecha-distinta de snapshot, suma el último saldo conocido de cada
     cuenta hasta esa fecha. Es una aproximación del AccountBalanceResolver (Derivado)."""
@@ -97,24 +100,32 @@ def net_worth_series(ds) -> List[Tuple[str, Decimal]]:
         return []
     series = []
     for d in all_dates:
+        d_dt = _parse_day(d)
+        if d_dt is None:
+            continue
         total = Decimal(0)
         any_balance = False
         for a in ds["models"]["Account"]:
             if not _effective_include_nw(a):
                 continue
-            snaps = [s for s in ds["snapshots"]
-                     if s.get("accountId") == a["id"] and (s.get("date") or "")[:10] <= d]
-            if snaps:
-                latest = max(snaps, key=lambda s: s.get("date", ""))
-                if latest.get("amount") is not None:
-                    total += Decimal(str(latest["amount"]))
-                    any_balance = True
+            r = _balance.resolve(ds, a["id"], d_dt)
+            if r.source_kind != "insufficient":
+                total += r.amount
+                any_balance = True
         if any_balance:
             series.append((d, total))
     return series
 
 
-def composition(ds) -> Dict[str, Decimal]:
+def _parse_day(d: str):
+    """'2026-07-01' -> tz-aware datetime a medianoche UTC."""
+    try:
+        return datetime.fromisoformat(d + "T00:00:00+00:00")
+    except ValueError:
+        return None
+
+
+def composition(ds) -> dict[str, Decimal]:
     """Composición: liquidity / patrimonial / retirement / liability / uncategorized.
     Mismo bucketing que NetWorthComposition.swift."""
     buckets = {k: Decimal(0) for k in ("liquidity", "patrimonial", "retirement", "liability", "uncategorized")}
@@ -140,14 +151,14 @@ def composition(ds) -> Dict[str, Decimal]:
     return buckets
 
 
-def available_net_worth(ds) -> Tuple[Decimal, str]:
+def available_net_worth(ds) -> tuple[Decimal, str]:
     """net liquidity + patrimonial (excluye retiro). La métrica hero de la app."""
     c = composition(ds)
     net_liq = c["liquidity"] + c["liability"]  # liability es negativo
     return net_liq + c["patrimonial"], "availableNetWorth = netLiquidity + patrimonial (excluye retiro)"
 
 
-def cagr(ds, months_min: int = 6) -> Tuple[Optional[Decimal], str]:
+def cagr(ds, months_min: int = 6) -> tuple[Decimal | None, str]:
     """CAGR anualizado desde la primera a la última medición de net worth."""
     series = net_worth_series(ds)
     if len(series) < 2:
@@ -165,7 +176,9 @@ def cagr(ds, months_min: int = 6) -> Tuple[Optional[Decimal], str]:
     years = Decimal(days) / Decimal(365)
     if years < Decimal(months_min) / Decimal(12):
         growth = ((last_val - first_val) / abs(first_val) * Decimal(100)) if first_val != 0 else None
-        return (growth, f"Crecimiento absoluto {growth:.1f}% en {days} días (CAGR no fiable con <{months_min}m; Supuesto si se anualiza)")
+        note = (f"Crecimiento absoluto {growth:.1f}% en {days} días "
+                f"(CAGR no fiable con <{months_min}m; Supuesto si se anualiza)")
+        return (growth, note)
     if first_val <= 0:
         return None, ("Patrimonio inicial ≤ 0 o reconstruido parcialmente (los snapshots de inversión "
                       "inician a mediados de año). CAGR no aplicable aún — revisar con ~12 meses de datos.")
@@ -174,7 +187,7 @@ def cagr(ds, months_min: int = 6) -> Tuple[Optional[Decimal], str]:
     return cagr_val.quantize(Decimal("0.1")), f"CAGR {cagr_val:.1f}% anualizado sobre {days} días (Derivado)"
 
 
-def positions(ds) -> List[Dict[str, Any]]:
+def positions(ds) -> list[dict[str, Any]]:
     """Posiciones con costo, valor (lastPrice×shares), growth%."""
     out = []
     for p in ds["positions"]:
@@ -189,7 +202,7 @@ def positions(ds) -> List[Dict[str, Any]]:
         if p.get("lastPriceAt"):
             try:
                 lp = datetime.fromisoformat(p["lastPriceAt"].replace("Z", "+00:00"))
-                age = (datetime.now(timezone.utc) - lp).days
+                age = (datetime.now(UTC) - lp).days
                 if age > 14:
                     stale = f" (valuación de hace {age}d — posiblemente desactualizada)"
             except ValueError:
@@ -207,15 +220,17 @@ def positions(ds) -> List[Dict[str, Any]]:
     return out
 
 
-def liquidity_runway(ds, txs) -> Tuple[Optional[Decimal], str]:
+def liquidity_runway(ds, txs) -> tuple[Decimal | None, str]:
     """Meses de gastos cubiertos por liquidez. Requiere txs para gasto mensual promedio."""
     c = composition(ds)
     liquid = c["liquidity"]
     # gasto mensual promedio (de la sub-skill ingresos, replicado mínimo)
-    from accounting_gates import classify, account_from_snapshot, category_from_snapshot
+    from accounting_gates import account_from_snapshot, category_from_snapshot, classify
     acc = {a["id"]: account_from_snapshot(a) for a in ds["models"]["Account"]}
     cat = {c2["id"]: category_from_snapshot(c2) for c2 in ds["models"]["Category"]}
-    pl = lambda pid: ds["plans"].get(pid)
+
+    def pl(pid):
+        return ds["plans"].get(pid)
     by_month = defaultdict(lambda: Decimal(0))
     months_set = set()
     for t in txs:

@@ -37,5 +37,16 @@ Package.resolved
 /samples/*
 !/samples/.gitkeep
 
+# Python (finanzas skill dev tooling — Poetry/pytest/ruff; runtime is stdlib-only)
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+*.egg-info/
+dist/
+# poetry.lock SÍ se commitea (lockfile determinista)
+
 # Brainstorming visual companion
 .superpowers/

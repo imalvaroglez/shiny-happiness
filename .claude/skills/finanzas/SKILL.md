@@ -1,6 +1,6 @@
 ---
 name: finanzas
-description: Cerebro financiero para FinanceTracker. Analiza el .ftbackup de la app — en qué se gasta, de dónde viene el ingreso, cómo salir de deudas y cómo crecer el patrimonio. Usar SIEMPRE que el usuario pregunte sobre sus finanzas personales, gastos, ingresos, ahorro, patrimonio, deudas, tarjetas, presupuestos, comercios, suscripciones o quiera un informe/revisión. Lee datos locales; nada sale de la máquina.
+description: Cerebro financiero para FinanceTracker. Analiza el .ftbackup de la app — en qué se gasta, de dónde viene el ingreso, cómo salir de deudas y cómo crecer el patrimonio. Usar SIEMPRE que el usuario pregunte sobre sus finanzas personales, gastos, ingresos, ahorro, patrimonio, deudas, tarjetas, presupuestos, comercios, suscripciones, rendimientos, tasas, GAT, o quiera comparar/mover dinero entre cuentas, fondos o productos de ahorro/inversión, o un informe/revisión. Lee datos locales; nada sale de la máquina.
 ---
 
 # /finanzas — Cerebro financiero de FinanceTracker
@@ -19,11 +19,18 @@ Si la pregunta cruza varios dominios o pides "un informe"/"revisión del mes", c
 | **hábitos** | `habits/` | diagnóstico de gasto | "¿en qué gasté?", "subió X", fugas, comercios, suscripciones recurrentes, deltas mes-a-mes |
 | **deuda** | `debt/` | estrategia de salida | "¿cómo salgo de la tarjeta?", runway, avalancha/bola de nieve, pago-para-no-generar-intereses, utilización |
 | **patrimonio** | `wealth/` | crecimiento net worth | CAGR, composición liquidez/patrimonial/retiro, rendimiento de posiciones, runway de liquidez |
+| **productos** | `wealth/` (sección "Análisis de productos") | decisión entre productos | "¿conviene mover X a Y?", comparar cuentas/fondos, "¿qué rinde más?", tasas, GAT, tramos, bandas de saldo, mover liquidez a rendimiento |
 | **ingresos** | `income/` | diversificación de fuentes | "¿de dónde viene mi dinero?", dependencia de una fuente, estabilidad, savings rate |
 | **informe** | `review/` | revisión de período | "dame un informe", "revisión del mes/trimestre", visión integrada |
 | **reclasificar** | `recategorize/` | corregir categorías | "esto está mal categorizado", detectar miscategorizaciones, proponer reclasificación |
 
 **Regla**: no cargues todas. Carga la mínima. Cada sub-skill es independiente.
+
+> **"productos" no es una carpeta aparte.** Es la sección "Análisis de productos"
+> dentro de `wealth/SKILL.md`, respaldada por `wealth/scripts/products.py`. Cuando
+> la intención sea decidir entre productos de ahorro/inversión/liquidez, carga
+> `wealth/SKILL.md` y sigue ese flujo (extrae `ProductTerms` → funciones puras →
+> salida A–H). El spec normativo vive en `wealth/SPEC.md`.
 
 ## Reglas cross-cutting — TODA sub-skill debe cumplirlas
 
