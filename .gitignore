@@ -50,3 +50,6 @@ dist/
 
 # Brainstorming visual companion
 .superpowers/
+
+# UI tests target (empty, not a build target — LOOPS §8)
+FinanceTrackerUITests/
