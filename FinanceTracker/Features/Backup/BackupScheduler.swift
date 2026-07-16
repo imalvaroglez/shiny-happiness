@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 
 #if os(macOS)
@@ -11,6 +12,7 @@ enum BackupScheduler {
         do {
             appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
         } catch {
+            Logger.app.error("BackupScheduler: no se resolvió Application Support: \(error.localizedDescription)")
             return
         }
         let backupsDir = appSupport.appendingPathComponent("FinanceTracker/Backups")
@@ -18,6 +20,7 @@ enum BackupScheduler {
         do {
             try fm.createDirectory(at: backupsDir, withIntermediateDirectories: true)
         } catch {
+            Logger.app.error("BackupScheduler: no se pudo crear \(backupsDir.path): \(error.localizedDescription)")
             return
         }
 
@@ -34,7 +37,11 @@ enum BackupScheduler {
             } catch {
                 attrs = .distantPast
             }
-            if Date.now.timeIntervalSince(attrs) < 86400 { return }
+            if Date.now.timeIntervalSince(attrs) < 86400 {
+                Logger.app.debug("BackupScheduler: último backup tiene <24h (\(mostRecent.lastPathComponent)); se omite.")
+                return
+            }
+            Logger.app.info("BackupScheduler: último backup \(mostRecent.lastPathComponent) tiene >24h; generando uno nuevo.")
         }
 
         let timestamp = formatter.string(from: Date.now)
@@ -43,33 +50,53 @@ enum BackupScheduler {
         do {
             try await BackupArchive.export(to: bundleURL, from: context)
         } catch {
+            // Antes este error se tragaba en silencio: el backup fallaba y no quedaba
+            // evidencia, así que los backups automáticos se estancaban sin aviso.
+            Logger.app.error("BackupScheduler: export falló para \(bundleURL.lastPathComponent): \(error.localizedDescription)")
             return
         }
 
+        Logger.app.info("BackupScheduler: backup generado \(bundleURL.lastPathComponent).")
         pruneSnapshots(in: backupsDir)
     }
 
     static func pruneSnapshots(in directory: URL) {
         let fm = FileManager.default
-        let bundles = backupURLs(in: directory)
-        guard bundles.count > 1 else { return }
+        // backupURLs devuelve mtime ascendente; aquí queremos DESCENDENTE para que los
+        // buckets (diario/semanal/mensual) se llenen con el bundle MÁS RECIENTE de cada
+        // período, no con el más viejo. Iterar ascendente hacía que un bundle recién
+        // creado quedara fuera de los 7 diarios (ya ocupados por viejos) y de los
+        // buckets semana/mes (ya con representante viejo), y terminaba BORRADO por la
+        // poda — el scheduler generaba su backup y lo eliminaba en la línea siguiente.
+        let bundles = backupURLs(in: directory).sorted { urlBefore($0, $1, fm: fm) }.reversed()
+        let bundlesArray = Array(bundles)
+        guard bundlesArray.count > 1 else { return }
 
         let calendar = Calendar(identifier: .gregorian)
 
-        var dailyKept: Set<URL> = []
+        // El más reciente SIEMPRE se conserva (es el backup que acaba de crear el
+        // scheduler, o el último bueno). Esto es la red de seguridad: ningún bug de
+        // bucketing puede borrarlo.
+        guard let mostRecent = bundlesArray.first else { return }
+        var keep: Set<URL> = [mostRecent]
+
+        var dailyCount = 0
         var weeklyBuckets: [Int: URL] = [:]
         var monthlyBuckets: [Int: URL] = [:]
 
-        for url in bundles {
+        for url in bundlesArray {
             guard let modDate = try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date else { continue }
 
-            if dailyKept.count < 7 {
-                dailyKept.insert(url)
+            // Los 7 más recientes como retención diaria.
+            if dailyCount < 7 {
+                keep.insert(url)
+                dailyCount += 1
             }
 
             let weekOfYear = calendar.component(.weekOfYear, from: modDate)
             let yearForWeek = calendar.component(.yearForWeekOfYear, from: modDate)
             let weekKey = yearForWeek * 100 + weekOfYear
+            // Primer match en orden DESCENDENTE = el más reciente de esa semana.
             if weeklyBuckets[weekKey] == nil {
                 weeklyBuckets[weekKey] = url
             }
@@ -82,19 +109,18 @@ enum BackupScheduler {
             }
         }
 
-        var keep = dailyKept
-        let weeklyValues = Array(weeklyBuckets.values)
-        let sortedWeekly = weeklyValues.sorted { urlBefore($0, $1, fm: fm) }
-        for url in sortedWeekly.suffix(4) {
+        // Conservar los 4 buckets semanales y 12 mensuales MÁS RECIENTES (suffix de
+        // los valores ordenados ascendentemente = los más nuevos).
+        let weeklyValues = Array(weeklyBuckets.values).sorted { urlBefore($0, $1, fm: fm) }
+        for url in weeklyValues.suffix(4) {
             keep.insert(url)
         }
-        let monthlyValues = Array(monthlyBuckets.values)
-        let sortedMonthly = monthlyValues.sorted { urlBefore($0, $1, fm: fm) }
-        for url in sortedMonthly.suffix(12) {
+        let monthlyValues = Array(monthlyBuckets.values).sorted { urlBefore($0, $1, fm: fm) }
+        for url in monthlyValues.suffix(12) {
             keep.insert(url)
         }
 
-        for url in bundles {
+        for url in bundlesArray {
             if !keep.contains(url) {
                 try? fm.removeItem(at: url)
             }
