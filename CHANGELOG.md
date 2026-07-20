@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-20
+
+### Added
+
+- **Household Settlement due dates.** A Fer (`.partner`) transaction can now carry a settlement due date, so a charge made in one month but payable later (e.g. a credit-card purchase that cuts the following month) is billed to Fer in the month it is actually due. A July purchase due in August appears in July marked "Pasa a agosto" (not added to recovery) and in August where it adds to "To recover from Fer"; cash still counts in the purchase month's "Total paid by you". A new "Pending for upcoming months" breakdown line tracks deferred amounts, and "Fer-only paid by you" is renamed "Fer-only due this month". Due dates are per-transaction, default to the purchase month when unset, cannot precede the purchase day, and only apply to Fer rows — Shared/User/Custom rows stay anchored to their posted month. Reassigning a transaction away from Fer clears its due date. Due dates are stored in a new sidecar `SettlementDueDateOverride` model (schema V6, `0.9.0`) added via a lightweight V5→V6 migration; `Transaction` and V5 are untouched (adding an additive-optional `Date?` to `Transaction` would change the terminal schema hash and break existing stores). `.ftbackup` schema bumps v6 → v7 to carry overrides (with merge-safe tombstones).
+
+### Changed
+
+- **Household Settlement multi-select.** The per-row Mine/Shared/Fer buttons are replaced by a top-of-list "Transactions" control: a Select/Done toggle with per-row checkboxes and Mine/Shared/Fer bulk-assign buttons, so several rows can be assigned at once. Fer rows gain a per-row due-date picker with a reset action.
+- **Household Settlement disclosure.** Each transaction section is now a card with a full-width clickable header and a large rotating chevron (replacing the small precise `DisclosureGroup` chevron).
+
 ## [0.11.0] - 2026-07-12
 
 ### Added

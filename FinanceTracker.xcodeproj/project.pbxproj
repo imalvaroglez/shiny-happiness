@@ -21,6 +21,7 @@
 		150B4EFC55A2D5EC565217C4 /* header_vocabulary.json in Resources */ = {isa = PBXBuildFile; fileRef = 45CC98CFD6E5ADACC4120ED2 /* header_vocabulary.json */; };
 		1ABB82C4377F2525012D7413 /* KeychainTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAD06CB6E6BFF5D2DF2B332D /* KeychainTokenStore.swift */; };
 		1BCEC672FB6F471EF4026802 /* HoldingsFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DAF25C7C4DD34BB87456146 /* HoldingsFingerprint.swift */; };
+		1CF7CE6C48C20334EC74CD8E /* SettlementDueDateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B8C2C97CE1A6C6CBE8AD4F1 /* SettlementDueDateService.swift */; };
 		1D440F03E6E632ABE852CA6B /* SemanticNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 214B9E639E6F606CAD054CB4 /* SemanticNormalizer.swift */; };
 		1D8C3F29D3E921820B600B1B /* PortfolioViewDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 856779EA23C422BA6747E1E6 /* PortfolioViewDataTests.swift */; };
 		1DF6393AE23F912ACAE36A61 /* HouseholdSettlementFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A8B0B29240897EAE8AED68 /* HouseholdSettlementFixtures.swift */; };
@@ -93,6 +94,7 @@
 		7D0E96AE5660552618295297 /* SectionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABEDFC6BADAB0B0639C63F9A /* SectionCard.swift */; };
 		7E9A87EFEAD24ACE48D239CD /* BackupScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F208E365E81EBE4E7DD2591 /* BackupScheduler.swift */; };
 		7FCEF2632BD33E040D849671 /* PastedHsbc2NowParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36341C3C6BDFE7D5721CAF6C /* PastedHsbc2NowParser.swift */; };
+		80DF556CC720CB606DF5E4E4 /* SettlementDueDateOverride.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98F48B58EF3648C87945C2D5 /* SettlementDueDateOverride.swift */; };
 		8128193061F187D9926BF060 /* LearningHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3DD8303E03576D6571ED6AB /* LearningHooks.swift */; };
 		8168D881690BC8C8C4E95B98 /* TransactionTreatmentKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEB2E4EDD9A68C81CB81C02 /* TransactionTreatmentKind.swift */; };
 		8333AB713F71FA46647A7BB8 /* AccountBalanceSnapshotKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AB1C581C5082CDC3122A61 /* AccountBalanceSnapshotKind.swift */; };
@@ -248,6 +250,7 @@
 		5991749DFCB4D702D68AFEF6 /* AppDataResetServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataResetServiceTests.swift; sourceTree = "<group>"; };
 		5AD9346479E8E084E76AE432 /* SignRecoveryHint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignRecoveryHint.swift; sourceTree = "<group>"; };
 		5B3DB4EFC9D0A19A507E597C /* NetWorthComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetWorthComposition.swift; sourceTree = "<group>"; };
+		5B8C2C97CE1A6C6CBE8AD4F1 /* SettlementDueDateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementDueDateService.swift; sourceTree = "<group>"; };
 		5C84E93C9A795A6020B4643B /* categories.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = categories.json; sourceTree = "<group>"; };
 		62C7D882BEF6682B5A31ADDE /* FinanceTracker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FinanceTracker.entitlements; sourceTree = "<group>"; };
 		6413C1BCA04D30478DFBF64C /* CashFlowExclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CashFlowExclusionTests.swift; sourceTree = "<group>"; };
@@ -288,6 +291,7 @@
 		949A945D8EE113CE8376A2DB /* StructuralParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralParser.swift; sourceTree = "<group>"; };
 		94C2CD008ED3068A1C7FF4C2 /* ConsolidatedDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolidatedDashboard.swift; sourceTree = "<group>"; };
 		989ACDB4A037230E6C8E9080 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
+		98F48B58EF3648C87945C2D5 /* SettlementDueDateOverride.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementDueDateOverride.swift; sourceTree = "<group>"; };
 		9AEE9B7A28C2B8F8F246426D /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
 		9BEEAF60DAD3D262734994E1 /* HouseholdInclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseholdInclusionTests.swift; sourceTree = "<group>"; };
 		9E4BE0266F3DA957DDA0B8E0 /* DataBursatilClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataBursatilClientTests.swift; sourceTree = "<group>"; };
@@ -397,6 +401,7 @@
 				AC4D0F1A832A3AB03753C894 /* HouseholdSettlementPresentation.swift */,
 				7B4DA33B393C4326393040E6 /* HouseholdSettlementReport.swift */,
 				853951F19D47673EB233AB07 /* HouseholdSettlementView.swift */,
+				5B8C2C97CE1A6C6CBE8AD4F1 /* SettlementDueDateService.swift */,
 			);
 			path = Household;
 			sourceTree = "<group>";
@@ -810,6 +815,7 @@
 				57E52F1AD39DAC615CECFFA9 /* HouseholdPartnerIncomeEstimate.swift */,
 				E9F678D7C0F27BD7C9899137 /* InstallmentPlan.swift */,
 				3B75051804450452E6E8F69C /* PendingImport.swift */,
+				98F48B58EF3648C87945C2D5 /* SettlementDueDateOverride.swift */,
 				5AD9346479E8E084E76AE432 /* SignRecoveryHint.swift */,
 				AF4B815E55BBE994A9DF4A5B /* Statement.swift */,
 				57FAADEEF601457BB7DDE40C /* StockPosition.swift */,
@@ -1042,6 +1048,8 @@
 				700344262340C795EC412A1E /* SeedDataLoader.swift in Sources */,
 				1D440F03E6E632ABE852CA6B /* SemanticNormalizer.swift in Sources */,
 				B01D3278C6D08E0511C69B09 /* SettingsView.swift in Sources */,
+				80DF556CC720CB606DF5E4E4 /* SettlementDueDateOverride.swift in Sources */,
+				1CF7CE6C48C20334EC74CD8E /* SettlementDueDateService.swift in Sources */,
 				5FC71C112BCE91D414AEEC14 /* SignRecoveryHint.swift in Sources */,
 				3FE44D2B230509CC8545E9EE /* Statement.swift in Sources */,
 				D6EBF777F566115700D6F631 /* StockPosition.swift in Sources */,
@@ -1223,7 +1231,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260716.2;
+				CURRENT_PROJECT_VERSION = 20260720.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1233,7 +1241,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.11.1;
+				MARKETING_VERSION = 0.12.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app.dev;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = "FinanceTracker Dev";
@@ -1267,7 +1275,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260716.2;
+				CURRENT_PROJECT_VERSION = 20260720.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1277,7 +1285,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.11.1;
+				MARKETING_VERSION = 0.12.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = FinanceTracker;

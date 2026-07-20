@@ -734,6 +734,32 @@ enum FinanceTrackerSchemaV5: VersionedSchema {
     }
 }
 
+enum FinanceTrackerSchemaV6: VersionedSchema {
+    static let versionIdentifier = Schema.Version(0, 9, 0)
+    static var models: [any PersistentModel.Type] {
+        [
+            Account.self,
+            AccountBalanceSnapshot.self,
+            Transaction.self,
+            Statement.self,
+            Category.self,
+            CategoryRule.self,
+            InstallmentPlan.self,
+            PendingImport.self,
+            SignRecoveryHint.self,
+            StockPosition.self,
+            HouseholdPartnerIncomeEstimate.self,
+            // V6 is the terminal/live schema, so this references the LIVE model
+            // (Domain/Models/SettlementDueDateOverride.swift) — no nested snapshot.
+            // A nested snapshot here would shadow the live type and break runtime
+            // FetchDescriptor<SettlementDueDateOverride>() casts (the entity would
+            // materialize as the snapshot type, not the live type). Historical
+            // (non-terminal) schemas nest frozen snapshots; the terminal one does not.
+            SettlementDueDateOverride.self,
+        ]
+    }
+}
+
 enum FinanceTrackerMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -742,16 +768,22 @@ enum FinanceTrackerMigrationPlan: SchemaMigrationPlan {
             FinanceTrackerSchemaV3.self,
             FinanceTrackerSchemaV4.self,
             FinanceTrackerSchemaV5.self,
+            FinanceTrackerSchemaV6.self,
         ]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5]
+        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateV5toV6]
     }
 
     private static let migrateV4toV5 = MigrationStage.lightweight(
         fromVersion: FinanceTrackerSchemaV4.self,
         toVersion: FinanceTrackerSchemaV5.self
+    )
+
+    private static let migrateV5toV6 = MigrationStage.lightweight(
+        fromVersion: FinanceTrackerSchemaV5.self,
+        toVersion: FinanceTrackerSchemaV6.self
     )
 
     private static let migrateV3toV4 = MigrationStage.lightweight(
@@ -884,11 +916,12 @@ enum AppSchema {
             SignRecoveryHint.self,
             StockPosition.self,
             HouseholdPartnerIncomeEstimate.self,
+            SettlementDueDateOverride.self,
         ]
     }
 
     static var schema: Schema {
-        Schema(versionedSchema: FinanceTrackerSchemaV5.self)
+        Schema(versionedSchema: FinanceTrackerSchemaV6.self)
     }
 
     static func makeContainer(isStoredInMemoryOnly: Bool = false) throws -> ModelContainer {

@@ -28,6 +28,7 @@ struct AppDataResetService {
         AccountBalanceSnapshot.self,
         StockPosition.self,
         HouseholdPartnerIncomeEstimate.self,
+        SettlementDueDateOverride.self,
         Transaction.self,
         CategoryRule.self,
         InstallmentPlan.self,
@@ -42,6 +43,7 @@ struct AppDataResetService {
         try deleteAllObjects(of: AccountBalanceSnapshot.self, from: context)
         try deleteAllObjects(of: StockPosition.self, from: context)
         try deleteAllObjects(of: HouseholdPartnerIncomeEstimate.self, from: context)
+        try deleteAllObjects(of: SettlementDueDateOverride.self, from: context)
         try deleteAllObjects(of: Transaction.self, from: context)
         try deleteAllObjects(of: CategoryRule.self, from: context)
         try deleteAllObjects(of: InstallmentPlan.self, from: context)
@@ -70,8 +72,9 @@ struct AppDataResetService {
         let hintCount = (try? context.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
         let stockPositionCount = (try? context.fetchCount(FetchDescriptor<StockPosition>())) ?? 0
         let partnerEstimateCount = (try? context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())) ?? 0
+        let dueDateOverrideCount = (try? context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())) ?? 0
 
-        let totalOrphans = txCount + stmtCount + snapCount + pendingCount + planCount + hintCount + stockPositionCount + partnerEstimateCount
+        let totalOrphans = txCount + stmtCount + snapCount + pendingCount + planCount + hintCount + stockPositionCount + partnerEstimateCount + dueDateOverrideCount
         guard totalOrphans > 0 else { return .noRepairNeeded }
 
         logger.info("Repairing incomplete reset: \(totalOrphans) orphan rows (tx=\(txCount), stmt=\(stmtCount), snap=\(snapCount), pending=\(pendingCount), plan=\(planCount), hint=\(hintCount), stock=\(stockPositionCount), partnerEstimate=\(partnerEstimateCount))")
@@ -87,7 +90,8 @@ struct AppDataResetService {
         let remainingHint = (try? context.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
         let remainingStockPosition = (try? context.fetchCount(FetchDescriptor<StockPosition>())) ?? 0
         let remainingPartnerEstimate = (try? context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())) ?? 0
-        let remainingTotal = remainingTx + remainingStmt + remainingSnap + remainingPending + remainingPlan + remainingHint + remainingStockPosition + remainingPartnerEstimate
+        let remainingDueDateOverride = (try? context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())) ?? 0
+        let remainingTotal = remainingTx + remainingStmt + remainingSnap + remainingPending + remainingPlan + remainingHint + remainingStockPosition + remainingPartnerEstimate + remainingDueDateOverride
 
         if remainingTotal > 0 {
             logger.error("Batch repair left \(remainingTotal) rows (tx=\(remainingTx), stmt=\(remainingStmt), snap=\(remainingSnap), pending=\(remainingPending), plan=\(remainingPlan), hint=\(remainingHint), stock=\(remainingStockPosition), partnerEstimate=\(remainingPartnerEstimate)) — requesting hard reset")
@@ -112,6 +116,7 @@ struct AppDataResetService {
             ("AccountBalanceSnapshot", try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>())),
             ("StockPosition", try context.fetchCount(FetchDescriptor<StockPosition>())),
             ("HouseholdPartnerIncomeEstimate", try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())),
+            ("SettlementDueDateOverride", try context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())),
             ("Transaction", try context.fetchCount(FetchDescriptor<Transaction>())),
             ("Statement", try context.fetchCount(FetchDescriptor<Statement>())),
             ("CategoryRule", try context.fetchCount(FetchDescriptor<CategoryRule>())),

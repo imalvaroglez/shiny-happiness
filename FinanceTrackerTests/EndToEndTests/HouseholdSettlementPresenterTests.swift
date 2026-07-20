@@ -208,4 +208,32 @@ struct HouseholdSettlementPresenterTests {
             setup: setup
         )
     }
+
+    @Test("Due-date breakdown line and deferred badge surface in presentation")
+    func dueDatePresentation() throws {
+        let food = category("Dinner", kind: .expense)
+        let tx = transaction(amount: -1_000, category: food, assignment: .partner)
+        let nextMonth = HouseholdSettlementFixture.month.addingMonths(1)
+        let due = nextMonth.startDate.addingTimeInterval(10 * 86_400)
+        let report = HouseholdSettlementReportService.build(
+            monthStart: HouseholdSettlementFixture.month.startDate,
+            transactions: [tx],
+            dueDates: [tx.id: due],
+            setup: HouseholdSettlementFixture.setup
+        )
+        let result = state(report: report)
+
+        // The pending line and the renamed Fer-only line are present.
+        #expect(summaryLine(.pendingForUpcomingMonths, in: result).label == "Pending for upcoming months")
+        #expect(summaryLine(.partnerOnlyPaidByUser, in: result).label == "Fer-only due this month")
+
+        // The deferred Fer row carries the "Pasa a" badge and the picker flag.
+        let ferSection = result.transactionSection(.partnerOnly)
+        let deferredRow = try #require(ferSection.rows.first { $0.deferredToMonth != nil })
+        #expect(deferredRow.status == "Pasa a \(presenter.formatters.monthTitle(nextMonth.startDate))")
+        #expect(deferredRow.showsDueDatePicker)
+        // Count includes the deferred row; subtotal is due-only (zero here).
+        #expect(ferSection.countText == "1 transaction")
+        #expect(ferSection.subtotal == "$0.00")
+    }
 }

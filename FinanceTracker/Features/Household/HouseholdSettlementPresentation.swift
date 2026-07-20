@@ -140,6 +140,7 @@ struct HouseholdSettlementSummaryState {
             case sharedExpenses = "household.summary.sharedExpenses"
             case partnerSharedPortion = "household.summary.ferSharedPortion"
             case partnerOnlyPaidByUser = "household.summary.ferOnlyPaidByYou"
+            case pendingForUpcomingMonths = "household.summary.pendingForUpcomingMonths"
             case userFinalCost = "household.summary.yourFinalCost"
             case userSalary
             case partnerIncome
@@ -178,6 +179,14 @@ struct HouseholdTransactionRowState: Identifiable {
     let amount: String
     let metadata: String
     let status: String
+    /// Non-nil when this Fer row is posted this month but due in a future month —
+    /// the view shows a "Pasa a `<mes>`" badge and excludes it from the subtotal feel.
+    let deferredToMonth: YearMonth?
+    /// True when the row may show a due-date picker (assignment == .partner).
+    let showsDueDatePicker: Bool
+    /// The active due-date override for this row (Fer rows only); nil ⇒ default
+    /// to the purchase month. Drives the date picker.
+    let dueDate: Date?
 
     var id: UUID { row.id }
 }
@@ -272,7 +281,8 @@ struct HouseholdSettlementPresenter {
                 .init(id: .totalPaidByUser, label: "Total household expenses paid by you", value: formatters.currency(report.totalPaidByUser, "MXN")),
                 .init(id: .sharedExpenses, label: "Shared household expenses", value: formatters.currency(report.totalSharedExpenses, "MXN")),
                 .init(id: .partnerSharedPortion, label: "Fer shared portion", value: formatters.currency(report.partnerFairShare, "MXN")),
-                .init(id: .partnerOnlyPaidByUser, label: "Fer-only paid by you", value: formatters.currency(report.partnerOnlyTotal, "MXN")),
+                .init(id: .partnerOnlyPaidByUser, label: "Fer-only due this month", value: formatters.currency(report.partnerOnlyTotal, "MXN")),
+                .init(id: .pendingForUpcomingMonths, label: "Pending for upcoming months", value: formatters.currency(report.pendingForUpcomingMonths, "MXN")),
                 .init(id: .userFinalCost, label: "Your final household cost", value: formatters.currency(report.userFinalCost, "MXN")),
                 .init(id: .userSalary, label: "Your salary income", value: formatters.currency(report.userSalaryIncome, "MXN")),
                 .init(id: .partnerIncome, label: "Fer income estimate", value: formatters.currency(report.partnerIncomeEstimate, "MXN")),
@@ -312,14 +322,17 @@ struct HouseholdSettlementPresenter {
     }
 
     private func transactionSections(report: HouseholdSettlementReport) -> [HouseholdTransactionSectionState] {
-        [
+        // Fer section shows due rows first, then deferred rows. Subtotal stays
+        // due-only (what's recoverable now); the count reflects both.
+        let ferRows = report.ferRows + report.deferredFerRows
+        return [
             HouseholdTransactionSectionState(
                 id: .partnerOnly,
                 title: "Fer-only expenses",
-                countText: countText(report.ferRows.count),
+                countText: countText(ferRows.count),
                 subtotal: subtotal(report.ferRows),
                 initiallyExpanded: false,
-                rows: rowStates(report.ferRows, report: report)
+                rows: rowStates(ferRows, report: report)
             ),
             HouseholdTransactionSectionState(
                 id: .shared,
@@ -353,7 +366,8 @@ struct HouseholdSettlementPresenter {
         _ rows: [HouseholdSettlementRow],
         report: HouseholdSettlementReport
     ) -> [HouseholdTransactionRowState] {
-        rows.map { row in
+        let reportYM = YearMonth(date: report.monthStart)
+        return rows.map { row in
             let transaction = row.transaction
             let currency = transaction.currency
             let allocation = transaction.resolvedHouseholdAllocation
@@ -362,6 +376,7 @@ struct HouseholdSettlementPresenter {
                 transaction.category?.name ?? "Uncategorized",
             ]
             let status: String
+            var deferredToMonth: YearMonth? = nil
             switch allocation {
             case .user:
                 metadata.append("User")
@@ -371,7 +386,18 @@ struct HouseholdSettlementPresenter {
                 status = "Fer \(formatters.currency(row.partnerShare, currency)) / You \(formatters.currency(row.userShare, currency))"
             case .partner:
                 metadata.append("Fer")
-                status = "Recoverable: 100%"
+                let reportMonthTitle = formatters.monthTitle(reportYM.startDate)
+                if let due = report.dueDates[transaction.id] {
+                    let dueYM = YearMonth(date: due)
+                    if dueYM > reportYM {
+                        deferredToMonth = dueYM
+                        status = "Pasa a \(formatters.monthTitle(dueYM.startDate))"
+                    } else {
+                        status = "Se cobra en \(reportMonthTitle)"
+                    }
+                } else {
+                    status = "Se cobra en \(reportMonthTitle)"
+                }
             case .custom:
                 let userPercent = row.amount == 0 ? Decimal.zero : row.userShare / row.amount
                 let ferPercent = row.amount == 0 ? Decimal.zero : row.partnerShare / row.amount
@@ -389,7 +415,10 @@ struct HouseholdSettlementPresenter {
                 row: row,
                 amount: formatters.currency(row.amount, currency),
                 metadata: metadata.joined(separator: " · "),
-                status: status
+                status: status,
+                deferredToMonth: deferredToMonth,
+                showsDueDatePicker: allocation == .partner,
+                dueDate: allocation == .partner ? report.dueDates[transaction.id] : nil
             )
         }
     }

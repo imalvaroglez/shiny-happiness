@@ -233,7 +233,7 @@ struct BackupArchiveTests {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
 
-        #expect(manifest.schemaVersion == 6)
+        #expect(manifest.schemaVersion == 7)
         #expect(!manifest.contentHashes.isEmpty, "Manifest should have content hashes")
 
         for (name, _) in manifest.contentHashes {
@@ -653,5 +653,33 @@ struct BackupArchiveTests {
         } catch {
             #expect(true)
         }
+    }
+
+    @Test("mergeKeepingNewer removes orphan due-date overrides for missing transactions")
+    func mergeRemovesOrphanDueDateOverrides() async throws {
+        let source = try makeContainer()
+        let sourceContext = source.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: sourceContext)
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-backup-orphan-\(UUID()).ftbackup", isDirectory: true)
+        try await BackupArchive.export(to: tmp, from: sourceContext)
+
+        let target = try makeContainer()
+        let targetContext = target.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: targetContext)
+
+        // A due-date override whose transaction does NOT exist in the target store.
+        let orphan = SettlementDueDateOverride(transactionID: UUID(), dueDate: Date())
+        targetContext.insert(orphan)
+        try targetContext.save()
+        #expect(try targetContext.fetchCount(FetchDescriptor<SettlementDueDateOverride>()) == 1)
+
+        try await BackupArchive.restore(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
+
+        #expect(try targetContext.fetchCount(FetchDescriptor<SettlementDueDateOverride>()) == 0,
+                "Orphan override (no matching transaction) must be removed on merge")
+
+        try? FileManager.default.removeItem(at: tmp)
     }
 }

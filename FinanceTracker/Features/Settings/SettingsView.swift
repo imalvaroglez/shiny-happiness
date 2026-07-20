@@ -770,10 +770,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Household Settlement is now opt-in: include only the expenses you actually share, so personal spending no longer inflates your totals.",
-        "A house icon marks included transactions, with Add-to / Remove-from-Household quick actions and an Included / Not-included filter.",
-        "Any explicit Mine, Shared, or Fer choice on an expense now adds it to Household automatically.",
-        "A cleaner report: “Your household expenses” replaces the old User-only section, with a focused empty state and a Review-transactions shortcut.",
+        "Household Settlement due dates: a Fer charge made one month but payable the next is now billed in the month it’s actually due — and stays visible in both months so nothing is lost.",
+        "Assign Mine / Shared / Fer to several transactions at once with a top-of-list Select control and per-row checkboxes.",
+        "Each Fer row shows a clear 'Se cobra en <mes>' / 'Pasa a <mes>' status; edit the due date from a focused popover.",
+        "'Pending for upcoming months' tracks deferred Fer amounts, and 'Total paid by you' still reflects the cash that left your accounts this month.",
     ]
 
     private var lastBackupDate: String? {
