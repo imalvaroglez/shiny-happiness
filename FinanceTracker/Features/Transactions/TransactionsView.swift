@@ -431,14 +431,22 @@ struct TransactionsView: View {
 
     private func applyAssignment(_ assignment: ExpenseAssignment) {
         guard !selectedIDs.isEmpty else { return }
+        var purgedDueDateIDs: Set<UUID> = []
         for tx in allTransactions where selectedIDs.contains(tx.id) && HouseholdSettlementReportService.isSettlementEligible(tx) {
             // Any explicit quick assignment (including Mine) proves Household intent:
             // include the transaction and set the assignment.
             tx.setHouseholdScope(.included)
+            // Reassigning away from Fer clears any due-date override.
+            if assignment != .partner, tx.resolvedHouseholdAllocation == .partner {
+                purgedDueDateIDs.insert(tx.id)
+            }
             tx.setExpenseAssignment(assignment)
             tx.touch()
         }
         try? modelContext.save()
+        if !purgedDueDateIDs.isEmpty {
+            try? SettlementDueDateService.purge(for: purgedDueDateIDs, context: modelContext)
+        }
         selectedIDs.removeAll()
         fetchTransactions()
         recomputeDisplay()

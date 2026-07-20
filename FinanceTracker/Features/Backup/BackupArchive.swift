@@ -12,7 +12,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    private static let schemaVersion = 6
+    private static let schemaVersion = 7
     private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -81,6 +81,23 @@ enum BackupArchive {
         let partnerEstimates = try context.fetch(FetchDescriptor<HouseholdPartnerIncomeEstimate>())
         try writeJSON("HouseholdPartnerIncomeEstimate", partnerEstimates.map { HouseholdPartnerIncomeEstimateSnapshot($0) })
 
+        let dueDateOverrides = try context.fetch(FetchDescriptor<SettlementDueDateOverride>())
+        // Canonical export: one row per transactionID (newest by lastModifiedAt, tie-broken
+        // by id), so a backup never round-trips duplicate rows that could make the live
+        // "newest wins" resolution nondeterministic on restore.
+        var newestByTx: [UUID: SettlementDueDateOverride] = [:]
+        for row in dueDateOverrides {
+            if let existing = newestByTx[row.transactionID] {
+                if row.lastModifiedAt > existing.lastModifiedAt { newestByTx[row.transactionID] = row }
+                else if row.lastModifiedAt == existing.lastModifiedAt, row.id.uuidString > existing.id.uuidString {
+                    newestByTx[row.transactionID] = row
+                }
+            } else {
+                newestByTx[row.transactionID] = row
+            }
+        }
+        try writeJSON("SettlementDueDateOverride", newestByTx.values.map { SettlementDueDateOverrideSnapshot($0) })
+
         let appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
         let sourceStatements = appSupport.appendingPathComponent("FinanceTracker/Statements")
         if fm.fileExists(atPath: sourceStatements.path) {
@@ -117,7 +134,7 @@ enum BackupArchive {
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard [1, 2, 3, 4, 5, 6].contains(manifest.schemaVersion) else {
+        guard [1, 2, 3, 4, 5, 6, 7].contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
 
@@ -162,6 +179,14 @@ enum BackupArchive {
             partnerEstimatesSnap = try loadJSON(HouseholdPartnerIncomeEstimateSnapshot.self, "HouseholdPartnerIncomeEstimate")
         } else {
             partnerEstimatesSnap = try loadOptionalJSON(HouseholdPartnerIncomeEstimateSnapshot.self, "HouseholdPartnerIncomeEstimate")
+        }
+        // Schema 7 introduced the due-date override sidecar. Schema 7 requires the
+        // file; schemas 1–6 treat it as empty.
+        let dueDateOverridesSnap: [SettlementDueDateOverrideSnapshot]
+        if manifest.schemaVersion >= 7 {
+            dueDateOverridesSnap = try loadJSON(SettlementDueDateOverrideSnapshot.self, "SettlementDueDateOverride")
+        } else {
+            dueDateOverridesSnap = try loadOptionalJSON(SettlementDueDateOverrideSnapshot.self, "SettlementDueDateOverride")
         }
 
         let existingAccounts = try context.fetch(FetchDescriptor<Account>())
@@ -431,6 +456,60 @@ enum BackupArchive {
         for snap in partnerEstimatesSnap {
             guard let obj = partnerEstimateMap[snap.id] else { continue }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
+        }
+
+        // Settlement due-date overrides: apply only for transactions that exist in
+        // the restored set (orphans skipped). Merge keeps the newest row per
+        // transactionID; a tombstone (nil dueDate) clears an older active date.
+        let existingDueDateOverrides = try context.fetch(FetchDescriptor<SettlementDueDateOverride>())
+        if case .replaceAll = strategy {
+            for obj in existingDueDateOverrides { context.delete(obj) }
+        }
+        var overrideByTx: [UUID: SettlementDueDateOverride] = [:]
+        if case .mergeKeepingNewer = strategy {
+            for obj in existingDueDateOverrides {
+                // An override whose transaction is no longer in the store (deleted
+                // locally, or absent from the restore set) is an orphan — delete it so
+                // dead rows don't accumulate and round-trip through the next backup.
+                guard transactionMap[obj.transactionID] != nil else {
+                    context.delete(obj)
+                    continue
+                }
+                overrideByTx[obj.transactionID] = obj
+            }
+        }
+        // Newest snapshot per transactionID wins.
+        var newestSnapByTx: [UUID: SettlementDueDateOverrideSnapshot] = [:]
+        for snap in dueDateOverridesSnap {
+            guard transactionMap[snap.transactionID] != nil else { continue }
+            if let existing = newestSnapByTx[snap.transactionID] {
+                if snap.lastModifiedAt > existing.lastModifiedAt { newestSnapByTx[snap.transactionID] = snap }
+            } else {
+                newestSnapByTx[snap.transactionID] = snap
+            }
+        }
+        for (_, snap) in newestSnapByTx {
+            if let existing = overrideByTx[snap.transactionID] {
+                if case .mergeKeepingNewer = strategy, snap.lastModifiedAt > existing.lastModifiedAt {
+                    if snap.dueDate == nil {
+                        // Tombstone newer than the live active date: clear it.
+                        context.delete(existing)
+                        overrideByTx.removeValue(forKey: snap.transactionID)
+                    } else {
+                        existing.dueDate = snap.dueDate
+                        existing.lastModifiedAt = snap.lastModifiedAt
+                    }
+                }
+            } else if snap.dueDate != nil {
+                let obj = SettlementDueDateOverride(
+                    id: snap.id,
+                    transactionID: snap.transactionID,
+                    dueDate: snap.dueDate
+                )
+                obj.lastModifiedAt = snap.lastModifiedAt
+                context.insert(obj)
+                overrideByTx[snap.transactionID] = obj
+            }
         }
 
         _ = HouseholdAllocationRepairService.repair(transactions: Array(transactionMap.values))
@@ -713,6 +792,17 @@ extension HouseholdPartnerIncomeEstimateSnapshot {
             notes: estimate.notes,
             createdAt: estimate.createdAt,
             lastModifiedAt: estimate.lastModifiedAt
+        )
+    }
+}
+
+extension SettlementDueDateOverrideSnapshot {
+    init(_ override: SettlementDueDateOverride) {
+        self.init(
+            id: override.id,
+            transactionID: override.transactionID,
+            dueDate: override.dueDate,
+            lastModifiedAt: override.lastModifiedAt
         )
     }
 }

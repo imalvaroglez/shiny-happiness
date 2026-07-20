@@ -475,6 +475,8 @@ struct TransactionDetailSheet: View {
 
     private func save() {
         let isBalanceMirror = BalanceSnapshotService.mirroredSnapshot(for: transaction, context: modelContext) != nil
+        // Capture before mutation: if the row leaves Fer, its due-date override is cleared.
+        let previousAssignment = transaction.expenseAssignment
         let amountToStore: Decimal
         if isBalanceMirror, let account = transaction.account {
             amountToStore = account.type.isLiability ? -abs(draftSignedAmount) : abs(draftSignedAmount)
@@ -541,6 +543,10 @@ struct TransactionDetailSheet: View {
         transaction.touch()
         BalanceSnapshotService.syncMirroredSnapshot(for: transaction, context: modelContext)
         try? modelContext.save()
+        // Reassigning away from Fer clears the due-date override (only meaningful for Fer).
+        if draftIncluded, previousAssignment == .partner, draftExpenseAssignment != .partner {
+            try? SettlementDueDateService.purge(for: [transaction.id], context: modelContext)
+        }
 
         if !isBalanceMirror, categoryDidChange, let cat = draftCategory {
             onCategoryAssigned(

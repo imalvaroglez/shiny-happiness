@@ -19,6 +19,7 @@ struct AccountDeletionService {
         let stockPositions: [StockPosition]
         let pendingImports: [PendingImport]
         let installmentPlans: [InstallmentPlan]
+        let dueDateOverrides: [SettlementDueDateOverride]
     }
 
     static func preview(account: Account, context: ModelContext) -> DeletionPreview {
@@ -38,6 +39,9 @@ struct AccountDeletionService {
 
         for plan in linked.installmentPlans { context.delete(plan) }
         for pending in linked.pendingImports { context.delete(pending) }
+        // Settlement due-date overrides are keyed by transactionID with no inverse
+        // relationship, so they must be removed before their transactions.
+        for override in linked.dueDateOverrides { context.delete(override) }
         for tx in linked.transactions { context.delete(tx) }
         for snapshot in linked.balanceSnapshots { context.delete(snapshot) }
         for position in linked.stockPositions { context.delete(position) }
@@ -75,13 +79,16 @@ struct AccountDeletionService {
             return true
         }
 
+        let dueDateOverrides = fetchDueDateOverrides(context: context, transactionIDs: transactionIDs)
+
         return LinkedObjects(
             statements: statements,
             transactions: allTransactions,
             balanceSnapshots: balanceSnapshots,
             stockPositions: stockPositions,
             pendingImports: allPending,
-            installmentPlans: allInstallments
+            installmentPlans: allInstallments,
+            dueDateOverrides: dueDateOverrides
         )
     }
 
@@ -123,6 +130,15 @@ struct AccountDeletionService {
     private static func fetchPendingImports(context: ModelContext, accountId: UUID) -> [PendingImport] {
         let descriptor = FetchDescriptor<PendingImport>(
             predicate: #Predicate<PendingImport> { $0.account?.id == accountId }
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    private static func fetchDueDateOverrides(context: ModelContext, transactionIDs: Set<UUID>) -> [SettlementDueDateOverride] {
+        guard !transactionIDs.isEmpty else { return [] }
+        let ids = transactionIDs
+        let descriptor = FetchDescriptor<SettlementDueDateOverride>(
+            predicate: #Predicate<SettlementDueDateOverride> { ids.contains($0.transactionID) }
         )
         return (try? context.fetch(descriptor)) ?? []
     }

@@ -65,6 +65,50 @@ struct HouseholdSettlementReportTests {
         )
     }
 
+    private func report(_ transactions: [Transaction], dueDates: [UUID: Date], partnerIncome: Decimal = 0) -> HouseholdSettlementReport {
+        HouseholdSettlementReportService.build(
+            monthStart: monthStart,
+            transactions: transactions,
+            dueDates: dueDates,
+            setup: HouseholdSettlementSetup(partnerIncomeEstimate: partnerIncome)
+        )
+    }
+
+    /// Same as `transaction(...)` but with an explicit posted date (for cross-month
+    /// due-date scenarios) and an explicit report month.
+    private func transaction(
+        amount: Decimal,
+        category: FinanceTracker.Category,
+        postedAt: Date,
+        assignment: ExpenseAssignment,
+        scope: HouseholdScope = .included
+    ) -> Transaction {
+        let tx = Transaction(
+            account: account(),
+            postedAt: postedAt,
+            amount: amount,
+            descriptionRaw: category.name,
+            category: category
+        )
+        tx.setHouseholdScope(scope)
+        tx.setExpenseAssignment(assignment)
+        return tx
+    }
+
+    private func build(
+        reportMonth: YearMonth,
+        transactions: [Transaction],
+        dueDates: [UUID: Date] = [:],
+        partnerIncome: Decimal = 0
+    ) -> HouseholdSettlementReport {
+        HouseholdSettlementReportService.build(
+            monthStart: reportMonth.startDate,
+            transactions: transactions,
+            dueDates: dueDates,
+            setup: HouseholdSettlementSetup(partnerIncomeEstimate: partnerIncome)
+        )
+    }
+
     @Test("YearMonth navigation changes calendar months without days")
     func yearMonthNavigation() {
         let july = YearMonth(year: 2026, month: 7)
@@ -511,7 +555,8 @@ struct HouseholdSettlementReportTests {
 
         #expect(result.plainTextSummary.contains("Household Settlement"))
         #expect(result.plainTextSummary.contains("Fer estimate"))
-        #expect(result.plainTextSummary.contains("Fer-only expenses paid by you"))
+        #expect(result.plainTextSummary.contains("Fer-only due this month"))
+        #expect(result.plainTextSummary.contains("Pending for upcoming months"))
         #expect(result.plainTextSummary.contains("Total to recover from Fer"))
     }
 
@@ -730,5 +775,251 @@ struct HouseholdSettlementReportTests {
         HouseholdAllocationRepairService.repairIfNeeded(context: context)
         let repaired = try #require(try context.fetch(FetchDescriptor<Transaction>()).first)
         #expect(repaired.householdScopeRaw == "excluded")
+    }
+
+    // MARK: - Settlement due dates
+
+    @Test("YearMonth is Comparable with year/month ordering")
+    func yearMonthComparable() {
+        #expect(YearMonth(year: 2026, month: 7) < YearMonth(year: 2026, month: 8))
+        #expect(YearMonth(year: 2026, month: 12) < YearMonth(year: 2027, month: 1))
+        #expect(!(YearMonth(year: 2026, month: 8) < YearMonth(year: 2026, month: 8)))
+    }
+
+    @Test("July Fer purchase due in August: July shows deferred, August recovers")
+    func deferredAcrossMonths() {
+        let food = category("Dinner", kind: .expense)
+        let july = YearMonth(year: 2026, month: 7)
+        let august = YearMonth(year: 2026, month: 8)
+        let july13 = july.startDate.addingTimeInterval(12 * 86_400)
+        let augDue = august.startDate.addingTimeInterval(10 * 86_400)
+
+        let tx = transaction(amount: -1_000, category: food, postedAt: july13, assignment: .partner)
+        let dueDates = [tx.id: augDue]
+
+        let julyReport = build(reportMonth: july, transactions: [tx], dueDates: dueDates)
+        #expect(julyReport.ferRows.isEmpty)
+        #expect(julyReport.deferredFerRows.count == 1)
+        #expect(julyReport.amountToRecoverFromPartner == 0)
+        #expect(julyReport.pendingForUpcomingMonths == 1_000)
+        // Cash left the account in July → counts in July's total paid.
+        #expect(julyReport.totalPaidByUser == 1_000)
+        #expect(julyReport.userFinalCost == 1_000)
+        // Deferred-only month is not an empty state.
+        #expect(julyReport.hasIncludedTransactions)
+
+        // In August the same transaction (older, pulled in by the second fetch) is due
+        // and recoverable; it does NOT count in August's total paid.
+        let augustReport = build(reportMonth: august, transactions: [tx], dueDates: dueDates)
+        #expect(augustReport.ferRows.count == 1)
+        #expect(augustReport.deferredFerRows.isEmpty)
+        #expect(augustReport.amountToRecoverFromPartner == 1_000)
+        #expect(augustReport.totalPaidByUser == 0)
+        #expect(augustReport.userFinalCost == -1_000)
+    }
+
+    @Test("Nil due date defaults to the purchase month")
+    func nilDueDateDefaultsToPurchaseMonth() {
+        let food = category("Dinner", kind: .expense)
+        let tx = transaction(amount: -500, category: food, postedAt: monthStart, assignment: .partner)
+
+        let result = build(reportMonth: YearMonth(date: monthStart), transactions: [tx], dueDates: [:])
+        #expect(result.ferRows.count == 1)
+        #expect(result.deferredFerRows.isEmpty)
+        #expect(result.amountToRecoverFromPartner == 500)
+        #expect(result.pendingForUpcomingMonths == 0)
+    }
+
+    @Test("Same-month due date recovers now")
+    func sameMonthDueDate() {
+        let food = category("Dinner", kind: .expense)
+        let tx = transaction(amount: -300, category: food, postedAt: monthStart, assignment: .partner)
+        let due = monthStart.addingTimeInterval(20 * 86_400) // still same month
+
+        let result = build(reportMonth: YearMonth(date: monthStart), transactions: [tx], dueDates: [tx.id: due])
+        #expect(result.ferRows.count == 1)
+        #expect(result.deferredFerRows.isEmpty)
+        #expect(result.amountToRecoverFromPartner == 300)
+    }
+
+    @Test("Stored due date before purchase defensively resolves to purchase month")
+    func earlierDueDateDefensivelyResolves() {
+        let food = category("Dinner", kind: .expense)
+        let tx = transaction(amount: -300, category: food, postedAt: monthStart, assignment: .partner)
+        // An impossible earlier due date must not hide the transaction in an earlier month.
+        let earlier = monthStart.addingTimeInterval(-40 * 86_400)
+
+        let result = build(reportMonth: YearMonth(date: monthStart), transactions: [tx], dueDates: [tx.id: earlier])
+        #expect(result.ferRows.count == 1)
+        #expect(result.deferredFerRows.isEmpty)
+        #expect(result.amountToRecoverFromPartner == 300)
+    }
+
+    @Test("Shared and user rows ignore due dates and stay in their posted month")
+    func nonPartnerRowsIgnoreDueDates() {
+        let food = category("Dinner", kind: .expense)
+        let shared = transaction(amount: -1_000, category: food, postedAt: monthStart, assignment: .shared)
+        let mine = transaction(amount: -200, category: food, postedAt: monthStart, assignment: .user)
+        // A due date next month should NOT defer shared/user rows.
+        let nextMonth = YearMonth(date: monthStart).addingMonths(1).startDate
+        let dueDates: [UUID: Date] = [shared.id: nextMonth, mine.id: nextMonth]
+
+        let result = build(reportMonth: YearMonth(date: monthStart), transactions: [shared, mine], dueDates: dueDates, partnerIncome: 1_000)
+        #expect(result.sharedRows.count == 1)
+        #expect(result.userRows.count == 1)
+        #expect(result.ferRows.isEmpty)
+        #expect(result.deferredFerRows.isEmpty)
+        #expect(result.totalPaidByUser == 1_200)
+    }
+
+    @Test("V5 on-disk store migrates to V6 and supports a due-date override")
+    func v5StoreMigratesToV6WithDueDateOverride() throws {
+        // Write a real on-disk store under V5 (no SettlementDueDateOverride model
+        // yet), reopen with the current AppSchema (V6) through the staged migration,
+        // verify prior data survived, then write an override and reopen again.
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("finance-v6-\(UUID()).store")
+        defer {
+            try? FileManager.default.removeItem(at: storeURL)
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: storeURL.path + "-wal"))
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: storeURL.path + "-shm"))
+        }
+
+        var savedTxID: UUID?
+        do {
+            let v5Schema = Schema(versionedSchema: FinanceTrackerSchemaV5.self)
+            let config = ModelConfiguration(schema: v5Schema, url: storeURL)
+            let container = try ModelContainer(for: v5Schema, configurations: [config])
+            let context = container.mainContext
+            let acct = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Checking")
+            context.insert(acct)
+            let tx = Transaction(account: acct, postedAt: monthStart, amount: -1_000, descriptionRaw: "Dinner")
+            tx.setHouseholdScope(.included)
+            tx.setExpenseAssignment(.partner)
+            context.insert(tx)
+            try context.save()
+            savedTxID = tx.id
+        }
+
+        // Reopen with the live schema (V6) via the staged migration plan.
+        let config = ModelConfiguration(schema: AppSchema.schema, url: storeURL)
+        let migrated = try ModelContainer(
+            for: AppSchema.schema,
+            migrationPlan: FinanceTrackerMigrationPlan.self,
+            configurations: [config]
+        )
+        let context = migrated.mainContext
+        let tx = try #require(try context.fetch(FetchDescriptor<Transaction>()).first)
+        #expect(tx.id == savedTxID)
+        #expect(tx.expenseAssignment == .partner)
+
+        // The new sidecar model is queryable post-migration.
+        #expect((try? context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())) == 0)
+
+        // Write an override, then verify a context-aware report resolves it.
+        let due = YearMonth(date: monthStart).addingMonths(1).startDate
+        try SettlementDueDateService.setDueDate(due, for: tx.id, context: context)
+
+        let input = HouseholdSettlementReportService.reportInput(for: monthStart, context: context)
+        #expect(input.dueDates[tx.id] != nil)
+
+        let julyReport = HouseholdSettlementReportService.build(
+            monthStart: monthStart,
+            transactions: input.transactions,
+            dueDates: input.dueDates,
+            setup: HouseholdSettlementSetup(partnerIncomeEstimate: 0)
+        )
+        #expect(julyReport.deferredFerRows.count == 1)
+        #expect(julyReport.amountToRecoverFromPartner == 0)
+
+        try SettlementDueDateService.clear(for: tx.id, context: context)
+        #expect(SettlementDueDateService.activeDueDates(for: [tx.id], context: context).isEmpty)
+    }
+
+    @Test("A due-date override pulls an older Fer tx into the due month via reportInput")
+    func reportInputPullsOlderFerTxIntoDueMonth() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let july = YearMonth(year: 2026, month: 7)
+        let august = YearMonth(year: 2026, month: 8)
+        let acct = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "2now")
+        context.insert(acct)
+        let food = FinanceTracker.Category(name: "Clothing", kind: .expense)
+        let tx = Transaction(account: acct, postedAt: july.startDate.addingTimeInterval(12 * 86_400), amount: -1_000, descriptionRaw: "Shein", category: food)
+        tx.setHouseholdScope(.included)
+        tx.setExpenseAssignment(.partner)
+        context.insert(tx)
+        try context.save()
+
+        // Due date lands in August.
+        let augDue = august.startDate.addingTimeInterval(10 * 86_400)
+        try SettlementDueDateService.setDueDate(augDue, for: tx.id, context: context)
+
+        // July report: the tx is posted here, deferred to August (not summed).
+        let julyInput = HouseholdSettlementReportService.reportInput(for: july.startDate, context: context)
+        let julyReport = HouseholdSettlementReportService.build(monthStart: july.startDate, transactions: julyInput.transactions, dueDates: julyInput.dueDates, setup: HouseholdSettlementSetup(partnerIncomeEstimate: 0))
+        #expect(julyReport.deferredFerRows.count == 1)
+        #expect(julyReport.ferRows.isEmpty)
+
+        // August report: the older Fer tx must be pulled in by its due date and summed.
+        let augInput = HouseholdSettlementReportService.reportInput(for: august.startDate, context: context)
+        #expect(augInput.transactions.contains { $0.id == tx.id }, "August input should include the July tx via its due date")
+        #expect(augInput.dueDates[tx.id] != nil)
+        let augReport = HouseholdSettlementReportService.build(monthStart: august.startDate, transactions: augInput.transactions, dueDates: augInput.dueDates, setup: HouseholdSettlementSetup(partnerIncomeEstimate: 0))
+        #expect(augReport.ferRows.count == 1)
+        #expect(augReport.amountToRecoverFromPartner == 1_000)
+    }
+
+    @Test("setDueDate clamps an earlier date up to the purchase day")
+    func setDueDateClampsEarlierDateToPurchaseDay() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let july = YearMonth(year: 2026, month: 7)
+        let food = FinanceTracker.Category(name: "Dinner", kind: .expense)
+        let tx = Transaction(account: account(), postedAt: july.startDate.addingTimeInterval(15 * 86_400), amount: -500, descriptionRaw: "Dinner", category: food)
+        tx.setHouseholdScope(.included)
+        tx.setExpenseAssignment(.partner)
+        context.insert(tx)
+        try context.save()
+
+        // An impossible earlier date (June) must be clamped to the July purchase day,
+        // not stored as-is and surface the tx in the wrong month.
+        let june = YearMonth(year: 2026, month: 6).startDate.addingTimeInterval(5 * 86_400)
+        try SettlementDueDateService.setDueDate(june, for: tx.id, context: context)
+
+        let active = SettlementDueDateService.activeDueDates(for: [tx.id], context: context)
+        let resolved = try #require(active[tx.id])
+        #expect(YearMonth(date: resolved) == july, "Earlier due date must clamp to the purchase month")
+    }
+
+    @Test("activeDueDates resolves deterministically when duplicate rows share a timestamp")
+    func activeDueDatesBreaksTiesDeterministically() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let tx = Transaction(account: account(), postedAt: monthStart, amount: -100, descriptionRaw: "X", category: category("Food", kind: .expense))
+        tx.setHouseholdScope(.included)
+        tx.setExpenseAssignment(.partner)
+        context.insert(tx)
+        try context.save()
+
+        // Manually seed two rows for the same tx: an active date and a tombstone,
+        // both with identical lastModifiedAt. The active date must win (or neither
+        // should nondeterministically hide it) — the fetch is sorted so the result is
+        // stable across runs.
+        let sameTimestamp = Date(timeIntervalSince1970: 1_800_000_000)
+        let active = SettlementDueDateOverride(transactionID: tx.id, dueDate: YearMonth(date: monthStart).addingMonths(1).startDate)
+        active.lastModifiedAt = sameTimestamp
+        let tombstone = SettlementDueDateOverride(transactionID: tx.id, dueDate: nil)
+        tombstone.lastModifiedAt = sameTimestamp
+        context.insert(active)
+        context.insert(tombstone)
+        try context.save()
+
+        // Run many times — if the tie-break were nondeterministic this would flake.
+        for _ in 0..<50 {
+            let resolved = SettlementDueDateService.activeDueDates(for: [tx.id], context: context)
+            #expect(resolved[tx.id] != nil, "Identical-timestamp rows must resolve deterministically (active present)")
+        }
     }
 }

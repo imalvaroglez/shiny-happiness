@@ -21,7 +21,12 @@ struct HouseholdSettlementView: View {
 
     @State private var report: HouseholdSettlementReport?
     @State private var monthTransactions: [Transaction] = []
+    @State private var monthDueDates: [UUID: Date] = [:]
     @State private var expandedSections: Set<HouseholdTransactionSectionState.ID> = []
+    @State private var selectionMode = false
+    @State private var selectedIDs: Set<UUID> = []
+    @State private var saveError: String?
+    @State private var dueDatePickerTxID: UUID?
     @State private var showingExporter = false
     @State private var saveStatus = "Saved"
     @State private var isLoadingSetup = false
@@ -67,6 +72,7 @@ struct HouseholdSettlementView: View {
                         warnings(state.warning)
                         resultCard(state.summary)
                         breakdown(state.summary)
+                        transactionsHeader(state)
                         ForEach(state.transactionSections) { section in
                             transactionSection(section)
                         }
@@ -112,8 +118,21 @@ struct HouseholdSettlementView: View {
             contentType: .plainText,
             defaultFilename: "Household Settlement \(selectedMonth.fileNameComponent).txt"
         ) { _ in }
+        .alert("Couldn’t save", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("OK", role: .cancel) { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
+        }
         .onAppear { loadSetupAndReport() }
-        .onChange(of: selectedMonth) { loadSetupAndReport() }
+        .onChange(of: selectedMonth) {
+            // Avoid assigning across months: leave selection mode before reloading.
+            selectionMode = false
+            selectedIDs.removeAll()
+            loadSetupAndReport()
+        }
         .onChange(of: partnerIncome) { setupChanged() }
         .onChange(of: useManualSalary) { setupChanged() }
         .onChange(of: manualSalary) { setupChanged() }
@@ -394,30 +413,48 @@ struct HouseholdSettlementView: View {
     }
 
     private func transactionSection(_ state: HouseholdTransactionSectionState) -> some View {
-        DisclosureGroup(isExpanded: expansionBinding(for: state.id)) {
-            if !state.rows.isEmpty {
+        let isExpanded = expandedSections.contains(state.id)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                toggleSection(state.id)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "chevron.right")
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 20)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.snappy, value: isExpanded)
+                    Text(state.title)
+                        .font(.headline)
+                        .accessibilityIdentifier("\(state.id.rawValue).header")
+                    Text(state.countText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(state.subtotal)
+                        .font(.callout.weight(.semibold))
+                        .monospacedDigit()
+                }
+                .contentShape(Rectangle())
+                .padding(16)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("\(state.id.rawValue).disclosure")
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            if isExpanded && !state.rows.isEmpty {
                 transactionRows(state.rows)
             }
-        } label: {
-            HStack(spacing: 12) {
-                Text(state.title)
-                    .font(.headline)
-                    .accessibilityIdentifier("\(state.id.rawValue).header")
-                Text(state.countText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(state.subtotal)
-                    .font(.callout.weight(.semibold))
-                    .monospacedDigit()
-            }
-            .contentShape(Rectangle())
-            .accessibilityIdentifier("\(state.id.rawValue).disclosure")
-            .accessibilityValue(expandedSections.contains(state.id) ? "Expanded" : "Collapsed")
         }
-        .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityIdentifier(state.id.rawValue)
+    }
+
+    private func toggleSection(_ id: HouseholdTransactionSectionState.ID) {
+        if expandedSections.contains(id) {
+            expandedSections.remove(id)
+        } else {
+            expandedSections.insert(id)
+        }
     }
 
     private func transactionRows(_ rows: [HouseholdTransactionRowState]) -> some View {
@@ -432,6 +469,17 @@ struct HouseholdSettlementView: View {
     private func householdTransactionRow(_ state: HouseholdTransactionRowState) -> some View {
         let tx = state.row.transaction
         return HStack(alignment: .center, spacing: 12) {
+            if selectionMode {
+                Toggle("", isOn: Binding(
+                    get: { selectedIDs.contains(tx.id) },
+                    set: { isSelected in
+                        if isSelected { selectedIDs.insert(tx.id) } else { selectedIDs.remove(tx.id) }
+                    }
+                ))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .accessibilityIdentifier("household.row.checkbox")
+            }
             Text(tx.postedAt, format: .dateTime.day().month(.abbreviated))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -450,40 +498,106 @@ struct HouseholdSettlementView: View {
                 Text(state.amount)
                     .font(.callout.weight(.semibold))
                     .monospacedDigit()
-                Text(state.status)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if !selectionMode && state.showsDueDatePicker {
+                    // Fer rows: status is a clickable chip that opens a popover to
+                    // edit the due date. The chip itself always states the current
+                    // settlement month, so the row reads clearly without an editor.
+                    Button {
+                        dueDatePickerTxID = dueDatePickerTxID == tx.id ? nil : tx.id
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(state.status)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
+                        }
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(state.deferredToMonth == nil ? Color.secondary : Color.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("household.row.dueDate.toggle")
+                    .popover(isPresented: Binding(
+                        get: { dueDatePickerTxID == tx.id },
+                        set: { if !$0 { dueDatePickerTxID = nil } }
+                    )) {
+                        dueDatePopover(for: tx, current: state.dueDate)
+                    }
+                } else {
+                    Text(state.status)
+                        .font(.caption2)
+                        .foregroundStyle(state.deferredToMonth == nil ? Color.secondary : Color.orange)
+                }
             }
-            assignmentControl(for: tx)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
     }
 
-    private func assignmentControl(for tx: Transaction) -> some View {
-        ControlGroup {
-            Button("Mine") { assign(tx, .user) }
-                .help("Mark as yours")
-            Button("Shared") { assign(tx, .shared) }
-                .help("Mark as shared")
-            Button("Fer") { assign(tx, .partner) }
-                .help("Mark as Fer's")
+    private func dueDatePopover(for tx: Transaction, current: Date?) -> some View {
+        // Min date is the purchase calendar day — a due date can't precede the charge.
+        let postedDay = Calendar(identifier: .gregorian).startOfDay(for: tx.postedAt)
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Fecha de cobro")
+                .font(.headline)
+            Text("Cuándo le cobras esta compra a Fer. Si cae en otro mes, se suma a ese mes en vez de este.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            DatePicker(
+                "Cobra en",
+                selection: Binding(
+                    get: { current ?? postedDay },
+                    set: { newDate in setDueDate(tx, newDate) }
+                ),
+                in: postedDay...,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.field)
+            .labelsHidden()
+            .accessibilityIdentifier("household.row.dueDate")
+            if current != nil {
+                Button {
+                    setDueDate(tx, nil)
+                    dueDatePickerTxID = nil
+                } label: {
+                    Label("Mismo mes de compra", systemImage: "arrow.uturn.backward")
+                        .frame(maxWidth: .infinity)
+                }
+                .accessibilityIdentifier("household.row.dueDate.reset")
+            }
         }
-        .controlSize(.small)
-        .fixedSize()
+        .padding(16)
+        .frame(width: 280)
     }
 
-    private func expansionBinding(for id: HouseholdTransactionSectionState.ID) -> Binding<Bool> {
-        Binding(
-            get: { expandedSections.contains(id) },
-            set: { expanded in
-                if expanded {
-                    expandedSections.insert(id)
-                } else {
-                    expandedSections.remove(id)
+    private func transactionsHeader(_ state: HouseholdSettlementScreenState) -> some View {
+        HStack(spacing: 12) {
+            Text("Transactions")
+                .font(.headline)
+                .accessibilityIdentifier("household.transactionsHeader.title")
+            if selectionMode {
+                Text("\(selectedIDs.count) selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                ControlGroup {
+                    Button("Mine") { applyAssignment(.user) }
+                        .disabled(selectedIDs.isEmpty)
+                    Button("Shared") { applyAssignment(.shared) }
+                        .disabled(selectedIDs.isEmpty)
+                    Button("Fer") { applyAssignment(.partner) }
+                        .disabled(selectedIDs.isEmpty)
                 }
+                .accessibilityIdentifier("household.bulkAssign")
+            } else {
+                Spacer()
             }
-        )
+            Button(selectionMode ? "Done" : "Select") {
+                selectionMode.toggle()
+                if !selectionMode { selectedIDs.removeAll() }
+            }
+            .accessibilityIdentifier("household.selectToggle")
+        }
+        .padding(.horizontal, 4)
     }
 
     private func setupRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
@@ -549,8 +663,14 @@ struct HouseholdSettlementView: View {
         customUserPercent = savedSetup.customUserPercent ?? 50
         customPartnerPercent = savedSetup.customPartnerPercent ?? 50
         notes = savedSetup.notes ?? ""
-        monthTransactions = HouseholdSettlementReportService.transactions(for: monthStart, context: modelContext)
-        report = HouseholdSettlementReportService.build(monthStart: monthStart, transactions: monthTransactions, setup: savedSetup)
+        // Seed the editable list AND the due-date cache from the full report input
+        // (posted-in-month + older Fer tx whose due date lands here). Seeding
+        // monthTransactions from the full set keeps subsequent recomputeReport()
+        // rebuilds from dropping the older pulled-in rows.
+        let input = HouseholdSettlementReportService.reportInput(for: monthStart, context: modelContext)
+        monthTransactions = input.transactions
+        monthDueDates = input.dueDates
+        report = HouseholdSettlementReportService.build(monthStart: monthStart, transactions: input.transactions, dueDates: input.dueDates, setup: savedSetup)
         saveStatus = "Saved"
         isLoadingSetup = false
     }
@@ -562,7 +682,9 @@ struct HouseholdSettlementView: View {
     }
 
     private func recomputeReport() {
-        report = HouseholdSettlementReportService.build(monthStart: selectedMonth.startDate, transactions: monthTransactions, setup: setup)
+        // Carry the cached due-date map so a setup-field change (income/split/etc.)
+        // never silently wipes the settlement-due-date classification from the report.
+        report = HouseholdSettlementReportService.build(monthStart: selectedMonth.startDate, transactions: monthTransactions, dueDates: monthDueDates, setup: setup)
     }
 
     private func scheduleSave() {
@@ -623,11 +745,55 @@ struct HouseholdSettlementView: View {
         notes = ""
     }
 
-    private func assign(_ tx: Transaction, _ assignment: ExpenseAssignment) {
-        tx.setExpenseAssignment(assignment)
-        tx.touch()
-        try? modelContext.save()
-        recomputeReport()
+    private func applyAssignment(_ assignment: ExpenseAssignment) {
+        guard !selectedIDs.isEmpty else { return }
+        var purgedDueDateIDs: Set<UUID> = []
+        for tx in monthTransactions where selectedIDs.contains(tx.id) {
+            // Reassigning away from Fer clears any due-date override (no value keeping
+            // one for a non-Fer row). Exclusion alone preserves a latent override.
+            if assignment != .partner, tx.resolvedHouseholdAllocation == .partner {
+                purgedDueDateIDs.insert(tx.id)
+            }
+            tx.setExpenseAssignment(assignment)
+            tx.touch()
+        }
+        do {
+            try modelContext.save()
+            if !purgedDueDateIDs.isEmpty {
+                try SettlementDueDateService.purge(for: purgedDueDateIDs, context: modelContext)
+            }
+        } catch {
+            modelContext.rollback()
+            saveError = "Couldn’t save assignment. Reverting."
+            return
+        }
+        selectedIDs.removeAll()
+        selectionMode = false
+        reloadReportInput()
+    }
+
+    private func setDueDate(_ tx: Transaction, _ date: Date?) {
+        do {
+            try SettlementDueDateService.setDueDate(date, for: tx.id, context: modelContext)
+        } catch {
+            modelContext.rollback()
+            saveError = "Couldn’t save due date. Reverting."
+            return
+        }
+        // Reload from the full input — a due-date change can move a Fer row between
+        // the posted-in-month and deferred-into-month fetch sets. Uses a transaction-
+        // only reload so unsaved monthly-setup fields are not overwritten.
+        reloadReportInput()
+    }
+
+    /// Rebuilds the report from the full input (with due dates) without disturbing
+    /// the editable monthly-setup @State fields.
+    private func reloadReportInput() {
+        let monthStart = selectedMonth.startDate
+        let input = HouseholdSettlementReportService.reportInput(for: monthStart, context: modelContext)
+        monthTransactions = input.transactions
+        monthDueDates = input.dueDates
+        report = HouseholdSettlementReportService.build(monthStart: monthStart, transactions: input.transactions, dueDates: input.dueDates, setup: setup)
     }
 
     private func copy(_ report: HouseholdSettlementReport) {

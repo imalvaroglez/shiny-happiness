@@ -71,6 +71,15 @@ struct HouseholdPartnerIncomeEstimateSnapshot: Codable {
     var lastModifiedAt: Date
 }
 
+struct SettlementDueDateOverrideSnapshot: Codable {
+    var id: UUID
+    var transactionID: UUID
+    /// Non-nil = active due date; nil = tombstone (a cleared override that must
+    /// defeat an older active date under backup merge).
+    var dueDate: Date?
+    var lastModifiedAt: Date
+}
+
 struct TransactionSnapshot: Codable {
     var id: UUID
     var accountId: UUID?
