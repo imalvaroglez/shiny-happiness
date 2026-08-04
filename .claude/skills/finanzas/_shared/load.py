@@ -17,7 +17,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-SUPPORTED_SCHEMA = {4, 5, 6}
+# v7 adds SettlementDueDateOverride as a backup sidecar. Its records are useful
+# to callers that need the full backup shape, but do not change transaction
+# analysis by themselves.
+SUPPORTED_SCHEMA = {4, 5, 6, 7}
 
 # Mismas ubicaciones que StoreFileResetService / BackupScheduler.
 DEFAULT_BACKUP_DIRS = [
@@ -123,15 +126,19 @@ def load_dataset(bundle: Optional[Path] = None) -> Dict[str, Any]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     schema = manifest.get("schemaVersion")
     if schema not in SUPPORTED_SCHEMA:
+        if isinstance(schema, int) and schema > max(SUPPORTED_SCHEMA):
+            detail = "es más reciente que este skill"
+        else:
+            detail = "no está soportado por este skill"
         raise ValueError(
-            f"schemaVersion={schema} no soportado. El skill acepta {sorted(SUPPORTED_SCHEMA)}. "
+            f"schemaVersion={schema} {detail}. El skill acepta {sorted(SUPPORTED_SCHEMA)}. "
             "Exporta un backup nuevo desde la app actual."
         )
 
     models = {name: _load_model(bundle, name) for name in (
         "Account", "AccountBalanceSnapshot", "Category", "CategoryRule",
         "HouseholdPartnerIncomeEstimate", "InstallmentPlan", "PendingImport",
-        "SignRecoveryHint", "Statement", "StockPosition", "Transaction",
+        "SettlementDueDateOverride", "SignRecoveryHint", "Statement", "StockPosition", "Transaction",
     )}
 
     accounts = {a["id"]: a for a in models["Account"]}
@@ -150,6 +157,7 @@ def load_dataset(bundle: Optional[Path] = None) -> Dict[str, Any]:
         "snapshots": models["AccountBalanceSnapshot"],
         "positions": models["StockPosition"],
         "rules": models["CategoryRule"],
+        "settlement_due_date_overrides": models["SettlementDueDateOverride"],
     }
 
 

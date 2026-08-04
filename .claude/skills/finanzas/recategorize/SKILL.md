@@ -37,7 +37,8 @@ detect.uncategorized_with_known_merchant(txs, ds)  # sin categoría pero merchan
 - **Toda propuesta es Inferido**: "parece que esto debería ser X". La decisión final es del usuario.
 - **Validación de writeback**: `writeback.apply_recategorizations` valida que el `categoryId`
   destino exista en `Category.json`, que los `*Raw` sean válidos, y bumpa `lastModifiedAt`.
-  Si algo falla, aborta sin escribir.
+  También acepta manifests 4–7 y conserva su versión y sidecars (incluido
+  `SettlementDueDateOverride.json`). Si algo falla, aborta sin escribir.
 - **No tocar el bundle source**: se genera un bundle NUEVO (copia del actual + cambios).
   El usuario decide restaurarlo o no.
 - **Categorías soft-deleted**: no proponer mover a una categoría con `deletedAt != nil`.

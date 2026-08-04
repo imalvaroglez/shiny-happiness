@@ -8,7 +8,7 @@ REGLAS VERIFICADAS contra BackupArchive.restore (ver plan + exploración):
     igual, pero los *Raw no sin el bump).
   - Los campos movementKindRaw/treatmentKindRaw/householdScopeRaw se RE-DERIVAN si son nil
     al restaurar → dejarlos explícitos no-nil para que respeten la intención.
-  - schemaVersion: dejarlo como está (4-6 aceptados). No inventar 7+.
+  - schemaVersion: dejarlo como está (4-7 aceptados). No inventar uno nuevo.
 
 ALCANCE LIMITADO A RECLASIFICAR: solo categoryId / flowKindRaw / treatmentKindRaw.
 No crea CategoryRule, no soft-deleta, no toca isDuplicate/amount/postedAt.
@@ -28,6 +28,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from load import SUPPORTED_SCHEMA
+
 ALLOWED_FIELDS = {"categoryId", "flowKindRaw", "treatmentKindRaw", "movementKindRaw"}
 VALID_FLOW = {"income", "expense", "transfer", "charge", "cardCredit", "payment"}
 VALID_TREATMENT = {
@@ -39,6 +41,15 @@ VALID_MOVEMENT = {"income", "expense", "transfer", "adjustment"}
 
 class WritebackError(Exception):
     pass
+
+
+def _validate_dataset_schema(ds: Dict[str, Any]) -> None:
+    schema = ds.get("manifest", {}).get("schemaVersion")
+    if schema not in SUPPORTED_SCHEMA:
+        raise WritebackError(
+            f"schemaVersion={schema} no soportado para write-back. "
+            f"El skill acepta {sorted(SUPPORTED_SCHEMA)} y preserva el manifest original."
+        )
 
 
 def _validate_change(change: Dict[str, Any], valid_cat_ids: set, valid_tx_ids: set) -> None:
@@ -87,6 +98,7 @@ def apply_recategorizations(
         raise WritebackError("Sin cambios que aplicar.")
 
     now = now or datetime.now(timezone.utc)
+    _validate_dataset_schema(ds)
     source_bundle: Path = ds["bundle"]
     valid_cat_ids = {c["id"] for c in ds["models"]["Category"]}
     valid_tx_ids = {t["id"] for t in ds["models"]["Transaction"]}
