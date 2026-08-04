@@ -23,6 +23,8 @@ struct PastedHsbc2NowParser {
     struct UnparsedLine: Sendable {
         let rawText: String
         let reason: String
+        /// One-based row in the text the user pasted, for import diagnostics.
+        let sourceLine: Int
         let cardLast4: String?
         let parsedDate: Date?
         let parsedAmount: Decimal?
@@ -347,6 +349,7 @@ struct PastedHsbc2NowParser {
                     pendings.append(UnparsedLine(
                         rawText: line,
                         reason: "Could not parse all of (date, amount, description) from this row",
+                        sourceLine: i + 1,
                         cardLast4: s,
                         parsedDate: extractFirstDate(line),
                         parsedAmount: extractLastAmount(line),

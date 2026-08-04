@@ -157,6 +157,7 @@ struct ImportView: View {
 
 private struct ReportRow: View {
     let report: IngestReport
+    @State private var showingErrors = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -193,9 +194,104 @@ private struct ReportRow: View {
                     .padding(.vertical, 3)
                     .background(Capsule().fill(Color.orange.opacity(0.12)))
             }
+
+            if !report.errors.isEmpty {
+                Button {
+                    showingErrors = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(detailsLabel)
+                            .font(.caption2.weight(.medium))
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(detailsTint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(detailsTint.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View \(detailsLabel.lowercased())")
+                .accessibilityHint("Shows the affected row and review explanation.")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .sheet(isPresented: $showingErrors) {
+            ImportErrorSheet(fileName: report.fileName, errors: report.errors)
+        }
+    }
+
+    private var detailsLabel: String {
+        guard report.errorCount > 0 else { return "Review details" }
+        return "\(report.errorCount) error\(report.errorCount == 1 ? "" : "s")"
+    }
+
+    private var detailsTint: Color {
+        report.errorCount > 0 ? .red : .orange
+    }
+}
+
+private struct ImportErrorSheet: View {
+    let fileName: String
+    let errors: [IngestError]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Import details")
+                        .font(.headline)
+                    Text(fileName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+
+            Divider()
+
+            if errors.isEmpty {
+                Text("No error details were recorded.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(errors.enumerated()), id: \.offset) { index, error in
+                            VStack(alignment: .leading, spacing: 4) {
+                                if let row = error.row {
+                                    Text("Row \(row)")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(error.message)
+                                    .font(.callout)
+                                if let detail = error.detail {
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .accessibilityElement(children: .combine)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            if index < errors.count - 1 {
+                                Divider().padding(.leading, 16)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 440, minHeight: 280)
     }
 }
 

@@ -43,7 +43,10 @@ final class IngestPipeline {
             return IngestReport(
                 fileName: sourceLabel,
                 errorCount: 1,
-                errors: [IngestError(message: "Could not identify financial institution from pasted text. Make sure you copied the full statement including the HSBC header.")]
+                errors: [IngestError(
+                    message: "Couldn't identify this statement.",
+                    detail: "Paste import currently supports HSBC 2Now. For a complete import, copy from the “TU PAGO REQUERIDO” heading through the transaction rows."
+                )]
             )
         }
 
@@ -83,10 +86,10 @@ final class IngestPipeline {
         var totalDupes = 0
         var totalUncategorized = 0
         var allErrors: [IngestError] = []
+        var fallbackPendingAccount: Account?
+        var attachedPendingIndexes = Set<Int>()
 
         for section in result.sections {
-            guard !section.transactions.isEmpty else { continue }
-
             let account = findOrCreateAccount(
                 for: detection,
                 sectionHint: section.accountHint,
@@ -95,6 +98,9 @@ final class IngestPipeline {
                 sectionNickname: section.nickname,
                 creditLimit: section.creditLimit
             )
+            fallbackPendingAccount = fallbackPendingAccount ?? account
+
+            guard !section.transactions.isEmpty else { continue }
 
             let statement = createStatement(
                 account: account,
@@ -148,7 +154,7 @@ final class IngestPipeline {
             // Match by the cardLast4 values present in this section's transactions,
             // not by section.accountNumber (which may be the titular's number for all sections).
             let sectionCards = Set(section.transactions.compactMap(\.cardLast4))
-            for p in result.pendings where p.cardLast4.flatMap({ sectionCards.contains($0) }) ?? false {
+            for (index, p) in result.pendings.enumerated() where p.cardLast4.flatMap({ sectionCards.contains($0) }) ?? false {
                 let pending = PendingImport(
                     account: account,
                     statement: statement,
@@ -160,6 +166,7 @@ final class IngestPipeline {
                     cardLast4: p.cardLast4
                 )
                 context.insert(pending)
+                attachedPendingIndexes.insert(index)
             }
 
             totalNew += dedup.unique.count
@@ -167,12 +174,11 @@ final class IngestPipeline {
             totalUncategorized += cat.uncategorized
         }
 
-        // Pendings with no cardLast4 (anything we couldn't bind to a section) get attached to the
-        // first persisted account so the user can still review them.
-        let firstAccount = (try? context.fetch(FetchDescriptor<Account>()))?.first(where: { $0.institution == detection.issuer.rawValue })
-        for p in result.pendings where p.cardLast4 == nil {
+        // Keep rows from a card with no successfully parsed transactions reviewable too.
+        // They have no Statement to attach to, but still belong to this pasted account.
+        for (index, p) in result.pendings.enumerated() where !attachedPendingIndexes.contains(index) {
             let pending = PendingImport(
-                account: firstAccount,
+                account: fallbackPendingAccount,
                 rawText: p.rawText,
                 reason: p.reason,
                 parsedDate: p.parsedDate,
@@ -201,9 +207,12 @@ final class IngestPipeline {
             _ = expectedCharges
         }
 
-        let pendingsCount = result.pendings.count
-        if pendingsCount > 0 {
-            allErrors.append(IngestError(message: "\(pendingsCount) row(s) need manual review."))
+        for pending in result.pendings {
+            allErrors.append(IngestError(
+                message: "Needs manual review",
+                row: pending.sourceLine,
+                detail: "\(pending.reason)\n\(pending.rawText)"
+            ))
         }
 
         return IngestReport(
