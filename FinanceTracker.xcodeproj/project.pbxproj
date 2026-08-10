@@ -125,6 +125,7 @@
 		A7B77FBB5DFE9B4F07E0CF2B /* ManualTransactionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F8ED358579DEC7AE7B694B /* ManualTransactionSheet.swift */; };
 		A80162D0C239BF1AE0375EC1 /* CategoryKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BAE6FB9D105F2781DB4D41F /* CategoryKind.swift */; };
 		A8673BA78E81CC0A7D259408 /* ClipboardWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43941B090D8E417AEB4B7417 /* ClipboardWriter.swift */; };
+		ACB807F4D353F26FD4B4624F /* BackupFolderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0477323AE5619EFA584E0E /* BackupFolderStore.swift */; };
 		ACFEAAED6B529403CCDD9B4F /* Deduplicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2C79047686612150D874D7 /* Deduplicator.swift */; };
 		ADDAE0B5F66AF87B9D3BD7E9 /* PortfolioDashboardCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F029C5D7B128344514829E38 /* PortfolioDashboardCopyTests.swift */; };
 		B01D3278C6D08E0511C69B09 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADE896B846BF60B6FF840B9 /* SettingsView.swift */; };
@@ -340,6 +341,7 @@
 		D86529E2EA3D87647109F8D7 /* StoreFileResetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreFileResetService.swift; sourceTree = "<group>"; };
 		D9373FE76C7716DF92E4CA11 /* MoneyFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoneyFormatTests.swift; sourceTree = "<group>"; };
 		DB404350F819D865D89629CD /* DashboardInsightBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardInsightBuilderTests.swift; sourceTree = "<group>"; };
+		DF0477323AE5619EFA584E0E /* BackupFolderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupFolderStore.swift; sourceTree = "<group>"; };
 		DF93D36ED5AF613EFC459745 /* AccountIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountIdentity.swift; sourceTree = "<group>"; };
 		DFEB2E4EDD9A68C81CB81C02 /* TransactionTreatmentKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionTreatmentKind.swift; sourceTree = "<group>"; };
 		E03FD69EFD0B6B299D45E403 /* PortfolioViewData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioViewData.swift; sourceTree = "<group>"; };
@@ -502,6 +504,7 @@
 			isa = PBXGroup;
 			children = (
 				2312AE0B7A293DE0CD290ED8 /* BackupArchive.swift */,
+				DF0477323AE5619EFA584E0E /* BackupFolderStore.swift */,
 				750478702E1F74AF19265F62 /* BackupModels.swift */,
 				9F208E365E81EBE4E7DD2591 /* BackupScheduler.swift */,
 			);
@@ -974,6 +977,7 @@
 				72D61D523AC9B58EB1FFF216 /* ApplyToSimilarView.swift in Sources */,
 				63AA955FDFE1C8C6C5D48E60 /* AssetAccountDashboard.swift in Sources */,
 				0E220C56F01C5F73AC25E438 /* BackupArchive.swift in Sources */,
+				ACB807F4D353F26FD4B4624F /* BackupFolderStore.swift in Sources */,
 				F5DB3DDF765B96ACE07C2188 /* BackupModels.swift in Sources */,
 				7E9A87EFEAD24ACE48D239CD /* BackupScheduler.swift in Sources */,
 				38155FEDD54751ED6C365C87 /* BalanceSnapshotSheet.swift in Sources */,

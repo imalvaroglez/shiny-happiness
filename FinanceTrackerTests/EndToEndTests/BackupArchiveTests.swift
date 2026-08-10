@@ -153,6 +153,86 @@ struct BackupArchiveTests {
         #expect(BackupArchive.latestBackup(in: root)?.url == latest)
     }
 
+    @Test("Backup folder store remembers and resolves a selected folder")
+    func backupFolderStoreRemembersSelectedFolder() throws {
+        let suiteName = "BackupFolderStoreTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remembered-backups-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        try BackupFolderStore.remember(directory: folder, defaults: defaults)
+        let access = BackupFolderStore.accessForLatest(
+            defaultDirectory: FileManager.default.temporaryDirectory,
+            defaults: defaults
+        )
+        defer { access.stopAccessing() }
+
+        #expect(access.url.standardizedFileURL == folder.standardizedFileURL)
+    }
+
+    @Test("Backup folder store refreshes a stale bookmark after a folder moves")
+    func backupFolderStoreRefreshesStaleBookmark() throws {
+        let suiteName = "BackupFolderStoreTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("moved-backups-root-\(UUID())", isDirectory: true)
+        let original = root.appendingPathComponent("original", isDirectory: true)
+        let moved = root.appendingPathComponent("moved", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
+        try BackupFolderStore.remember(directory: original, defaults: defaults)
+        try FileManager.default.moveItem(at: original, to: moved)
+
+        let access = BackupFolderStore.accessForLatest(
+            defaultDirectory: FileManager.default.temporaryDirectory,
+            defaults: defaults
+        )
+        defer { access.stopAccessing() }
+
+        #expect(access.url.standardizedFileURL == moved.standardizedFileURL)
+    }
+
+    @Test("Deleted remembered folder falls back without opening a selector")
+    func backupFolderStoreFallsBackWhenFolderIsDeleted() throws {
+        let suiteName = "BackupFolderStoreTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("deleted-backups-\(UUID())", isDirectory: true)
+        let fallback = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fallback-backups-\(UUID())", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: fallback)
+        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+
+        try BackupFolderStore.remember(directory: folder, defaults: defaults)
+        try FileManager.default.removeItem(at: folder)
+
+        let access = BackupFolderStore.accessForLatest(defaultDirectory: fallback, defaults: defaults)
+        defer { access.stopAccessing() }
+        #expect(access.url.standardizedFileURL == fallback.standardizedFileURL)
+    }
+
+    @Test("An empty backup folder has no latest backup")
+    func emptyBackupFolderHasNoLatestBackup() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("empty-backups-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        #expect(BackupArchive.latestBackup(in: folder) == nil)
+    }
+
     @Test("Invalid backup does not delete existing data")
     func invalidBackupDoesNotDeleteExistingData() async throws {
         let source = try makeContainer()

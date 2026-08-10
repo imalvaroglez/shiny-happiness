@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **Backup status and restore.** Backup & Data now shows the actual timestamp from the latest backup manifest, the number of valid backups available, and can load the newest valid backup from a selected folder after confirmation.
+- **Latest backup shortcut.** Load latest backup remembers the last selected folder with a macOS security-scoped bookmark, so it no longer opens a selector during normal use.
 
 ## [0.12.0] - 2026-07-20
 

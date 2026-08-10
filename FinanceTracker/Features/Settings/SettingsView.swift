@@ -72,6 +72,7 @@ struct SettingsView: View {
     @State private var isRestoring = false
     @State private var backupStatus = ""
     @State private var pendingRestore: BackupSummary?
+    @State private var pendingRestoreDirectory: URL?
     @State private var showingRestoreConfirmation = false
     @State private var resetErrorMessage: String?
     @State private var tokenDraft = ""
@@ -185,6 +186,7 @@ struct SettingsView: View {
         .alert("Restore backup?", isPresented: $showingRestoreConfirmation) {
             Button("Cancel", role: .cancel) {
                 pendingRestore = nil
+                pendingRestoreDirectory = nil
             }
             Button("Restore", role: .destructive) {
                 performPendingRestore()
@@ -671,7 +673,7 @@ struct SettingsView: View {
                         .disabled(isExporting)
                     Button("Restore from backup…") { restoreBackup() }
                         .disabled(isRestoring)
-                    Button("Load latest backup…") { restoreLatestBackup() }
+                    Button("Load latest backup") { restoreLatestBackup() }
                         .disabled(isRestoring)
                     Button("Reveal in Finder") { revealBackupsFolder() }
                 }
@@ -814,8 +816,7 @@ struct SettingsView: View {
     }
 
     private var backupsDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("FinanceTracker/Backups", isDirectory: true)
+        BackupFolderStore.defaultDirectory
     }
 
     private func exportBackup() {
@@ -847,30 +848,37 @@ struct SettingsView: View {
             backupStatus = "Restore failed: choose a valid .ftbackup bundle"
             return
         }
+        do {
+            try BackupFolderStore.remember(directory: url.deletingLastPathComponent())
+        } catch {
+            backupStatus = "Backup selected; its folder could not be remembered for Load latest."
+        }
+        pendingRestoreDirectory = url.deletingLastPathComponent()
         pendingRestore = summary
         showingRestoreConfirmation = true
     }
 
     private func restoreLatestBackup() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowedContentTypes = []
-        panel.directoryURL = backupsDirectory
-        guard panel.runModal() == .OK, let directory = panel.url else { return }
-        guard let summary = BackupArchive.latestBackup(in: directory) else {
-            backupStatus = "Restore failed: no valid .ftbackup bundles found in that folder"
+        let access = BackupFolderStore.accessForLatest(defaultDirectory: backupsDirectory)
+        defer { access.stopAccessing() }
+        guard let summary = BackupArchive.latestBackup(in: access.url) else {
+            backupStatus = "No valid backup found in the saved folder. Use Restore from backup… to choose one."
             return
         }
+        pendingRestoreDirectory = access.url
         pendingRestore = summary
         showingRestoreConfirmation = true
     }
 
     private func performPendingRestore() {
         guard let summary = pendingRestore else { return }
+        let directory = pendingRestoreDirectory ?? summary.url.deletingLastPathComponent()
         pendingRestore = nil
+        pendingRestoreDirectory = nil
         isRestoring = true
         Task {
+            let access = BackupFolderStore.access(directory: directory)
+            defer { access.stopAccessing() }
             do {
                 let strategy: RestoreStrategy = hasFinancialRows ? .mergeKeepingNewer : .replaceAll
                 try await BackupArchive.restore(from: summary.url, into: modelContext, strategy: strategy)
