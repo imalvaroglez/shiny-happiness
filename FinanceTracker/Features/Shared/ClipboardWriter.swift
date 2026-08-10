@@ -26,12 +26,18 @@ extension Decimal {
 
 /// Writes a raw amount to the system clipboard.
 enum ClipboardWriter {
+    /// Copies arbitrary text to the system clipboard.
+    @MainActor
+    static func copyText(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
     /// Copies `amount` as a plain numeric string (see `Decimal.plainMoneyString`).
     @MainActor
     static func copyPlainAmount(_ amount: Decimal) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(amount.plainMoneyString, forType: .string)
+        copyText(amount.plainMoneyString)
     }
 }
 

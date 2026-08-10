@@ -62,10 +62,9 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var accounts: [Account]
     @Query private var transactions: [Transaction]
+    @Query private var statements: [Statement]
     @Query(filter: #Predicate<Category> { $0.deletedAt == nil }) private var categories: [Category]
-    @Query(filter: #Predicate<PendingImport> { $0.resolvedTransaction == nil })
-    private var pendingImports: [PendingImport]
-    @Query private var installmentPlans: [InstallmentPlan]
+    @Query private var pendingImports: [PendingImport]
 
     @State private var showDeleteConfirmation = false
     @State private var isExporting = false
@@ -129,6 +128,7 @@ struct SettingsView: View {
             settingsPane(.backupData) {
                 backupSection
                 dataSection
+                resetSection
             }
 
             settingsPane(.accounts) {
@@ -194,7 +194,7 @@ struct SettingsView: View {
         } message: {
             if let pendingRestore {
                 let strategy = hasFinancialRows ? "merge with your existing data" : "replace the empty store"
-                Text("Load \(pendingRestore.url.lastPathComponent), created \(pendingRestore.createdAt.formatted(date: .abbreviated, time: .shortened)), and \(strategy)?")
+                Text("Load \(pendingRestore.url.path), created \(pendingRestore.createdAt.formatted(date: .abbreviated, time: .shortened)), and \(strategy)?")
             } else {
                 Text("Choose a valid FinanceTracker backup.")
             }
@@ -640,45 +640,75 @@ struct SettingsView: View {
 
     private var backupSection: some View {
         SectionCard(title: "Backup & Restore") {
-            VStack(alignment: .leading, spacing: 10) {
+            let presentation = backupPresentation
+
+            VStack(alignment: .leading, spacing: 16) {
                 if !backupStatus.isEmpty {
                     Text(backupStatus)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                HStack(spacing: 24) {
-                    if let latestBackup {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Last backup")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text(latestBackup.createdAt.formatted(date: .abbreviated, time: .shortened))
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Automatic backups", systemImage: "checkmark.shield")
+                        .font(.subheadline.weight(.semibold))
+
+                    Text("FinanceTracker creates automatic snapshots when the app runs, at most once per day, and keeps recent daily, weekly, and monthly copies.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if presentation.hasVerifiedSnapshot,
+                       let createdAt = presentation.createdAt,
+                       let latestPath = presentation.latestPath {
+                        LabeledContent("Last verified snapshot") {
+                            Text(createdAt.formatted(date: .abbreviated, time: .shortened))
                                 .font(.callout.weight(.semibold).monospacedDigit())
-                            Text(latestBackup.url.lastPathComponent)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Backup bundle")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                            Text(latestPath)
+                                .font(.caption2.monospaced())
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     } else {
-                        Text("No valid backups yet")
-                            .font(.caption)
+                        Text("No verified automatic backup found yet.")
+                            .font(.callout.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
-                    MetricChip(label: "Backups available", value: "\(backupSummaries.count)")
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Managed folder (FinanceTracker)")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Text(presentation.managedDirectoryPath)
+                            .font(.caption2.monospaced())
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button("Copy path") {
+                            ClipboardWriter.copyText(presentation.latestPath ?? presentation.managedDirectoryPath)
+                            backupStatus = "Path copied"
+                        }
+                        Button("Reveal backup folder") { revealBackupsFolder() }
+                    }
                 }
 
                 HStack(spacing: 12) {
-                    Button("Export backup…") { exportBackup() }
+                    Button("Save a copy…") { exportBackup() }
                         .disabled(isExporting)
-                    Button("Restore from backup…") { restoreBackup() }
+                    Button("Restore from file…") { restoreBackup() }
                         .disabled(isRestoring)
                     Button("Load latest backup") { restoreLatestBackup() }
                         .disabled(isRestoring)
-                    Button("Reveal in Finder") { revealBackupsFolder() }
                 }
 
-                Text("Backups include items in Recently Deleted.")
+                Text("Backups include items in Recently Deleted. Save a copy is optional and can be used for an external safety copy.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -716,30 +746,57 @@ struct SettingsView: View {
     }
 
     private var dataSection: some View {
-        SectionCard(title: "Data Snapshot & Reset") {
+        let summary = dataHealthSummary
+        let currencySummary = summary.currenciesInUse.isEmpty ? "none" : summary.currenciesInUse.joined(separator: ", ")
+
+        return SectionCard(title: "Your data") {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 24) {
-                    MetricChip(label: "Accounts", value: "\(accounts.count)")
-                    MetricChip(label: "Transactions", value: "\(transactions.count)")
-                    MetricChip(label: "Pending Review", value: "\(pendingImports.count)")
-                    MetricChip(label: "Installment Plans", value: "\(installmentPlans.count)")
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                    DataHealthCard(
+                        label: "Active accounts",
+                        value: "\(summary.activeAccountCount)",
+                        detail: "closed accounts excluded"
+                    )
+                    DataHealthCard(
+                        label: "History",
+                        value: historyValue(for: summary),
+                        detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet"
+                    )
+                    DataHealthCard(
+                        label: "Last activity",
+                        value: summary.lastActivity?.formatted(date: .abbreviated, time: .omitted) ?? "—",
+                        detail: summary.lastActivity == nil ? "No activity yet" : "latest active transaction"
+                    )
+                    DataHealthCard(
+                        label: "Needs attention",
+                        value: "\(summary.unresolvedPendingCount)",
+                        detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports",
+                        tint: summary.unresolvedPendingCount == 0 ? .green : .orange
+                    )
                 }
 
-                Divider()
+                Text("\(summary.importedStatementCount) statements imported · \(summary.activeCategoryCount) active categories · Currencies in use: \(currencySummary)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+        }
+    }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Danger Zone")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.red)
-                    Text("Export a fresh backup before deleting financial data.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+    private var resetSection: some View {
+        SectionCard(title: "Reset data") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Delete all financial data")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.red)
+                Text("Export a fresh backup before deleting financial data.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
 
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Text("Delete All Data")
-                    }
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Text("Delete All Data")
                 }
             }
             .padding(16)
@@ -807,16 +864,42 @@ struct SettingsView: View {
         "'Pending for upcoming months' tracks deferred Fer amounts, and 'Total paid by you' still reflects the cash that left your accounts this month.",
     ]
 
-    private var backupSummaries: [BackupSummary] {
-        BackupArchive.summaries(in: backupsDirectory)
-    }
-
     private var latestBackup: BackupSummary? {
-        backupSummaries.first
+        BackupArchive.latestBackup(in: backupsDirectory)
     }
 
     private var backupsDirectory: URL {
         BackupFolderStore.defaultDirectory
+    }
+
+    private var backupPresentation: BackupStatusPresentation {
+        BackupStatusPresentation(latestBackup: latestBackup, managedDirectory: backupsDirectory)
+    }
+
+    private var dataHealthSummary: DataHealthSummary {
+        DataHealthSummary(
+            accounts: accounts.map { DataHealthAccountInput(closedAt: $0.closedAt, currency: $0.currency) },
+            transactions: transactions.map {
+                DataHealthTransactionInput(
+                    postedAt: $0.postedAt,
+                    deletedAt: $0.deletedAt,
+                    isDuplicate: $0.isDuplicate,
+                    currency: $0.currency
+                )
+            },
+            pendingImports: pendingImports.map { DataHealthPendingInput(isResolved: $0.resolvedTransaction != nil) },
+            activeCategoryCount: categories.count,
+            importedStatementCount: statements.count
+        )
+    }
+
+    private func historyValue(for summary: DataHealthSummary) -> String {
+        guard let start = summary.historyStart, let end = summary.historyEnd else { return "—" }
+        let calendar = Calendar.current
+        if calendar.isDate(start, inSameDayAs: end) {
+            return start.formatted(date: .abbreviated, time: .omitted)
+        }
+        return "\(start.formatted(date: .abbreviated, time: .omitted)) – \(end.formatted(date: .abbreviated, time: .omitted))"
     }
 
     private func exportBackup() {
@@ -862,7 +945,7 @@ struct SettingsView: View {
         let access = BackupFolderStore.accessForLatest(defaultDirectory: backupsDirectory)
         defer { access.stopAccessing() }
         guard let summary = BackupArchive.latestBackup(in: access.url) else {
-            backupStatus = "No valid backup found in the saved folder. Use Restore from backup… to choose one."
+            backupStatus = "No valid backup found in the saved folder. Use Restore from file… to choose one."
             return
         }
         pendingRestoreDirectory = access.url
@@ -932,6 +1015,33 @@ struct SettingsView: View {
         } catch {
             resetErrorMessage = error.localizedDescription
         }
+    }
+}
+
+private struct DataHealthCard: View {
+    let label: String
+    let value: String
+    let detail: String
+    var tint: Color = .primary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.title3.weight(.semibold).monospacedDigit())
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
+        .padding(12)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -1384,6 +1494,109 @@ private enum CategoryManagementPreviewData {
     CategoryManagementPanelPreviewHost(
         categories: categories,
         selectedCategoryID: categories.first { $0.name == "Transport" }?.id
+    )
+}
+
+private struct BackupStatusPreviewCard: View {
+    let presentation: BackupStatusPresentation
+
+    var body: some View {
+        SectionCard(title: "Backup & Restore") {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Automatic backups", systemImage: "checkmark.shield")
+                    .font(.subheadline.weight(.semibold))
+                if let createdAt = presentation.createdAt, let latestPath = presentation.latestPath {
+                    Text("Last verified snapshot · \(createdAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.callout.weight(.medium))
+                    Text(latestPath)
+                        .font(.caption2.monospaced())
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("No verified automatic backup found yet.")
+                        .foregroundStyle(.secondary)
+                }
+                Text("Managed folder (FinanceTracker): \(presentation.managedDirectoryPath)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+        }
+        .frame(width: 760)
+        .padding()
+    }
+}
+
+private struct DataHealthPreviewPanel: View {
+    let summary: DataHealthSummary
+
+    var body: some View {
+        SectionCard(title: "Your data") {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed accounts excluded")
+                DataHealthCard(label: "History", value: historyValue, detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet")
+                DataHealthCard(label: "Last activity", value: summary.lastActivity?.formatted(date: .abbreviated, time: .omitted) ?? "—", detail: summary.lastActivity == nil ? "No activity yet" : "latest active transaction")
+                DataHealthCard(label: "Needs attention", value: "\(summary.unresolvedPendingCount)", detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports", tint: summary.unresolvedPendingCount == 0 ? .green : .orange)
+            }
+            .padding(16)
+        }
+        .frame(width: 900)
+        .padding()
+    }
+
+    private var historyValue: String {
+        guard let start = summary.historyStart, let end = summary.historyEnd else { return "—" }
+        return "\(start.formatted(date: .abbreviated, time: .omitted)) – \(end.formatted(date: .abbreviated, time: .omitted))"
+    }
+}
+
+#Preview("Settings Backup — verified") {
+    BackupStatusPreviewCard(
+        presentation: BackupStatusPresentation(
+            latestBackup: BackupSummary(
+                url: URL(fileURLWithPath: "/Users/example/Library/Application Support/FinanceTracker/Backups/FinanceTracker-2026-08-10T11-47-00.ftbackup"),
+                createdAt: .now,
+                schemaVersion: 7
+            ),
+            managedDirectory: URL(fileURLWithPath: "/Users/example/Library/Application Support/FinanceTracker/Backups")
+        )
+    )
+}
+
+#Preview("Settings Backup — no snapshot") {
+    BackupStatusPreviewCard(
+        presentation: BackupStatusPresentation(
+            latestBackup: nil,
+            managedDirectory: URL(fileURLWithPath: "/Users/example/Library/Application Support/FinanceTracker/Backups")
+        )
+    )
+}
+
+#Preview("Settings Data — pending imports") {
+    DataHealthPreviewPanel(
+        summary: DataHealthSummary(
+            accounts: [DataHealthAccountInput(closedAt: nil, currency: "MXN")],
+            transactions: [DataHealthTransactionInput(postedAt: .now, deletedAt: nil, isDuplicate: false, currency: "MXN")],
+            pendingImports: [DataHealthPendingInput(isResolved: false)],
+            activeCategoryCount: 12,
+            importedStatementCount: 8
+        )
+    )
+}
+
+#Preview("Settings Data — healthy") {
+    DataHealthPreviewPanel(
+        summary: DataHealthSummary(
+            accounts: [
+                DataHealthAccountInput(closedAt: nil, currency: "MXN"),
+                DataHealthAccountInput(closedAt: nil, currency: "USD"),
+            ],
+            transactions: [DataHealthTransactionInput(postedAt: .now, deletedAt: nil, isDuplicate: false, currency: "MXN")],
+            pendingImports: [],
+            activeCategoryCount: 18,
+            importedStatementCount: 24
+        )
     )
 }
 #endif
