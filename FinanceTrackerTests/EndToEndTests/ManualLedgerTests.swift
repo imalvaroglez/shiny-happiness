@@ -654,6 +654,29 @@ struct ManualLedgerTests {
         #expect(balance == 0, "Transaction before openedAt should not affect balance, got \(balance)")
     }
 
+    @Test("Paired transfers name the other account in each direction")
+    func pairedTransferNamesCounterparty() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let source = Account(institution: "Bank", type: .checking, nickname: "Evoluciona")
+        let destination = Account(institution: "Bank", type: .checking, nickname: "Priority")
+        context.insert(source)
+        context.insert(destination)
+        try context.save()
+
+        let pair = try ManualTransferService.create(
+            from: source,
+            to: destination,
+            date: dateFromComponents(year: 2026, month: 8, day: 10),
+            amount: 500,
+            note: "Transfer",
+            context: context
+        )
+
+        #expect(TransferCounterpartyLabel.text(for: pair.outflow, peers: [pair.outflow, pair.inflow]) == "To Priority")
+        #expect(TransferCounterpartyLabel.text(for: pair.inflow, peers: [pair.outflow, pair.inflow]) == "From Evoluciona")
+    }
+
     private func dateFromComponents(year: Int, month: Int, day: Int) -> Date {
         var components = DateComponents()
         components.year = year

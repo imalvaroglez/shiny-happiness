@@ -314,7 +314,7 @@ struct LiabilityAccountDashboard: View {
                 Button {
                     onTransactionTap?(tx)
                 } label: {
-                    DashboardTransactionRow(transaction: tx)
+                    DashboardTransactionRow(transaction: tx, showsAccount: false)
                 }
                 .buttonStyle(.plain)
                 if tx.id != snapshot.recentTransactions.prefix(10).last?.id {
