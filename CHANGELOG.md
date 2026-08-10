@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Backup status and restore.** Backup & Data now shows the actual timestamp from the latest backup manifest, the number of valid backups available, and can load the newest valid backup from a selected folder after confirmation.
+
 ## [0.12.0] - 2026-07-20
 
 ### Added

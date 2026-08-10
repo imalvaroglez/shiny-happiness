@@ -10,6 +10,12 @@ struct BackupManifest: Codable {
     var contentHashes: [String: String]
 }
 
+struct BackupSummary {
+    let url: URL
+    let createdAt: Date
+    let schemaVersion: Int
+}
+
 struct AccountSnapshot: Codable {
     var id: UUID
     var institution: String

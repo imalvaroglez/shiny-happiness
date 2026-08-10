@@ -71,6 +71,8 @@ struct SettingsView: View {
     @State private var isExporting = false
     @State private var isRestoring = false
     @State private var backupStatus = ""
+    @State private var pendingRestore: BackupSummary?
+    @State private var showingRestoreConfirmation = false
     @State private var resetErrorMessage: String?
     @State private var tokenDraft = ""
     @State private var tokenStatusMessage: String?
@@ -179,6 +181,21 @@ struct SettingsView: View {
             Button("OK") { resetErrorMessage = nil }
         } message: {
             Text(resetErrorMessage ?? "An unknown error occurred.")
+        }
+        .alert("Restore backup?", isPresented: $showingRestoreConfirmation) {
+            Button("Cancel", role: .cancel) {
+                pendingRestore = nil
+            }
+            Button("Restore", role: .destructive) {
+                performPendingRestore()
+            }
+        } message: {
+            if let pendingRestore {
+                let strategy = hasFinancialRows ? "merge with your existing data" : "replace the empty store"
+                Text("Load \(pendingRestore.url.lastPathComponent), created \(pendingRestore.createdAt.formatted(date: .abbreviated, time: .shortened)), and \(strategy)?")
+            } else {
+                Text("Choose a valid FinanceTracker backup.")
+            }
         }
         .alert("Category Error", isPresented: Binding(
             get: { categoryErrorMessage != nil },
@@ -629,20 +646,32 @@ struct SettingsView: View {
                 }
 
                 HStack(spacing: 24) {
-                    if let lastSnapshot = lastBackupDate {
-                        MetricChip(label: "Last snapshot", value: lastSnapshot)
+                    if let latestBackup {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Last backup")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(latestBackup.createdAt.formatted(date: .abbreviated, time: .shortened))
+                                .font(.callout.weight(.semibold).monospacedDigit())
+                            Text(latestBackup.url.lastPathComponent)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
                     } else {
-                        Text("No snapshots yet")
+                        Text("No valid backups yet")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    MetricChip(label: "On disk", value: "\(snapshotCount)")
+                    MetricChip(label: "Backups available", value: "\(backupSummaries.count)")
                 }
 
                 HStack(spacing: 12) {
                     Button("Export backup…") { exportBackup() }
                         .disabled(isExporting)
                     Button("Restore from backup…") { restoreBackup() }
+                        .disabled(isRestoring)
+                    Button("Load latest backup…") { restoreLatestBackup() }
                         .disabled(isRestoring)
                     Button("Reveal in Finder") { revealBackupsFolder() }
                 }
@@ -776,36 +805,17 @@ struct SettingsView: View {
         "'Pending for upcoming months' tracks deferred Fer amounts, and 'Total paid by you' still reflects the cash that left your accounts this month.",
     ]
 
-    private var lastBackupDate: String? {
-        let fm = FileManager.default
-        let dir = backupsDirectory
-        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return nil }
-        let backups = files.filter { $0.pathExtension == "ftbackup" }
-            .sorted(by: { $0.lastPathComponent > $1.lastPathComponent })
-        guard let latest = backups.first else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        let date = backupDateFromFilename(latest.lastPathComponent)
-        return formatter.localizedString(for: date ?? .distantPast, relativeTo: .now)
+    private var backupSummaries: [BackupSummary] {
+        BackupArchive.summaries(in: backupsDirectory)
     }
 
-    private var snapshotCount: Int {
-        let fm = FileManager.default
-        let dir = backupsDirectory
-        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return 0 }
-        return files.filter { $0.pathExtension == "ftbackup" }.count
+    private var latestBackup: BackupSummary? {
+        backupSummaries.first
     }
 
     private var backupsDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("FinanceTracker/Backups", isDirectory: true)
-    }
-
-    private func backupDateFromFilename(_ name: String) -> Date? {
-        let base = name.replacingOccurrences(of: ".ftbackup", with: "")
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate]
-        let normalized = base.replacingOccurrences(of: "-", with: "T", options: .literal, range: base.range(of: "-", options: .literal, range: base.index(base.startIndex, offsetBy: 10)..<base.endIndex))
-        return formatter.date(from: normalized)
     }
 
     private func exportBackup() {
@@ -828,21 +838,43 @@ struct SettingsView: View {
 
     private func restoreBackup() {
         let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = []
+        panel.directoryURL = backupsDirectory
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let summary = BackupArchive.summary(at: url) else {
+            backupStatus = "Restore failed: choose a valid .ftbackup bundle"
+            return
+        }
+        pendingRestore = summary
+        showingRestoreConfirmation = true
+    }
+
+    private func restoreLatestBackup() {
+        let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowedContentTypes = []
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard url.pathExtension == "ftbackup",
-              FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path) else {
-            backupStatus = "Restore failed: choose a .ftbackup bundle"
+        panel.directoryURL = backupsDirectory
+        guard panel.runModal() == .OK, let directory = panel.url else { return }
+        guard let summary = BackupArchive.latestBackup(in: directory) else {
+            backupStatus = "Restore failed: no valid .ftbackup bundles found in that folder"
             return
         }
+        pendingRestore = summary
+        showingRestoreConfirmation = true
+    }
+
+    private func performPendingRestore() {
+        guard let summary = pendingRestore else { return }
+        pendingRestore = nil
         isRestoring = true
         Task {
             do {
                 let strategy: RestoreStrategy = hasFinancialRows ? .mergeKeepingNewer : .replaceAll
-                try await BackupArchive.restore(from: url, into: modelContext, strategy: strategy)
-                backupStatus = "Restore complete"
+                try await BackupArchive.restore(from: summary.url, into: modelContext, strategy: strategy)
+                backupStatus = "Restore complete: \(summary.createdAt.formatted(date: .abbreviated, time: .shortened))"
             } catch {
                 backupStatus = "Restore failed: \(error.localizedDescription)"
             }
@@ -851,25 +883,25 @@ struct SettingsView: View {
     }
 
     private var hasFinancialRows: Bool {
-        let accountCount = (try? modelContext.fetchCount(FetchDescriptor<Account>())) ?? 0
-        let balanceSnapshotCount = (try? modelContext.fetchCount(FetchDescriptor<AccountBalanceSnapshot>())) ?? 0
-        let statementCount = (try? modelContext.fetchCount(FetchDescriptor<Statement>())) ?? 0
-        let transactionCount = (try? modelContext.fetchCount(FetchDescriptor<Transaction>())) ?? 0
-        let installmentPlanCount = (try? modelContext.fetchCount(FetchDescriptor<InstallmentPlan>())) ?? 0
-        let pendingImportCount = (try? modelContext.fetchCount(FetchDescriptor<PendingImport>())) ?? 0
-        let signRecoveryHintCount = (try? modelContext.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
-        let stockPositionCount = (try? modelContext.fetchCount(FetchDescriptor<StockPosition>())) ?? 0
-        let partnerEstimateCount = (try? modelContext.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())) ?? 0
+        let counts: [Int?] = [
+            try? modelContext.fetchCount(FetchDescriptor<Account>()),
+            try? modelContext.fetchCount(FetchDescriptor<AccountBalanceSnapshot>()),
+            try? modelContext.fetchCount(FetchDescriptor<Statement>()),
+            try? modelContext.fetchCount(FetchDescriptor<Transaction>()),
+            try? modelContext.fetchCount(FetchDescriptor<Category>()),
+            try? modelContext.fetchCount(FetchDescriptor<CategoryRule>()),
+            try? modelContext.fetchCount(FetchDescriptor<InstallmentPlan>()),
+            try? modelContext.fetchCount(FetchDescriptor<PendingImport>()),
+            try? modelContext.fetchCount(FetchDescriptor<SignRecoveryHint>()),
+            try? modelContext.fetchCount(FetchDescriptor<StockPosition>()),
+            try? modelContext.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()),
+            try? modelContext.fetchCount(FetchDescriptor<SettlementDueDateOverride>()),
+        ]
 
-        return accountCount > 0
-            || balanceSnapshotCount > 0
-            || stockPositionCount > 0
-            || partnerEstimateCount > 0
-            || statementCount > 0
-            || transactionCount > 0
-            || installmentPlanCount > 0
-            || pendingImportCount > 0
-            || signRecoveryHintCount > 0
+        // An unreadable count is treated as existing data so a detection failure
+        // can never select the destructive replaceAll strategy.
+        if counts.contains(where: { $0 == nil }) { return true }
+        return counts.compactMap { $0 }.contains(where: { $0 > 0 })
     }
 
     private func revealBackupsFolder() {
