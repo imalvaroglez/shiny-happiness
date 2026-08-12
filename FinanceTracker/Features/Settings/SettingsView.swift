@@ -922,22 +922,34 @@ struct SettingsView: View {
 
     private func restoreBackup() {
         let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
+        // A .ftbackup bundle is a directory, so the picker must allow choosing
+        // directories. Accept either the bundle itself or a folder that contains
+        // one or more bundles (the folder is resolved to its latest backup).
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
         panel.allowedContentTypes = []
         panel.directoryURL = backupsDirectory
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let summary = BackupArchive.summary(at: url) else {
-            backupStatus = "Restore failed: choose a valid .ftbackup bundle"
+
+        let containingDirectory: URL
+        if let direct = BackupArchive.summary(at: url) {
+            // The user selected a .ftbackup bundle directly.
+            containingDirectory = direct.url.deletingLastPathComponent()
+            pendingRestore = direct
+        } else if let latest = BackupArchive.latestBackup(in: url) {
+            // The user selected a folder that contains one or more bundles.
+            containingDirectory = url
+            pendingRestore = latest
+        } else {
+            backupStatus = "Restore failed: choose a .ftbackup bundle or a folder that contains one."
             return
         }
         do {
-            try BackupFolderStore.remember(directory: url.deletingLastPathComponent())
+            try BackupFolderStore.remember(directory: containingDirectory)
         } catch {
             backupStatus = "Backup selected; its folder could not be remembered for Load latest."
         }
-        pendingRestoreDirectory = url.deletingLastPathComponent()
-        pendingRestore = summary
+        pendingRestoreDirectory = containingDirectory
         showingRestoreConfirmation = true
     }
 
