@@ -16,6 +16,84 @@ enum BackupArchive {
     private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
+    static func summaries(in directory: URL) -> [BackupSummary] {
+        let fm = FileManager.default
+        let candidates: [URL]
+        if directory.pathExtension == "ftbackup" {
+            candidates = [directory]
+        } else {
+            candidates = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))?
+                .filter { $0.pathExtension == "ftbackup" } ?? []
+        }
+
+        return candidates
+            .compactMap { summary(at: $0) }
+            .sorted {
+                if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
+                return $0.url.path < $1.url.path
+            }
+    }
+
+    static func latestBackup(in directory: URL) -> BackupSummary? {
+        summaries(in: directory).first
+    }
+
+    static func summary(at bundleURL: URL) -> BackupSummary? {
+        guard bundleURL.pathExtension == "ftbackup" else { return nil }
+        guard let data = try? Data(contentsOf: bundleURL.appendingPathComponent("manifest.json")) else { return nil }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let manifest = try? decoder.decode(BackupManifest.self, from: data),
+              (1...schemaVersion).contains(manifest.schemaVersion),
+              isValidBundle(manifest, at: bundleURL) else { return nil }
+        return BackupSummary(url: bundleURL, createdAt: manifest.createdAt, schemaVersion: manifest.schemaVersion)
+    }
+
+    private static func isValidBundle(_ manifest: BackupManifest, at bundleURL: URL) -> Bool {
+        let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
+        for name in requiredModelNames(for: manifest.schemaVersion) {
+            guard arrayData(for: name, in: modelsDir) != nil else { return false }
+        }
+        for (name, expectedCount) in manifest.modelCounts {
+            guard let data = arrayData(for: name, in: modelsDir),
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  let values = object as? [Any],
+                  values.count == expectedCount else { return false }
+        }
+        for (name, expectedHash) in manifest.contentHashes {
+            guard let data = try? Data(contentsOf: modelsDir.appendingPathComponent("\(name).json")) else { return false }
+            let actualHash = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+            guard actualHash == expectedHash else { return false }
+        }
+        return true
+    }
+
+    private static func arrayData(for name: String, in modelsDir: URL) -> Data? {
+        let url = modelsDir.appendingPathComponent("\(name).json")
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              object is [Any] else { return nil }
+        return data
+    }
+
+    private static func requiredModelNames(for schemaVersion: Int) -> [String] {
+        var names = [
+            "Account",
+            "Statement",
+            "Category",
+            "CategoryRule",
+            "InstallmentPlan",
+            "Transaction",
+            "PendingImport",
+            "SignRecoveryHint",
+        ]
+        if schemaVersion >= 3 { names.append("StockPosition") }
+        if schemaVersion >= 4 { names.append("HouseholdPartnerIncomeEstimate") }
+        if schemaVersion >= 7 { names.append("SettlementDueDateOverride") }
+        return names
+    }
+
     static func export(to bundleURL: URL, from context: ModelContext) async throws {
         let fm = FileManager.default
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
@@ -137,6 +215,9 @@ enum BackupArchive {
         guard [1, 2, 3, 4, 5, 6, 7].contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
+        guard isValidBundle(manifest, at: bundleURL) else {
+            throw RestoreError.invalidBundle
+        }
 
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
 
@@ -150,13 +231,6 @@ enum BackupArchive {
             guard fm.fileExists(atPath: url.path) else { return [] }
             let data = try Data(contentsOf: url)
             return try decoder.decode([T].self, from: data)
-        }
-
-        switch strategy {
-        case .replaceAll:
-            try deleteAll(from: context)
-        case .mergeKeepingNewer:
-            break
         }
 
         let accountsSnap = try loadJSON(AccountSnapshot.self, "Account")
@@ -187,6 +261,13 @@ enum BackupArchive {
             dueDateOverridesSnap = try loadJSON(SettlementDueDateOverrideSnapshot.self, "SettlementDueDateOverride")
         } else {
             dueDateOverridesSnap = try loadOptionalJSON(SettlementDueDateOverrideSnapshot.self, "SettlementDueDateOverride")
+        }
+
+        switch strategy {
+        case .replaceAll:
+            try deleteAll(from: context)
+        case .mergeKeepingNewer:
+            break
         }
 
         let existingAccounts = try context.fetch(FetchDescriptor<Account>())
@@ -565,10 +646,12 @@ enum BackupArchive {
 
 private enum RestoreError: LocalizedError {
     case unsupportedSchema(Int)
+    case invalidBundle
 
     var errorDescription: String? {
         switch self {
         case .unsupportedSchema(let v): "Unsupported backup schema version: \(v)"
+        case .invalidBundle: "Backup bundle is incomplete or has invalid model data."
         }
     }
 }

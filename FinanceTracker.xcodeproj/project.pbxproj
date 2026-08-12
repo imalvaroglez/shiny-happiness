@@ -19,6 +19,7 @@
 		12A0A265B49384F8908150A2 /* IncomingTransferRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAEDCA80068E4D32773C1FBF /* IncomingTransferRulesTests.swift */; };
 		14C0242265647E20AB7792C7 /* DataBursatilClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F93DFD8109A199EAE81C7408 /* DataBursatilClient.swift */; };
 		150B4EFC55A2D5EC565217C4 /* header_vocabulary.json in Resources */ = {isa = PBXBuildFile; fileRef = 45CC98CFD6E5ADACC4120ED2 /* header_vocabulary.json */; };
+		1544A47188D1BBEF2E1F15E7 /* DataHealthSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E31BC464A71CD5263D32CFD /* DataHealthSummary.swift */; };
 		1ABB82C4377F2525012D7413 /* KeychainTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAD06CB6E6BFF5D2DF2B332D /* KeychainTokenStore.swift */; };
 		1BCEC672FB6F471EF4026802 /* HoldingsFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DAF25C7C4DD34BB87456146 /* HoldingsFingerprint.swift */; };
 		1CF7CE6C48C20334EC74CD8E /* SettlementDueDateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B8C2C97CE1A6C6CBE8AD4F1 /* SettlementDueDateService.swift */; };
@@ -65,6 +66,7 @@
 		4E9DD966C8CA1635768F89C5 /* MerchantExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7B3D8030B93AB84BF855595 /* MerchantExtractorTests.swift */; };
 		4F81EBFD1F759C29AB0C13EE /* category_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 258ACDAAC6B78C5485F65FCB /* category_rules.json */; };
 		4FC9FBFC9081EA63E3FE08DC /* Detector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27BCBC99E7AEEF97CC146320 /* Detector.swift */; };
+		506056A6B4535F878567078D /* BackupStatusPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6870ABC6327530BAFEA4D07 /* BackupStatusPresentation.swift */; };
 		52898B3508FAA5913092F631 /* PendingImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B75051804450452E6E8F69C /* PendingImport.swift */; };
 		539BF185CCDC45F9F61BCB30 /* FixtureLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB808F813CAADB72059B7BF1 /* FixtureLoader.swift */; };
 		544FC9BBCDCC9DED3825CD51 /* AccountBalanceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0B6D1EABB808F5DD8EB5EB /* AccountBalanceResolver.swift */; };
@@ -125,6 +127,7 @@
 		A7B77FBB5DFE9B4F07E0CF2B /* ManualTransactionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F8ED358579DEC7AE7B694B /* ManualTransactionSheet.swift */; };
 		A80162D0C239BF1AE0375EC1 /* CategoryKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BAE6FB9D105F2781DB4D41F /* CategoryKind.swift */; };
 		A8673BA78E81CC0A7D259408 /* ClipboardWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43941B090D8E417AEB4B7417 /* ClipboardWriter.swift */; };
+		ACB807F4D353F26FD4B4624F /* BackupFolderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0477323AE5619EFA584E0E /* BackupFolderStore.swift */; };
 		ACFEAAED6B529403CCDD9B4F /* Deduplicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2C79047686612150D874D7 /* Deduplicator.swift */; };
 		ADDAE0B5F66AF87B9D3BD7E9 /* PortfolioDashboardCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F029C5D7B128344514829E38 /* PortfolioDashboardCopyTests.swift */; };
 		B01D3278C6D08E0511C69B09 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADE896B846BF60B6FF840B9 /* SettingsView.swift */; };
@@ -171,6 +174,7 @@
 		E9BE8FDAB7470BF0D3F0A2C6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C5819A4B49AB20A4F7212123 /* Assets.xcassets */; };
 		EADBE2FB305A7B4241D78F74 /* CategoryRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F130B0509FE843CB686B4E /* CategoryRule.swift */; };
 		EE981FAE7AF35C481C9B0DC9 /* date_patterns.json in Resources */ = {isa = PBXBuildFile; fileRef = B79322B178BC59F4C069263D /* date_patterns.json */; };
+		EEBF2ADC04D506EA75F09A3D /* SettingsDataHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E18E82681373C8C536CE560 /* SettingsDataHealthTests.swift */; };
 		EEE5B0117DF6B280438A0AB6 /* TransactionSortMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15FE867B4D961BEA8B7D183F /* TransactionSortMode.swift */; };
 		F47D1A8E183539F736B5B6F7 /* OpenbankMexicoParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8B59AEE7F27B132483EA2B /* OpenbankMexicoParser.swift */; };
 		F4901D08D52CA33C9A3D9FF5 /* HouseholdSettlementKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C993AEDD0F93127B9F78877C /* HouseholdSettlementKind.swift */; };
@@ -200,6 +204,7 @@
 		04914B517C9B033CAEAC9321 /* DashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViewModel.swift; sourceTree = "<group>"; };
 		084ECD2379C85611D120A356 /* RawTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawTransaction.swift; sourceTree = "<group>"; };
 		0DFE0313E049E079B4450263 /* RetirementSemanticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetirementSemanticsTests.swift; sourceTree = "<group>"; };
+		0E18E82681373C8C536CE560 /* SettingsDataHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDataHealthTests.swift; sourceTree = "<group>"; };
 		1120D54B1148DC01A73564D8 /* HouseholdSettlementPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseholdSettlementPresenterTests.swift; sourceTree = "<group>"; };
 		15FE867B4D961BEA8B7D183F /* TransactionSortMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionSortMode.swift; sourceTree = "<group>"; };
 		16109266463E3B20E879BFA7 /* LearningHookTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LearningHookTests.swift; sourceTree = "<group>"; };
@@ -252,6 +257,7 @@
 		5B3DB4EFC9D0A19A507E597C /* NetWorthComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetWorthComposition.swift; sourceTree = "<group>"; };
 		5B8C2C97CE1A6C6CBE8AD4F1 /* SettlementDueDateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementDueDateService.swift; sourceTree = "<group>"; };
 		5C84E93C9A795A6020B4643B /* categories.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = categories.json; sourceTree = "<group>"; };
+		5E31BC464A71CD5263D32CFD /* DataHealthSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataHealthSummary.swift; sourceTree = "<group>"; };
 		62C7D882BEF6682B5A31ADDE /* FinanceTracker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FinanceTracker.entitlements; sourceTree = "<group>"; };
 		6413C1BCA04D30478DFBF64C /* CashFlowExclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CashFlowExclusionTests.swift; sourceTree = "<group>"; };
 		672775DA320EEBEDEF167921 /* TransactionClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionClassifier.swift; sourceTree = "<group>"; };
@@ -340,6 +346,7 @@
 		D86529E2EA3D87647109F8D7 /* StoreFileResetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreFileResetService.swift; sourceTree = "<group>"; };
 		D9373FE76C7716DF92E4CA11 /* MoneyFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoneyFormatTests.swift; sourceTree = "<group>"; };
 		DB404350F819D865D89629CD /* DashboardInsightBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardInsightBuilderTests.swift; sourceTree = "<group>"; };
+		DF0477323AE5619EFA584E0E /* BackupFolderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupFolderStore.swift; sourceTree = "<group>"; };
 		DF93D36ED5AF613EFC459745 /* AccountIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountIdentity.swift; sourceTree = "<group>"; };
 		DFEB2E4EDD9A68C81CB81C02 /* TransactionTreatmentKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionTreatmentKind.swift; sourceTree = "<group>"; };
 		E03FD69EFD0B6B299D45E403 /* PortfolioViewData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioViewData.swift; sourceTree = "<group>"; };
@@ -347,6 +354,7 @@
 		E32D2CADB3F7DBA60D048605 /* SeedDataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedDataLoader.swift; sourceTree = "<group>"; };
 		E381E57451C13D0EBF6EA793 /* samples */ = {isa = PBXFileReference; lastKnownFileType = folder; path = samples; sourceTree = SOURCE_ROOT; };
 		E4C860CA366A247626D89198 /* DashboardInsights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardInsights.swift; sourceTree = "<group>"; };
+		E6870ABC6327530BAFEA4D07 /* BackupStatusPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupStatusPresentation.swift; sourceTree = "<group>"; };
 		E76175BE428466F780B78B2C /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
 		E9F678D7C0F27BD7C9899137 /* InstallmentPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallmentPlan.swift; sourceTree = "<group>"; };
 		EA788084B77DC6E285F0C75B /* SPEIDestinationRulesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SPEIDestinationRulesTests.swift; sourceTree = "<group>"; };
@@ -502,8 +510,10 @@
 			isa = PBXGroup;
 			children = (
 				2312AE0B7A293DE0CD290ED8 /* BackupArchive.swift */,
+				DF0477323AE5619EFA584E0E /* BackupFolderStore.swift */,
 				750478702E1F74AF19265F62 /* BackupModels.swift */,
 				9F208E365E81EBE4E7DD2591 /* BackupScheduler.swift */,
+				E6870ABC6327530BAFEA4D07 /* BackupStatusPresentation.swift */,
 			);
 			path = Backup;
 			sourceTree = "<group>";
@@ -514,6 +524,7 @@
 				F5C6ED3A313C1939819ED6D7 /* AccountDeletionService.swift */,
 				A597EF9FEFE3473730377F78 /* CategoryManagementActions.swift */,
 				75CA9AD4E9A397F2014E57FC /* CategoryManagementViewState.swift */,
+				5E31BC464A71CD5263D32CFD /* DataHealthSummary.swift */,
 				1ADE896B846BF60B6FF840B9 /* SettingsView.swift */,
 			);
 			path = Settings;
@@ -615,6 +626,7 @@
 				F9119EC0B299B814BC2A32E8 /* PortfolioResolverTests.swift */,
 				AF95B7EEEEE105DC5FD764E6 /* PortfolioServiceTests.swift */,
 				67DCEB0832ADA26837DC4401 /* RetirementDashboardTests.swift */,
+				0E18E82681373C8C536CE560 /* SettingsDataHealthTests.swift */,
 				911C0B681D74C9CCC271C0CA /* StatementBalanceTests.swift */,
 			);
 			path = EndToEndTests;
@@ -974,8 +986,10 @@
 				72D61D523AC9B58EB1FFF216 /* ApplyToSimilarView.swift in Sources */,
 				63AA955FDFE1C8C6C5D48E60 /* AssetAccountDashboard.swift in Sources */,
 				0E220C56F01C5F73AC25E438 /* BackupArchive.swift in Sources */,
+				ACB807F4D353F26FD4B4624F /* BackupFolderStore.swift in Sources */,
 				F5DB3DDF765B96ACE07C2188 /* BackupModels.swift in Sources */,
 				7E9A87EFEAD24ACE48D239CD /* BackupScheduler.swift in Sources */,
+				506056A6B4535F878567078D /* BackupStatusPresentation.swift in Sources */,
 				38155FEDD54751ED6C365C87 /* BalanceSnapshotSheet.swift in Sources */,
 				B9EABF2891A45A74F37B3BA0 /* BreakdownSheet.swift in Sources */,
 				5A66C861137A24400C347A29 /* Categorizer.swift in Sources */,
@@ -998,6 +1012,7 @@
 				B209C9963D854A879C675973 /* DashboardView.swift in Sources */,
 				01ADF3D5CAF204A04508A358 /* DashboardViewModel.swift in Sources */,
 				14C0242265647E20AB7792C7 /* DataBursatilClient.swift in Sources */,
+				1544A47188D1BBEF2E1F15E7 /* DataHealthSummary.swift in Sources */,
 				6FD36B55DDA353AF7F137279 /* DateRange.swift in Sources */,
 				ACFEAAED6B529403CCDD9B4F /* Deduplicator.swift in Sources */,
 				4FC9FBFC9081EA63E3FE08DC /* Detector.swift in Sources */,
@@ -1126,6 +1141,7 @@
 				D18A1A482A6D2E46B03178A2 /* RetirementSemanticsTests.swift in Sources */,
 				1F8B12CA89D3CA8BCA7DD553 /* SPEIDestinationRulesTests.swift in Sources */,
 				2E7AEBE1B98E9692093C5E48 /* SemanticNormalizerTests.swift in Sources */,
+				EEBF2ADC04D506EA75F09A3D /* SettingsDataHealthTests.swift in Sources */,
 				98716711D057F9CDC22CD075 /* SourceFileTrackingTests.swift in Sources */,
 				8EE9599CFC5E7D2DE6471E61 /* StatementBalanceTests.swift in Sources */,
 				9B454A77B487AA81B149DC56 /* StructuralParserTests.swift in Sources */,

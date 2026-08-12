@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Backup status and restore.** Backup & Data now shows the actual timestamp from the latest verified backup manifest, its complete bundle path, the managed backup folder, and can load the newest valid backup from a selected folder after confirmation.
+- **Latest backup shortcut.** Load latest backup remembers the last selected folder with a macOS security-scoped bookmark, so it no longer opens a selector during normal use.
+- **Backup & Data clarity.** The screen explains automatic snapshot retention, separates optional external copies from restore, and replaces raw row counts with data-health cards for active accounts, history, recent activity, and items needing attention.
+
 ## [0.12.0] - 2026-07-20
 
 ### Added

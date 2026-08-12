@@ -1,4 +1,5 @@
 import Testing
+import CryptoKit
 import Foundation
 import SwiftData
 @testable import FinanceTracker
@@ -97,6 +98,163 @@ struct BackupArchiveTests {
             modelCounts: [:],
             contentHashes: [:]
         )).write(to: tmp.appendingPathComponent("manifest.json"))
+    }
+
+    private func writeManifest(createdAt: Date, schemaVersion: Int = 7, to bundle: URL) throws {
+        let modelsDir = bundle.appendingPathComponent("models", isDirectory: true)
+        try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        let modelNames = [
+            "Account", "Statement", "Category", "CategoryRule", "InstallmentPlan",
+            "Transaction", "PendingImport", "SignRecoveryHint", "StockPosition",
+            "HouseholdPartnerIncomeEstimate", "SettlementDueDateOverride",
+        ]
+        for name in modelNames {
+            try Data("[]".utf8).write(to: modelsDir.appendingPathComponent("\(name).json"))
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(BackupManifest(
+            schemaVersion: schemaVersion,
+            createdAt: createdAt,
+            appVersion: "test",
+            modelCounts: [:],
+            contentHashes: [:]
+        )).write(to: bundle.appendingPathComponent("manifest.json"))
+    }
+
+    private func updateManifestHash(for modelName: String, in bundle: URL) throws {
+        let manifestURL = bundle.appendingPathComponent("manifest.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
+        let modelURL = bundle.appendingPathComponent("models/\(modelName).json")
+        let data = try Data(contentsOf: modelURL)
+        manifest.contentHashes[modelName] = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: manifestURL)
+    }
+
+    @Test("Backup catalog uses manifest dates and selects the latest valid bundle")
+    func backupCatalogSelectsLatestManifestDate() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("backup-catalog-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let old = root.appendingPathComponent("9999-old-name.ftbackup", isDirectory: true)
+        let latest = root.appendingPathComponent("0000-new-name.ftbackup", isDirectory: true)
+        let invalid = root.appendingPathComponent("invalid.ftbackup", isDirectory: true)
+        try writeManifest(createdAt: Date(timeIntervalSince1970: 100), to: old)
+        try writeManifest(createdAt: Date(timeIntervalSince1970: 200), to: latest)
+        try FileManager.default.createDirectory(at: invalid, withIntermediateDirectories: true)
+
+        let summaries = BackupArchive.summaries(in: root)
+        #expect(summaries.map(\.url.lastPathComponent) == ["0000-new-name.ftbackup", "9999-old-name.ftbackup"])
+        #expect(BackupArchive.latestBackup(in: root)?.url == latest)
+    }
+
+    @Test("Backup folder store remembers and resolves a selected folder")
+    func backupFolderStoreRemembersSelectedFolder() throws {
+        let suiteName = "BackupFolderStoreTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remembered-backups-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        try BackupFolderStore.remember(directory: folder, defaults: defaults)
+        let access = BackupFolderStore.accessForLatest(
+            defaultDirectory: FileManager.default.temporaryDirectory,
+            defaults: defaults
+        )
+        defer { access.stopAccessing() }
+
+        #expect(access.url.standardizedFileURL == folder.standardizedFileURL)
+    }
+
+    @Test("Backup folder store refreshes a stale bookmark after a folder moves")
+    func backupFolderStoreRefreshesStaleBookmark() throws {
+        let suiteName = "BackupFolderStoreTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("moved-backups-root-\(UUID())", isDirectory: true)
+        let original = root.appendingPathComponent("original", isDirectory: true)
+        let moved = root.appendingPathComponent("moved", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
+        try BackupFolderStore.remember(directory: original, defaults: defaults)
+        try FileManager.default.moveItem(at: original, to: moved)
+
+        let access = BackupFolderStore.accessForLatest(
+            defaultDirectory: FileManager.default.temporaryDirectory,
+            defaults: defaults
+        )
+        defer { access.stopAccessing() }
+
+        #expect(access.url.standardizedFileURL == moved.standardizedFileURL)
+    }
+
+    @Test("Deleted remembered folder falls back without opening a selector")
+    func backupFolderStoreFallsBackWhenFolderIsDeleted() throws {
+        let suiteName = "BackupFolderStoreTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("deleted-backups-\(UUID())", isDirectory: true)
+        let fallback = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fallback-backups-\(UUID())", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: fallback)
+        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+
+        try BackupFolderStore.remember(directory: folder, defaults: defaults)
+        try FileManager.default.removeItem(at: folder)
+
+        let access = BackupFolderStore.accessForLatest(defaultDirectory: fallback, defaults: defaults)
+        defer { access.stopAccessing() }
+        #expect(access.url.standardizedFileURL == fallback.standardizedFileURL)
+    }
+
+    @Test("An empty backup folder has no latest backup")
+    func emptyBackupFolderHasNoLatestBackup() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("empty-backups-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        #expect(BackupArchive.latestBackup(in: folder) == nil)
+    }
+
+    @Test("Invalid backup does not delete existing data")
+    func invalidBackupDoesNotDeleteExistingData() async throws {
+        let source = try makeContainer()
+        let account = Account(institution: "Live Bank", type: .checking, nickname: "Keep me")
+        source.mainContext.insert(account)
+        try source.mainContext.save()
+
+        let bundle = FileManager.default.temporaryDirectory
+            .appendingPathComponent("invalid-backup-\(UUID()).ftbackup", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        try writeManifest(createdAt: .now, to: bundle)
+        try FileManager.default.removeItem(at: bundle.appendingPathComponent("models/Transaction.json"))
+
+        do {
+            try await BackupArchive.restore(from: bundle, into: source.mainContext, strategy: .replaceAll)
+            Issue.record("Expected incomplete backup to be rejected")
+        } catch {
+            // Expected: validation happens before replaceAll deletes any rows.
+        }
+
+        #expect(try source.mainContext.fetch(FetchDescriptor<Account>()).count == 1)
+        #expect(try source.mainContext.fetch(FetchDescriptor<Account>()).first?.nickname == "Keep me")
     }
 
     @Test("Round-trip: export then replaceAll restores all rows")
@@ -211,6 +369,7 @@ struct BackupArchiveTests {
         }
         let stripped = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted])
         try stripped.write(to: txURL)
+        try updateManifestHash(for: "Transaction", in: tmp)
 
         try await BackupArchive.restore(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
 
@@ -504,6 +663,7 @@ struct BackupArchiveTests {
             json[i] = t
         }
         try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted]).write(to: txURL)
+        try updateManifestHash(for: "Transaction", in: tmp)
 
         let target = try makeContainer()
         try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
