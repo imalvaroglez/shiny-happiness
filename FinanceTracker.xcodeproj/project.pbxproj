@@ -1247,7 +1247,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260720.1;
+				CURRENT_PROJECT_VERSION = 20260812.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1257,7 +1257,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.12.0;
+				MARKETING_VERSION = 0.13.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app.dev;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = "FinanceTracker Dev";
@@ -1291,7 +1291,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20260720.1;
+				CURRENT_PROJECT_VERSION = 20260812.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1301,7 +1301,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.12.0;
+				MARKETING_VERSION = 0.13.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = FinanceTracker;

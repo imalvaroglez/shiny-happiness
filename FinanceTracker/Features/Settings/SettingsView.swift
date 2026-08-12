@@ -858,10 +858,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Household Settlement due dates: a Fer charge made one month but payable the next is now billed in the month it’s actually due — and stays visible in both months so nothing is lost.",
-        "Assign Mine / Shared / Fer to several transactions at once with a top-of-list Select control and per-row checkboxes.",
-        "Each Fer row shows a clear 'Se cobra en <mes>' / 'Pasa a <mes>' status; edit the due date from a focused popover.",
-        "'Pending for upcoming months' tracks deferred Fer amounts, and 'Total paid by you' still reflects the cash that left your accounts this month.",
+        "Transfer rows on an account dashboard now name the other account (To / From) instead of a generic 'Transfer'.",
+        "Pasted HSBC imports report each unreadable row with its line number and reason instead of one opaque failure; unsupported paste explains what to copy and offers an example.",
+        "Backup & Data settings now show real backup status and a Data Health summary, can load the latest backup, and remember your last backup folder.",
+        "Restoring a backup accepts a .ftbackup bundle or the folder that holds your bundles.",
     ]
 
     private var latestBackup: BackupSummary? {

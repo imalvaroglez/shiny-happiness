@@ -6,7 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Changed
+## [0.13.0] - 2026-08-12
+
+### Added
+
+- **Transfer counterparties on account dashboards.** Asset and liability account dashboards now label a transfer row with the account money moved to or from (`To Priority`, `From Evoluciona`) instead of a generic "Transfer", so the other leg of an internal transfer is visible at a glance.
+- **Row-level paste-import diagnostics.** A pasted HSBC 2Now row that can't be parsed is now staged as a successful partial import and shown in the import report with its one-based pasted-text row number, reason, and original row text — rather than one opaque failure. Unsupported paste text clearly states paste import supports HSBC 2Now, recommends the `TU PAGO REQUERIDO` header for a complete import, and offers a synthetic example through an accessible button.
+- **Redesigned Backup & Data settings.** Settings now shows real backup status (last snapshot time, location, and bundle health), a Data Health summary (open accounts, active transactions, unresolved pending imports, statement count, and history span), "Load latest backup", and remembers the last-used backup folder between sessions.
+- **Finanzas skill reads `.ftbackup` schema 7.** The `/finanzas` analysis skill now loads the 0.12.0 backup format (additive over schema 6; carries Household Settlement due-date overrides).
+- **Canonical specs on `main`.** The trust-recovery (TR-01…08), Overview insights, and AD-023 schema-evolution specifications now live under `docs/specs/` as the implementation contracts for releases 0.13.0 and 0.14.0.
+
+### Fixed
+
+- **Restore picker allowed folder selection again.** The backup redesign had inverted the restore file picker so it rejected `.ftbackup` bundles (which are folders); restore now accepts either a `.ftbackup` bundle directly or a folder that contains one or more bundles (resolved to the latest).
+- **Card-payment rows kept their real category.** A `.creditCardPayment` row without a transfer group no longer falls back to a generic "Transfer" label that hid its account/category/card; only genuine paired transfers are relabeled.
 
 - **Backup status and restore.** Backup & Data now shows the actual timestamp from the latest verified backup manifest, its complete bundle path, the managed backup folder, and can load the newest valid backup from a selected folder after confirmation.
 - **Latest backup shortcut.** Load latest backup remembers the last selected folder with a macOS security-scoped bookmark, so it no longer opens a selector during normal use.
