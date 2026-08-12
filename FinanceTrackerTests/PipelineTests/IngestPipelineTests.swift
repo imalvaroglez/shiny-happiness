@@ -127,6 +127,74 @@ struct IngestPipelineTests {
         #expect(!reports[0].errors.isEmpty)
     }
 
+    @Test("TR-IMP-01: Paste import reports each staged row with its source line")
+    func pasteImportReportsStagedRowDetails() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let pipeline = IngestPipeline(context: context)
+
+        let pastedStatement = """
+        HSBC 2Now
+        CARGOS, ABONOS Y COMPRAS REGULARES (NO A MESES)
+        Tarjeta titular 9999000011111111
+        Fecha de operación Fecha de cargo Descripción del movimiento Monto
+        09-Abr-2026 10-Abr-2026 MISSING AMOUNT
+        09-Abr-2026 10-Abr-2026 VALID ROW + $50.00
+        """
+
+        let report = await pipeline.ingestPastedText(pastedStatement, sourceLabel: "TR-IMP-01")
+
+        #expect(report.newTransactions == 1)
+        #expect(report.errorCount == 0, "A staged row is review work, not a failed import.")
+        #expect(report.errors.count == 1)
+        #expect(report.errors.first?.message == "Needs manual review")
+        #expect(report.errors.first?.row == 5)
+        #expect(report.errors.first?.detail?.contains("MISSING AMOUNT") == true)
+
+        let pendingImports = try context.fetch(FetchDescriptor<PendingImport>())
+        #expect(pendingImports.count == 1)
+        #expect(pendingImports.first?.rawText.contains("MISSING AMOUNT") == true)
+    }
+
+    @Test("TR-IMP-01: A card with only malformed rows still stages its PendingImport")
+    func pasteImportKeepsPendingWhenCardHasNoValidRows() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let pipeline = IngestPipeline(context: context)
+
+        let pastedStatement = """
+        HSBC 2Now
+        CARGOS, ABONOS Y COMPRAS REGULARES (NO A MESES)
+        Tarjeta titular 9999000011111111
+        Fecha de operación Fecha de cargo Descripción del movimiento Monto
+        09-Abr-2026 10-Abr-2026 ONLY MALFORMED ROW
+        """
+
+        let report = await pipeline.ingestPastedText(pastedStatement, sourceLabel: "TR-IMP-01-only-pending")
+
+        #expect(report.newTransactions == 0)
+        #expect(report.errorCount == 0)
+        #expect(report.errors.first?.row == 5)
+        let pendingImports = try context.fetch(FetchDescriptor<PendingImport>())
+        #expect(pendingImports.count == 1)
+        #expect(pendingImports.first?.account?.institution == "HSBC 2Now")
+    }
+
+    @Test("TR-IMP-02: Unknown pasted text explains the supported issuer and required header")
+    func unknownPasteExplainsHSBCGuidance() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let pipeline = IngestPipeline(context: context)
+
+        let report = await pipeline.ingestPastedText("A statement from an unsupported bank", sourceLabel: "TR-IMP-02")
+
+        #expect(report.errorCount == 1)
+        #expect(report.errors.count == 1)
+        #expect(report.errors.first?.message == "Couldn't identify this statement.")
+        #expect(report.errors.first?.detail?.contains("HSBC 2Now") == true)
+        #expect(report.errors.first?.detail?.contains("TU PAGO REQUERIDO") == true)
+    }
+
     @Test("Ingests Amex PDF with restricted-but-readable access")
     func ingestsAmexPDF() async throws {
         let container = try makeContainer()

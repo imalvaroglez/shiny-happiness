@@ -7,6 +7,7 @@ import SwiftUI
 struct PasteImportSheet: View {
     @Bindable var viewModel: ImportViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showingHSBCExample = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,9 +40,60 @@ struct PasteImportSheet: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if shouldShowUnsupportedGuidance {
+                Text("Paste import currently supports HSBC 2Now. For a complete import, copy from the “TU PAGO REQUERIDO” heading through the transaction rows.")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showingHSBCExample.toggle()
+                    }
+                } label: {
+                    Label(
+                        showingHSBCExample ? "Hide HSBC 2Now example" : "Show HSBC 2Now example",
+                        systemImage: showingHSBCExample ? "chevron.down" : "chevron.right"
+                    )
+                    .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityHint("Shows an example of the HSBC 2Now header needed for paste import.")
+
+                if showingHSBCExample {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("HSBC 2Now example")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(Self.hsbcExampleText)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private var shouldShowUnsupportedGuidance: Bool {
+        !viewModel.pasteBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && viewModel.pasteDetection.issuer == .unknown
+    }
+
+    private static let hsbcExampleText = """
+    TU PAGO REQUERIDO ESTE PERIODO
+    a) Periodo: 01-Ene-2026 al 31-Ene-2026
+    d) Fecha límite de pago: 15-Feb-2026
+    e) PAGO PARA NO GENERAR INTERESES: $1,234.56
+
+    RESUMEN DE CARGOS Y ABONOS DEL PERIODO
+    """
 
     private var footer: some View {
         HStack(spacing: 12) {
@@ -88,7 +140,7 @@ struct PasteImportSheet: View {
             icon = "doc.text"
             color = .secondary
         } else if detection.issuer == .unknown {
-            label = "Issuer not detected — only HSBC 2Now is supported right now"
+            label = "Couldn't identify this statement. Paste import supports HSBC 2Now; compare the example to include a complete statement."
             icon = "questionmark.circle"
             color = .orange
         } else {

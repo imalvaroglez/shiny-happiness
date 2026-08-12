@@ -114,7 +114,7 @@ struct PastedHsbc2NowParserTests {
         #expect(su.amount == Decimal(string: "25986.00"))
     }
 
-    @Test("A line missing its amount becomes a PendingImport")
+    @Test("TR-IMP-01: A malformed row keeps its one-based source line for review")
     func pendingImportForBrokenLine() {
         let snippet = """
         c) CARGOS, ABONOS Y COMPRAS REGULARES (NO A MESES)
@@ -128,6 +128,8 @@ struct PastedHsbc2NowParserTests {
         let result = parser.parse(snippet)
         #expect(result.pendings.count == 1)
         #expect(result.pendings.first?.cardLast4 == "1111")
+        #expect(result.pendings.first?.sourceLine == 5)
+        #expect(result.pendings.first?.reason.contains("date, amount, description") == true)
         #expect(result.sections.first?.transactions.count == 1)
     }
 }
