@@ -654,6 +654,57 @@ struct ManualLedgerTests {
         #expect(balance == 0, "Transaction before openedAt should not affect balance, got \(balance)")
     }
 
+    @Test("Paired transfers name the other account in each direction")
+    func pairedTransferNamesCounterparty() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let source = Account(institution: "Bank", type: .checking, nickname: "Evoluciona")
+        let destination = Account(institution: "Bank", type: .checking, nickname: "Priority")
+        context.insert(source)
+        context.insert(destination)
+        try context.save()
+
+        let pair = try ManualTransferService.create(
+            from: source,
+            to: destination,
+            date: dateFromComponents(year: 2026, month: 8, day: 10),
+            amount: 500,
+            note: "Transfer",
+            context: context
+        )
+
+        #expect(TransferCounterpartyLabel.text(for: pair.outflow, peers: [pair.outflow, pair.inflow]) == "To Priority")
+        #expect(TransferCounterpartyLabel.text(for: pair.inflow, peers: [pair.outflow, pair.inflow]) == "From Evoluciona")
+    }
+
+    @Test("Imported card payment without a transfer group is not relabeled as a transfer")
+    func importedCardPaymentIsNotRelabeledAsTransfer() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN")
+        context.insert(card)
+        // An imported card-payment row (AD-013: "SU PAGO GRACIAS SPEI") is a
+        // .creditCardPayment but carries no transferGroupID — it has no peer.
+        let payment = Transaction(
+            account: card,
+            postedAt: .now,
+            amount: -2_000,
+            descriptionRaw: "SU PAGO GRACIAS SPEI",
+            category: try #require(context.fetch(FetchDescriptor<FinanceTracker.Category>())
+                .first { $0.kind == .creditCardPayment })
+        )
+        context.insert(payment)
+        try context.save()
+
+        // No counterparty label → the row keeps its normal account/category render
+        // instead of falling back to a generic "Transfer".
+        #expect(TransferCounterpartyLabel.text(for: payment, peers: []) == nil)
+        #expect(payment.transferGroupID == nil)
+    }
+
+
     private func dateFromComponents(year: Int, month: Int, day: Int) -> Date {
         var components = DateComponents()
         components.year = year

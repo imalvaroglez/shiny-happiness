@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import Charts
+import SwiftData
 
 // Shared chrome used by all three dashboard variants. Money formatting,
 // summary tiles, transaction rows, and the category color palette live
@@ -1091,6 +1092,17 @@ struct SummaryCard: View {
 /// Currency follows the transaction's own `currency` (no MXN hardcode).
 struct DashboardTransactionRow: View {
     let transaction: Transaction
+    let showsAccount: Bool
+    @Query private var transferPeers: [Transaction]
+
+    init(transaction: Transaction, showsAccount: Bool = true) {
+        self.transaction = transaction
+        self.showsAccount = showsAccount
+        let groupID = transaction.transferGroupID ?? UUID()
+        _transferPeers = Query(filter: #Predicate<Transaction> {
+            $0.transferGroupID == groupID && $0.deletedAt == nil
+        })
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1110,25 +1122,26 @@ struct DashboardTransactionRow: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(transaction.postedAt.formatted(date: .abbreviated, time: .omitted))
-                    if let accountName = transaction.account?.displayName {
+                    if showsTransferCounterparty {
                         Text(".")
-                        Text(accountName)
-                            .lineLimit(1)
-                    }
-                    if let category = transaction.category {
-                        Text(".")
-                        Text(category.name)
-                            .lineLimit(1)
-                    }
-                    if let card = transaction.cardLast4 {
-                        Text(".")
-                        Text("••••\(card)")
-                            .lineLimit(1)
-                    }
-                    if isTransferLike {
-                        Text(".")
-                        Text("Transfer")
+                        Text(TransferCounterpartyLabel.text(for: transaction, peers: transferPeers) ?? "Transfer")
                             .foregroundStyle(.tertiary)
+                    } else {
+                        if showsAccount, let accountName = transaction.account?.displayName {
+                            Text(".")
+                            Text(accountName)
+                                .lineLimit(1)
+                        }
+                        if let category = transaction.category {
+                            Text(".")
+                            Text(category.name)
+                                .lineLimit(1)
+                        }
+                        if let card = transaction.cardLast4 {
+                            Text(".")
+                            Text("••••\(card)")
+                                .lineLimit(1)
+                        }
                     }
                 }
                     .font(.caption2)
@@ -1151,6 +1164,13 @@ struct DashboardTransactionRow: View {
             || transaction.category?.kind == .creditCardPayment
     }
 
+    /// Genuine transfers have a `transferGroupID` and a paired peer row.
+    /// `.creditCardPayment` is `isTransferLike` for *styling* only — it has no
+    /// peer, so it must fall through to the normal account/category/card render.
+    private var showsTransferCounterparty: Bool {
+        transaction.transferGroupID != nil && isTransferLike
+    }
+
     private var amountColor: Color {
         if isTransferLike { return .secondary }
         return transaction.amount >= 0 ? DashboardChartSeriesColor.income : .primary
@@ -1162,6 +1182,22 @@ struct DashboardTransactionRow: View {
             return CategoryPalette.color(for: category.name)
         }
         return .secondary
+    }
+}
+
+/// The paired transfer row is the useful context; the current account is already
+/// visible in an account dashboard and repeating it obscures where money moved.
+enum TransferCounterpartyLabel {
+    static func text(for transaction: Transaction, peers: [Transaction]) -> String? {
+        guard transaction.transferGroupID != nil,
+              let accountID = transaction.account?.id,
+              let counterpart = peers.first(where: {
+                  $0.id != transaction.id && $0.account?.id != accountID
+              }),
+              let accountName = counterpart.account?.displayName else {
+            return nil
+        }
+        return transaction.amount < 0 ? "To \(accountName)" : "From \(accountName)"
     }
 }
 
