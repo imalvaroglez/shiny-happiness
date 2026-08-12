@@ -1122,7 +1122,7 @@ struct DashboardTransactionRow: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(transaction.postedAt.formatted(date: .abbreviated, time: .omitted))
-                    if isTransferLike {
+                    if showsTransferCounterparty {
                         Text(".")
                         Text(TransferCounterpartyLabel.text(for: transaction, peers: transferPeers) ?? "Transfer")
                             .foregroundStyle(.tertiary)
@@ -1162,6 +1162,13 @@ struct DashboardTransactionRow: View {
             || transaction.movementKind == .transfer
             || transaction.category?.kind == .transfer
             || transaction.category?.kind == .creditCardPayment
+    }
+
+    /// Genuine transfers have a `transferGroupID` and a paired peer row.
+    /// `.creditCardPayment` is `isTransferLike` for *styling* only — it has no
+    /// peer, so it must fall through to the normal account/category/card render.
+    private var showsTransferCounterparty: Bool {
+        transaction.transferGroupID != nil && isTransferLike
     }
 
     private var amountColor: Color {

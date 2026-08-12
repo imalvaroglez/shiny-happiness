@@ -677,6 +677,34 @@ struct ManualLedgerTests {
         #expect(TransferCounterpartyLabel.text(for: pair.inflow, peers: [pair.outflow, pair.inflow]) == "From Evoluciona")
     }
 
+    @Test("Imported card payment without a transfer group is not relabeled as a transfer")
+    func importedCardPaymentIsNotRelabeledAsTransfer() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN")
+        context.insert(card)
+        // An imported card-payment row (AD-013: "SU PAGO GRACIAS SPEI") is a
+        // .creditCardPayment but carries no transferGroupID — it has no peer.
+        let payment = Transaction(
+            account: card,
+            postedAt: .now,
+            amount: -2_000,
+            descriptionRaw: "SU PAGO GRACIAS SPEI",
+            category: try #require(context.fetch(FetchDescriptor<FinanceTracker.Category>())
+                .first { $0.kind == .creditCardPayment })
+        )
+        context.insert(payment)
+        try context.save()
+
+        // No counterparty label → the row keeps its normal account/category render
+        // instead of falling back to a generic "Transfer".
+        #expect(TransferCounterpartyLabel.text(for: payment, peers: []) == nil)
+        #expect(payment.transferGroupID == nil)
+    }
+
+
     private func dateFromComponents(year: Int, month: Int, day: Int) -> Date {
         var components = DateComponents()
         components.year = year
