@@ -28,10 +28,7 @@ struct ConsolidatedDashboard: View {
             // ① Financial Snapshot
             financialSnapshotSection
 
-            // ② Insights
-            insightsSection
-
-            // ③ Trends
+            // ② Trends
             trendsSection
 
             // ④ Breakdowns
@@ -165,140 +162,6 @@ struct ConsolidatedDashboard: View {
         }
     }
 
-    // MARK: - ② Insights
-
-    private var insightsSection: some View {
-        VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
-            DashboardSectionHeader(title: "Insights — What Needs Your Attention", systemImage: "sparkles")
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 14) {
-                    cardPaceCard
-                    upcomingPaymentsCard
-                    spendingAnomalyCard
-                }
-                VStack(spacing: 12) {
-                    cardPaceCard
-                    upcomingPaymentsCard
-                    spendingAnomalyCard
-                }
-            }
-        }
-    }
-
-    private var cardPaceCard: some View {
-        let pace = snapshot.cardPace
-        let status = mapPaceStatus(pace.status)
-        let monthLabel = calendarMonthToDateLabel()
-        let dailyAvg = MoneyFormat.string(code: snapshot.currencyCode, pace.dailyAverage)
-        let projected = MoneyFormat.string(code: snapshot.currencyCode, pace.projectedMonthEnd)
-        let spent = MoneyFormat.string(code: snapshot.currencyCode, pace.spentToDate) + " spent"
-
-        return DashboardInsightCard(
-            title: "Credit Card Pace",
-            systemImage: "creditcard.and.123",
-            status: status,
-            statusText: paceStatusText(pace.status),
-            primary: spent,
-            secondaryLines: pace.status == .insufficientHistory
-                ? []
-                : ["Daily avg \(dailyAvg)", "Projected month-end \(projected)"],
-            periodLabel: .calendarMonthToDate(monthLabel),
-            calmMessage: pace.status == .insufficientHistory ? "Not enough history yet" : nil
-        ) {
-            // ponytail: progress bar omitted in insufficient-history state.
-            if pace.status != .insufficientHistory {
-                PaceProgressBar(day: pace.dayOfMonth, days: pace.daysInMonth, status: status)
-            }
-        }
-    }
-
-    private var upcomingPaymentsCard: some View {
-        let payments = snapshot.upcomingPayments
-        let status = mapPaymentStatus(payments.status)
-        let total = MoneyFormat.string(code: snapshot.currencyCode, payments.totalPrimary)
-        let isCalm = payments.due.isEmpty
-
-        var secondary: [String] = []
-        for payment in payments.due.prefix(3) {
-            let amount = MoneyFormat.string(code: snapshot.currencyCode, payment.primaryAmount ?? 0)
-            // No-interest-first (D12): label the primary as "to avoid interest"
-            // when available, and surface the minimum as a smaller secondary.
-            let qualifier: String
-            if payment.hasNoInterest {
-                let minimumText = payment.minimumAmount.map {
-                    " (min \(MoneyFormat.string(code: snapshot.currencyCode, $0)))"
-                } ?? ""
-                qualifier = " to avoid interest\(minimumText)"
-            } else {
-                qualifier = " minimum"
-            }
-            let due = payment.dueDate.formatted(.dateTime.month(.abbreviated).day())
-            secondary.append("\(payment.institution)  \(amount)\(qualifier) · \(due)")
-        }
-
-        return DashboardInsightCard(
-            title: "Upcoming Payments",
-            systemImage: "calendar.badge.clock",
-            status: status,
-            statusText: isCalm ? nil : paymentStatusText(payments.status),
-            primary: isCalm ? "" : "\(total) due in next 14 days",
-            secondaryLines: secondary,
-            periodLabel: .calendarMonthToDate("Next 14 days"),
-            calmMessage: isCalm ? "No payments due soon" : nil
-        ) {
-            EmptyView()
-        }
-    }
-
-    private var spendingAnomalyCard: some View {
-        let anomaly = snapshot.spendingAnomaly
-        let status: InsightStatus = anomaly.isCalm ? .calm : .watch
-
-        if anomaly.wasSkipped {
-            // Honestly distinct from "clean": the check was intentionally not
-            // run for this range (.year/.all perf guardrail).
-            return DashboardInsightCard(
-                title: "Spending Anomaly",
-                systemImage: "chart.bar.xaxis",
-                status: .calm,
-                primary: "",
-                secondaryLines: [],
-                periodLabel: .period(periodLabel),
-                calmMessage: "Not shown for this range — switch to Month or Quarter"
-            ) { EmptyView() }
-        }
-
-        if anomaly.isCalm {
-            return DashboardInsightCard(
-                title: "Spending Anomaly",
-                systemImage: "chart.bar.xaxis",
-                status: .calm,
-                primary: "",
-                secondaryLines: [],
-                periodLabel: .period("vs previous \(periodLabel)"),
-                calmMessage: "No unusual spending detected"
-            ) { EmptyView() }
-        }
-
-        let strongest = anomaly.strongest!
-        let primary = "\(strongest.categoryName) \(formatSignedPercent(strongest.percentChange))"
-        var secondary: [String] = []
-        for other in anomaly.others {
-            secondary.append("\(other.categoryName) \(formatSignedPercent(other.percentChange))")
-        }
-
-        return DashboardInsightCard(
-            title: "Spending Anomaly",
-            systemImage: "chart.bar.xaxis",
-            status: status,
-            statusText: "WATCH",
-            primary: primary,
-            secondaryLines: ["vs previous \(periodLabel)"] + secondary,
-            periodLabel: .period(periodLabel)
-        ) {
-            EmptyView()
-        }
-    }
 
     // MARK: - ③ Trends
 
@@ -359,10 +222,14 @@ struct ConsolidatedDashboard: View {
     }
 
     private var cashFlowChart: some View {
-        DashboardChartPanel(
+        // The Month view renders a cumulative-net trend line (no income/expense
+        // series), so the series filter would be a no-op there — only show it
+        // for the grouped-bar periods.
+        let showsSeriesFilter = !DashboardCashFlowTrendBuilder.usesTrendCard(period: snapshot.period)
+        return DashboardChartPanel(
             title: "Cash Flow",
             subtitle: cashFlowSummarySubtitle,
-            headerAccessory: AnyView(seriesFilter),
+            headerAccessory: showsSeriesFilter ? AnyView(seriesFilter) : nil,
             strokePlot: false
         ) {
             VStack(alignment: .leading, spacing: 8) {
@@ -561,58 +428,6 @@ struct ConsolidatedDashboard: View {
         guard otherPercent >= 40 else { return nil }
         let percentText = String(format: "%.1f%%", otherPercent)
         return "\(percentText) of spend is in smaller categories — expand to review"
-    }
-
-    // MARK: - Insight status mapping
-
-    private func mapPaceStatus(_ status: CardPaceSnapshot.PaceStatus) -> InsightStatus {
-        switch status {
-        case .calm: return .calm
-        case .watch: return .watch
-        case .critical: return .critical
-        case .insufficientHistory: return .calm
-        }
-    }
-
-    private func paceStatusText(_ status: CardPaceSnapshot.PaceStatus) -> String? {
-        switch status {
-        case .critical: return "ABOVE PACE"
-        case .watch: return "ON PACE"
-        case .calm: return nil
-        case .insufficientHistory: return nil
-        }
-    }
-
-    private func mapPaymentStatus(_ status: UpcomingPaymentsSnapshot.PaymentStatus) -> InsightStatus {
-        switch status {
-        case .calm: return .calm
-        case .watch: return .watch
-        case .critical: return .critical
-        }
-    }
-
-    private func paymentStatusText(_ status: UpcomingPaymentsSnapshot.PaymentStatus) -> String {
-        switch status {
-        case .calm: return ""
-        case .watch: return "DUE SOON"
-        case .critical: return "DUE ≤3 DAYS"
-        }
-    }
-
-    /// "Calendar month to date" label for Credit Card Pace (D5/refinement #7).
-    /// Never "Last 30 days".
-    private func calendarMonthToDateLabel() -> String {
-        let calendar = Calendar(identifier: .gregorian)
-        guard let monthStart = calendar.dateInterval(of: .month, for: snapshot.snapshotAsOfDate)?.start else {
-            return "Calendar month to date"
-        }
-        let today = snapshot.snapshotAsOfDate.formatted(.dateTime.month(.abbreviated).day())
-        let start = monthStart.formatted(.dateTime.month(.abbreviated).day())
-        return start == today ? "Calendar month to date" : "\(start) – today"
-    }
-
-    private func formatSignedPercent(_ value: Double) -> String {
-        String(format: "%+.0f%%", value)
     }
 
     private var cashFlowSummarySubtitle: String {
@@ -846,33 +661,3 @@ struct ConsolidatedDashboard: View {
         }
     }
 }
-
-/// Day-N-of-month progress bar for the Credit Card Pace card.
-struct PaceProgressBar: View {
-    let day: Int
-    let days: Int
-    let status: InsightStatus
-
-    var body: some View {
-        let progress = days > 0 ? min(Double(day) / Double(days), 1.0) : 0
-        VStack(alignment: .leading, spacing: 3) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.secondary.opacity(0.18))
-                    Capsule()
-                        .fill(status.tone.color)
-                        .frame(width: proxy.size.width * progress)
-                }
-            }
-            .frame(height: 5)
-            HStack {
-                Text("Day \(day) of \(days)")
-                Spacer()
-                Text("\(Int((progress * 100).rounded()))% of month")
-            }
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(.tertiary)
-        }
-    }
-}
-
