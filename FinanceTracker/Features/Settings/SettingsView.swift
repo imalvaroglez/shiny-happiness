@@ -858,10 +858,9 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Transfer rows on an account dashboard now name the other account (To / From) instead of a generic 'Transfer'.",
-        "Pasted HSBC imports report each unreadable row with its line number and reason instead of one opaque failure; unsupported paste explains what to copy and offers an example.",
-        "Backup & Data settings now show real backup status and a Data Health summary, can load the latest backup, and remember your last backup folder.",
-        "Restoring a backup accepts a .ftbackup bundle or the folder that holds your bundles.",
+        "The sidebar Accounts list can be sorted by account name, institution, or type, and collapsed when you don't need it.",
+        "The Insights section was removed from the dashboard — it never produced reliable signal.",
+        "The Cash Flow Income/Expenses toggles are now hidden in Month view, where they had no effect.",
     ]
 
     private var latestBackup: BackupSummary? {

@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-17
+
+### Added
+
+- **Sortable, collapsible Accounts sidebar.** The sidebar Accounts section can now be sorted by account name, institution, or type from a header menu, and collapsed to a single header row with a chevron. Both preferences persist between sessions.
+
+### Changed
+
+- **Insights section removed from the consolidated dashboard.** The "Insights — What Needs Your Attention" section (Credit Card Pace, Upcoming Payments, Spending Anomaly) never produced reliable signal even with complete history, and has been removed. The dashboard now goes Financial Snapshot → Trends → Breakdowns.
+
+### Fixed
+
+- **Cash Flow series filter no longer shows dead toggles.** In Month view the Cash Flow card renders a cumulative net trend line with no income/expense series; the Income/Expenses toggles were no-ops there and are now hidden (they still work for the grouped-bar periods: Quarter, Year, All).
+
 ## [0.13.0] - 2026-08-12
 
 ### Added
