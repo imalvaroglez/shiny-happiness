@@ -19,7 +19,21 @@ struct DashboardView: View {
     @State private var dataResetGeneration = 0
     @State private var pendingTransactionPreset: TransactionFilterPreset?
 
-    @Query(sort: \Account.nickname) private var accounts: [Account]
+    @Query private var accounts: [Account]
+    @AppStorage("sidebarAccountSort") private var sidebarAccountSort = "nickname"
+    @AppStorage("sidebarAccountsExpanded") private var sidebarAccountsExpanded = true
+
+    private var sortedAccounts: [Account] {
+        accounts.sorted {
+            if sidebarAccountSort == "institution" {
+                return ($0.institution, $0.nickname) < ($1.institution, $1.nickname)
+            }
+            if sidebarAccountSort == "type" {
+                return ($0.type.rawValue, $0.nickname) < ($1.type.rawValue, $1.nickname)
+            }
+            return $0.nickname.localizedCaseInsensitiveCompare($1.nickname) == .orderedAscending
+        }
+    }
 
     enum SidebarSelection: Hashable {
         case overview
@@ -136,14 +150,24 @@ struct DashboardView: View {
                     Text("No accounts yet")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
-                    ForEach(accounts) { account in
+                } else if sidebarAccountsExpanded {
+                    ForEach(sortedAccounts) { account in
                         AccountSidebarRow(account: account, scopedViewModel: viewModel)
                             .tag(SidebarSelection.account(account.id))
                     }
                 }
             } header: {
                 HStack {
+                    Button {
+                        withAnimation {
+                            sidebarAccountsExpanded.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .rotationEffect(.degrees(sidebarAccountsExpanded ? 90 : 0))
+                    }
+                    .buttonStyle(.plain)
+                    .help(sidebarAccountsExpanded ? "Collapse accounts" : "Expand accounts")
                     Text("Accounts")
                     Spacer()
                     Button {
@@ -153,8 +177,29 @@ struct DashboardView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Add account")
+                    Menu {
+                        ForEach([("nickname", "Account name"), ("institution", "Institution"), ("type", "Type")], id: \.0) { key, label in
+                            Button {
+                                sidebarAccountSort = key
+                            } label: {
+                                if sidebarAccountSort == key {
+                                    Label(label, systemImage: "checkmark")
+                                } else {
+                                    Text(label)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(width: 18)
+                    .fixedSize()
+                    .help("Sort accounts")
                 }
             }
+
 
             Section {
                 Label("Transactions", systemImage: "list.bullet")
