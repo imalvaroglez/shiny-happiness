@@ -1,0 +1,90 @@
+{
+  "_comment": "Catálogo de promociones (spec: docs/specs/2026-09-22-promotion-tracking-brainstorm.md). Definiciones declarativas: el UUID obligatorio para evaluar; el nickname es solo ayuda de autoría. knownUnknowns obligatorios.",
+  "promotions": [
+    {
+      "id": "amex-platinum-bienvenida-2026",
+      "displayName": "Bono de bienvenida Platinum",
+      "accountUUID": "98635015-070A-4EB5-9050-3268FB4B49FA",
+      "authoringNickname": "The Platinum Credit Card",
+      "window": {
+        "kind": "anchored",
+        "start": "2026-09-09",
+        "durationDays": 90,
+        "provenance": "aprobación=activación confirmada por el usuario (día 90 = 2026-12-07); verificación T&C residual"
+      },
+      "shape": { "kind": "spendThreshold", "target": 100000, "rewardAmount": 15000 },
+      "scope": {
+        "currency": "MXN",
+        "merchants": [],
+        "requireChannel": "any",
+        "excludeFees": true,
+        "excludeThirdParties": false
+      },
+      "refundPolicy": { "kind": "subtract" },
+      "msiPolicy": {
+        "kind": "countPostedInstallments",
+        "reversalPatterns": ["(?i)MONTO A DIFERIR", "(?i)MESES EN AUTOM[AÁ]TICO"],
+        "conversionRiskThreshold": 6000
+      },
+      "reward": { "expectedAmount": 15000, "descriptorPatterns": ["(?i)BONIFICACI"] },
+      "knownUnknowns": [
+        "titular vs adicional — se asume titular único",
+        "anclaje de la ventana con verificación T&C residual"
+      ]
+    },
+    {
+      "id": "amex-gold-everyday-value",
+      "displayName": "Everyday Value (Gold)",
+      "accountUUID": null,
+      "authoringNickname": "The Gold Card American Express",
+      "window": {
+        "kind": "fixed",
+        "start": "2026-09-22",
+        "end": "2027-12-31",
+        "provenance": "T&C Golden Cashback 2026–2027"
+      },
+      "shape": {
+        "kind": "tieredPeriods",
+        "periods": [
+          { "start": "2026-09-22", "end": "2026-09-30" },
+          { "start": "2026-10-01", "end": "2026-12-31" },
+          { "start": "2027-01-01", "end": "2027-03-31" },
+          { "start": "2027-04-01", "end": "2027-06-30" },
+          { "start": "2027-07-01", "end": "2027-09-30" },
+          { "start": "2027-10-01", "end": "2027-12-31" }
+        ],
+        "threshold": 5000,
+        "rewardAmount": 1000,
+        "annualRewardCap": 4000,
+        "capScope": "promoLifetime"
+      },
+      "scope": {
+        "currency": "MXN",
+        "merchants": [
+          { "id": "chedraui", "patterns": ["(?i)CHEDRAUI"], "channel": null },
+          { "id": "la-comer", "patterns": ["(?i)LA COMER", "(?i)CITY MARKET"], "channel": null },
+          { "id": "fresko", "patterns": ["(?i)FRESKO"], "channel": null },
+          { "id": "heb", "patterns": ["(?i)\\bHEB\\b"], "channel": null },
+          { "id": "soriana", "patterns": ["(?i)SORIANA"], "channel": null },
+          { "id": "petco", "patterns": ["(?i)PETCO"], "channel": null },
+          { "id": "petland", "patterns": ["(?i)PETLAND"], "channel": null },
+          { "id": "justo", "patterns": ["(?i)J[UÜ]STO"], "channel": null }
+        ],
+        "requireChannel": "any",
+        "excludeFees": true,
+        "excludeThirdParties": true
+      },
+      "refundPolicy": { "kind": "subtract" },
+      "msiPolicy": { "kind": "uncertain", "reversalPatterns": ["(?i)MONTO A DIFERIR"], "conversionRiskThreshold": null },
+      "reward": { "expectedAmount": 1000, "descriptorPatterns": ["(?i)BONIFICACI"] },
+      "knownUnknowns": [
+        "lista de comercios sin confirmar — estimación según comercios asumidos",
+        "canal por comercio sin confirmar (default por revisar)",
+        "MSI en cashback: tratamiento desconocido",
+        "ámbito del tope anual ambiguo — se usa vigencia total (conservador)",
+        "desvinculada: falta el UUID de la cuenta Gold al crearla",
+        "titular vs adicional — se asume titular único"
+      ]
+    }
+  ]
+}

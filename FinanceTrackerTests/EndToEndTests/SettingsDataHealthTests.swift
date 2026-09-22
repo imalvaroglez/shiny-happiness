@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import FinanceTracker
 
@@ -69,6 +70,48 @@ struct SettingsDataHealthTests {
         #expect(summary.unresolvedPendingCount == 0)
         #expect(summary.currenciesInUse.isEmpty)
         #expect(!summary.hasTransactionHistory)
+    }
+}
+
+@Suite("Settings account state")
+@MainActor
+struct SettingsAccountStateTests {
+    private func makeContainer() throws -> ModelContainer {
+        let config = ModelConfiguration(schema: AppSchema.schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: AppSchema.schema, configurations: [config])
+    }
+
+    @Test("Loads transaction counts per account and portfolio availability")
+    func accountState() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let checking = Account(institution: "Bank", type: .checking)
+        let investment = Account(institution: "Broker", type: .investment)
+        context.insert(checking)
+        context.insert(investment)
+        context.insert(Transaction(account: checking, postedAt: .now, amount: 100, descriptionRaw: "Deposit"))
+        try context.save()
+
+        let states = SettingsAccountStateLoader.load(accounts: [checking, investment], context: context)
+
+        #expect(states[checking.id]?.transactionCount == 1)
+        #expect(states[investment.id]?.transactionCount == 0)
+        #expect(states[investment.id]?.canAddPositions == true)
+
+        context.insert(Transaction(account: investment, postedAt: .now, amount: 20, descriptionRaw: "Purchase"))
+        try context.save()
+        let updatedStates = SettingsAccountStateLoader.load(accounts: [checking, investment], context: context)
+
+        #expect(updatedStates[investment.id]?.transactionCount == 1)
+        #expect(updatedStates[investment.id]?.canAddPositions == false)
+    }
+
+    @Test("Empty account list does not load account state")
+    func emptyAccountState() throws {
+        let container = try makeContainer()
+        let states = SettingsAccountStateLoader.load(accounts: [], context: container.mainContext)
+
+        #expect(states.isEmpty)
     }
 }
 

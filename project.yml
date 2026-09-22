@@ -35,6 +35,10 @@ targets:
         buildPhase: resources
         excludes:
           - "**/*.swift"
+      - path: FinanceTracker/Domain/Promotions/Catalog
+        buildPhase: resources
+        excludes:
+          - "**/*.swift"
     settings:
       base:
         PRODUCT_NAME: "FinanceTracker"
@@ -77,6 +81,10 @@ targets:
         excludes:
           - "**/*.swift"
       - path: FinanceTracker/Ingest/StructuralParser/Knowledge
+        buildPhase: resources
+        excludes:
+          - "**/*.swift"
+      - path: FinanceTracker/Domain/Promotions/Catalog
         buildPhase: resources
         excludes:
           - "**/*.swift"

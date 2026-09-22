@@ -1,0 +1,14 @@
+{
+  "_comment": "Tabla de canal compartida por todas las promos (spec H): agregadores/terceros derivables con certeza del descriptor. El canal de comercios específicos se declara por entrada de whitelist (null = por revisar, nunca 'ambos' por intuición).",
+  "channels": [
+    { "pattern": "(?i)UBER EATS", "channel": "aggregator" },
+    { "pattern": "(?i)^UBER\\s*\\d", "channel": "aggregator" },
+    { "pattern": "(?i)DIDI FOOD", "channel": "aggregator" },
+    { "pattern": "(?i)^DIDI\\s", "channel": "aggregator" },
+    { "pattern": "(?i)MELI\\+", "channel": "aggregator" },
+    { "pattern": "(?i)MERCADOPAGO", "channel": "aggregator" },
+    { "pattern": "(?i)MERCADO LIBRE", "channel": "aggregator" },
+    { "pattern": "(?i)PAYPAL \\*", "channel": "aggregator" },
+    { "pattern": "(?i)\\bRAPPI\\b", "channel": "aggregator" }
+  ]
+}

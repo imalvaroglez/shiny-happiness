@@ -61,10 +61,7 @@ struct SettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Query private var accounts: [Account]
-    @Query private var transactions: [Transaction]
-    @Query private var statements: [Statement]
     @Query(filter: #Predicate<Category> { $0.deletedAt == nil }) private var categories: [Category]
-    @Query private var pendingImports: [PendingImport]
 
     @State private var showDeleteConfirmation = false
     @State private var isExporting = false
@@ -81,6 +78,7 @@ struct SettingsView: View {
     @State private var showingAddAccount = false
     @State private var balanceSnapshotAccount: Account?
     @State private var positionsAccount: Account?
+    @State private var accountSettingsRefreshToken = 0
 
     @State private var showingNewCategory = false
     @State private var newCategoryName = ""
@@ -95,18 +93,6 @@ struct SettingsView: View {
 
     @FocusState private var focusedField: SettingsFocusField?
     @SceneStorage("SettingsView.selectedPane") private var selectedPaneRawValue = SettingsPane.backupData.rawValue
-
-    private var transactionCountsByAccountID: [UUID: Int] {
-        var counts: [UUID: Int] = [:]
-        for account in accounts {
-            let accountId = account.id
-            let descriptor = FetchDescriptor<Transaction>(
-                predicate: #Predicate<Transaction> { $0.account?.id == accountId }
-            )
-            counts[accountId] = ((try? modelContext.fetch(descriptor)) ?? []).count
-        }
-        return counts
-    }
 
     private func fetchAccount(id: UUID) -> Account? {
         let descriptor = FetchDescriptor<Account>(
@@ -124,19 +110,26 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        let currentPane = SettingsPane(rawValue: selectedPaneRawValue) ?? .accounts
+
         TabView(selection: selectedPane) {
             settingsPane(.backupData) {
                 backupSection
-                dataSection
+                if currentPane == .backupData {
+                    dataSection
+                }
                 resetSection
             }
 
             settingsPane(.accounts) {
-                accountsSection
+                if currentPane == .accounts {
+                    accountsSection
+                }
             }
 
             settingsPane(.categories) {
                 categoriesSection
+                promotionsSection
             }
 
             settingsPane(.integrations) {
@@ -225,14 +218,19 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showingAddAccount) {
             ManualAccountSheet { account in
+                accountSettingsRefreshToken += 1
                 onAccountCreated(account)
             }
         }
         .sheet(item: $balanceSnapshotAccount) { account in
-            BalanceSnapshotSheet(account: account) {}
+            BalanceSnapshotSheet(account: account) {
+                accountSettingsRefreshToken += 1
+            }
         }
         .sheet(item: $positionsAccount) { account in
-            PositionsEditSheet(account: account, context: modelContext) {}
+            PositionsEditSheet(account: account, context: modelContext) {
+                accountSettingsRefreshToken += 1
+            }
         }
     }
 
@@ -275,156 +273,28 @@ struct SettingsView: View {
 
                 if !accounts.isEmpty {
                     Divider().padding(.leading, 16)
-                    VStack(spacing: 0) {
-                        ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
-                            accountEditorRow(for: account)
-                            if index < accounts.count - 1 {
-                                Divider().padding(.leading, 16)
-                            }
-                        }
-                    }
+                    AccountRowsView(
+                        accounts: accounts,
+                        refreshToken: accountSettingsRefreshToken,
+                        onEditPositions: { positionsAccount = $0 },
+                        onAddBalanceSnapshot: { balanceSnapshotAccount = $0 },
+                        onDelete: requestAccountDeletion
+                    )
                 }
             }
         }
     }
 
-    @ViewBuilder
-    private func accountEditorRow(for account: Account) -> some View {
-        let txCount = transactionCountsByAccountID[account.id] ?? 0
+    private func requestAccountDeletion(_ account: Account) {
+        accountDeletionTarget = AccountDeletionTarget(
+            id: account.id,
+            displayName: account.displayName,
+            preview: AccountDeletionService.preview(account: account, context: modelContext)
+        )
+    }
 
-        HStack(alignment: .top, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(account.displayName)
-                    .font(.callout.weight(.medium))
-                Text("\(account.type.displayName) · \(account.currency)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text("\(txCount) transactions")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(width: 180, alignment: .topLeading)
-
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("Nickname", text: Binding(
-                    get: { account.nickname },
-                    set: { account.nickname = $0 }
-                ))
-                .textFieldStyle(.roundedBorder)
-
-                HStack {
-                    ColorPicker("Identity color", selection: Binding(
-                        get: { account.tintHex.flatMap { Color(hex: $0) } ?? AccountIdentity.color(for: account) },
-                        set: { account.tintHex = $0.hexString }
-                    ))
-                }
-
-                if account.type == .creditCard {
-                    TextField("Credit limit", value: Binding(
-                        get: { account.creditLimit ?? 0 },
-                        set: { account.creditLimit = $0 }
-                    ), format: .currency(code: account.currency))
-                    .textFieldStyle(.roundedBorder)
-                }
-
-                if account.type == .investment || account.type == .retirement {
-                    Picker("Classification", selection: Binding(
-                        get: { account.type },
-                        set: { account.setInvestmentRetirementClassification($0) }
-                    )) {
-                        Text("Investment").tag(AccountType.investment)
-                        Text("Retirement").tag(AccountType.retirement)
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                if account.type == .retirement {
-                    Picker("Retirement type", selection: Binding(
-                        get: { account.retirementKind ?? .other },
-                        set: { account.retirementKind = $0 }
-                    )) {
-                        ForEach(RetirementKind.allCases, id: \.self) { kind in
-                            Text(kind.displayName).tag(kind)
-                        }
-                    }
-                    .labelsHidden()
-
-                    Text("Retirement accounts are included in Total Net Worth but excluded from regular Cash Flow by default.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                if account.type == .retirement || account.type == .investment {
-                    Picker("Liquidity", selection: Binding(
-                        get: { account.liquidity },
-                        set: { account.liquidity = $0 }
-                    )) {
-                        ForEach(AccountLiquidity.allCases, id: \.self) { value in
-                            Text(value.displayName).tag(value)
-                        }
-                    }
-                    .labelsHidden()
-
-                    Toggle("Include in Net Worth", isOn: Binding(
-                        get: { account.effectiveIncludeInNetWorth },
-                        set: { account.includeInNetWorth = $0 }
-                    ))
-                    Toggle("Include in Cash Flow", isOn: Binding(
-                        get: { account.effectiveIncludeInCashFlow },
-                        set: { account.includeInCashFlow = $0 }
-                    ))
-                    Toggle("Include in Regular Income", isOn: Binding(
-                        get: { account.effectiveIncludeInRegularIncome },
-                        set: { account.includeInRegularIncome = $0 }
-                    ))
-
-                    if account.type == .investment {
-                        let canAddPositions = PortfolioService.canAddPositions(account: account, context: modelContext)
-                        Button {
-                            positionsAccount = account
-                        } label: {
-                            Label("Edit Stock Positions", systemImage: "chart.line.uptrend.xyaxis")
-                                .font(.caption)
-                        }
-                        .disabled(!canAddPositions)
-
-                        if !canAddPositions {
-                            Text("Create a separate brokerage account to track stocks.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                if account.type == .retirement {
-                    Toggle("Track for PPR/tax purposes", isOn: Binding(
-                        get: { account.taxTrackingEnabled ?? (account.retirementKind == .ppr) },
-                        set: { account.taxTrackingEnabled = $0 }
-                    ))
-                }
-
-                Button {
-                    balanceSnapshotAccount = account
-                } label: {
-                    Label("Add Balance Snapshot", systemImage: "chart.line.uptrend.xyaxis")
-                        .font(.caption)
-                }
-
-                Button(role: .destructive) {
-                    accountDeletionTarget = AccountDeletionTarget(
-                        id: account.id,
-                        displayName: account.displayName,
-                        preview: AccountDeletionService.preview(account: account, context: modelContext)
-                    )
-                } label: {
-                    Label("Delete Account", systemImage: "trash")
-                        .font(.caption)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+    private var promotionsSection: some View {
+        PromotionHealthSection()
     }
 
     private var categoriesSection: some View {
@@ -610,10 +480,13 @@ struct SettingsView: View {
     }
 
     private func categoryUsageSummary(for category: Category) -> String {
-        let txCount = transactions.filter { $0.category?.id == category.id }.count
-        let ruleCount = ((try? modelContext.fetch(FetchDescriptor<CategoryRule>())) ?? [])
-            .filter { $0.category?.id == category.id }
-            .count
+        let categoryID = category.id
+        let txCount = (try? modelContext.fetchCount(FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.category?.id == categoryID }
+        ))) ?? 0
+        let ruleCount = (try? modelContext.fetchCount(FetchDescriptor<CategoryRule>(
+            predicate: #Predicate<CategoryRule> { $0.category?.id == categoryID }
+        ))) ?? 0
         guard txCount > 0 || ruleCount > 0 else { return "" }
         return " This affects \(txCount) transaction(s) and \(ruleCount) rule(s)."
     }
@@ -746,41 +619,7 @@ struct SettingsView: View {
     }
 
     private var dataSection: some View {
-        let summary = dataHealthSummary
-        let currencySummary = summary.currenciesInUse.isEmpty ? "none" : summary.currenciesInUse.joined(separator: ", ")
-
-        return SectionCard(title: "Your data") {
-            VStack(alignment: .leading, spacing: 12) {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                    DataHealthCard(
-                        label: "Active accounts",
-                        value: "\(summary.activeAccountCount)",
-                        detail: "closed accounts excluded"
-                    )
-                    DataHealthCard(
-                        label: "History",
-                        value: historyValue(for: summary),
-                        detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet"
-                    )
-                    DataHealthCard(
-                        label: "Last activity",
-                        value: summary.lastActivity?.formatted(date: .abbreviated, time: .omitted) ?? "—",
-                        detail: summary.lastActivity == nil ? "No activity yet" : "latest active transaction"
-                    )
-                    DataHealthCard(
-                        label: "Needs attention",
-                        value: "\(summary.unresolvedPendingCount)",
-                        detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports",
-                        tint: summary.unresolvedPendingCount == 0 ? .green : .orange
-                    )
-                }
-
-                Text("\(summary.importedStatementCount) statements imported · \(summary.activeCategoryCount) active categories · Currencies in use: \(currencySummary)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(16)
-        }
+        DataHealthSection(accounts: accounts, activeCategoryCount: categories.count)
     }
 
     private var resetSection: some View {
@@ -873,32 +712,6 @@ struct SettingsView: View {
 
     private var backupPresentation: BackupStatusPresentation {
         BackupStatusPresentation(latestBackup: latestBackup, managedDirectory: backupsDirectory)
-    }
-
-    private var dataHealthSummary: DataHealthSummary {
-        DataHealthSummary(
-            accounts: accounts.map { DataHealthAccountInput(closedAt: $0.closedAt, currency: $0.currency) },
-            transactions: transactions.map {
-                DataHealthTransactionInput(
-                    postedAt: $0.postedAt,
-                    deletedAt: $0.deletedAt,
-                    isDuplicate: $0.isDuplicate,
-                    currency: $0.currency
-                )
-            },
-            pendingImports: pendingImports.map { DataHealthPendingInput(isResolved: $0.resolvedTransaction != nil) },
-            activeCategoryCount: categories.count,
-            importedStatementCount: statements.count
-        )
-    }
-
-    private func historyValue(for summary: DataHealthSummary) -> String {
-        guard let start = summary.historyStart, let end = summary.historyEnd else { return "—" }
-        let calendar = Calendar.current
-        if calendar.isDate(start, inSameDayAs: end) {
-            return start.formatted(date: .abbreviated, time: .omitted)
-        }
-        return "\(start.formatted(date: .abbreviated, time: .omitted)) – \(end.formatted(date: .abbreviated, time: .omitted))"
     }
 
     private func exportBackup() {
@@ -1026,6 +839,280 @@ struct SettingsView: View {
         } catch {
             resetErrorMessage = error.localizedDescription
         }
+    }
+}
+
+struct SettingsAccountState: Equatable {
+    let transactionCount: Int
+    let canAddPositions: Bool
+}
+
+@MainActor
+enum SettingsAccountStateLoader {
+    static func load(accounts: [Account], context: ModelContext) -> [UUID: SettingsAccountState] {
+        var states: [UUID: SettingsAccountState] = [:]
+        for account in accounts {
+            let accountID = account.id
+            let transactionCount = (try? context.fetchCount(FetchDescriptor<Transaction>(
+                predicate: #Predicate<Transaction> { $0.account?.id == accountID }
+            ))) ?? 0
+            states[accountID] = SettingsAccountState(
+                transactionCount: transactionCount,
+                canAddPositions: account.type == .investment
+                    && PortfolioService.canAddPositions(account: account, context: context)
+            )
+        }
+        return states
+    }
+}
+
+private struct AccountRowsView: View {
+    @Environment(\.modelContext) private var modelContext
+    // ponytail: SwiftData has no observed aggregate count; this query is a change probe,
+    // and can be replaced with aggregate observation if the framework adds it.
+    @Query private var transactions: [Transaction]
+
+    let accounts: [Account]
+    let refreshToken: Int
+    let onEditPositions: (Account) -> Void
+    let onAddBalanceSnapshot: (Account) -> Void
+    let onDelete: (Account) -> Void
+
+    @State private var accountStates: [UUID: SettingsAccountState] = [:]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
+                AccountEditorRow(
+                    account: account,
+                    state: accountStates[account.id] ?? SettingsAccountState(transactionCount: 0, canAddPositions: false),
+                    onEditPositions: { onEditPositions(account) },
+                    onAddBalanceSnapshot: { onAddBalanceSnapshot(account) },
+                    onDelete: { onDelete(account) }
+                )
+                if index < accounts.count - 1 {
+                    Divider().padding(.leading, 16)
+                }
+            }
+        }
+        .task { refreshAccountStates() }
+        .onChange(of: accounts.map(\.id)) { _, _ in refreshAccountStates() }
+        .onChange(of: transactions.count) { _, _ in refreshAccountStates() }
+        .onChange(of: refreshToken) { _, _ in refreshAccountStates() }
+    }
+
+    private func refreshAccountStates() {
+        accountStates = SettingsAccountStateLoader.load(accounts: accounts, context: modelContext)
+    }
+}
+
+private struct AccountEditorRow: View {
+    let account: Account
+    let state: SettingsAccountState
+    let onEditPositions: () -> Void
+    let onAddBalanceSnapshot: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(account.displayName)
+                    .font(.callout.weight(.medium))
+                Text("\(account.type.displayName) · \(account.currency)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text("\(state.transactionCount) transactions")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 180, alignment: .topLeading)
+
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Nickname", text: Binding(
+                    get: { account.nickname },
+                    set: { account.nickname = $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
+
+                HStack {
+                    ColorPicker("Identity color", selection: Binding(
+                        get: { account.tintHex.flatMap { Color(hex: $0) } ?? AccountIdentity.color(for: account) },
+                        set: { account.tintHex = $0.hexString }
+                    ))
+                }
+
+                if account.type == .creditCard {
+                    TextField("Credit limit", value: Binding(
+                        get: { account.creditLimit ?? 0 },
+                        set: { account.creditLimit = $0 }
+                    ), format: .currency(code: account.currency))
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                if account.type == .investment || account.type == .retirement {
+                    Picker("Classification", selection: Binding(
+                        get: { account.type },
+                        set: { account.setInvestmentRetirementClassification($0) }
+                    )) {
+                        Text("Investment").tag(AccountType.investment)
+                        Text("Retirement").tag(AccountType.retirement)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                if account.type == .retirement {
+                    Picker("Retirement type", selection: Binding(
+                        get: { account.retirementKind ?? .other },
+                        set: { account.retirementKind = $0 }
+                    )) {
+                        ForEach(RetirementKind.allCases, id: \.self) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+                    .labelsHidden()
+
+                    Text("Retirement accounts are included in Total Net Worth but excluded from regular Cash Flow by default.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                if account.type == .retirement || account.type == .investment {
+                    Picker("Liquidity", selection: Binding(
+                        get: { account.liquidity },
+                        set: { account.liquidity = $0 }
+                    )) {
+                        ForEach(AccountLiquidity.allCases, id: \.self) { value in
+                            Text(value.displayName).tag(value)
+                        }
+                    }
+                    .labelsHidden()
+
+                    Toggle("Include in Net Worth", isOn: Binding(
+                        get: { account.effectiveIncludeInNetWorth },
+                        set: { account.includeInNetWorth = $0 }
+                    ))
+                    Toggle("Include in Cash Flow", isOn: Binding(
+                        get: { account.effectiveIncludeInCashFlow },
+                        set: { account.includeInCashFlow = $0 }
+                    ))
+                    Toggle("Include in Regular Income", isOn: Binding(
+                        get: { account.effectiveIncludeInRegularIncome },
+                        set: { account.includeInRegularIncome = $0 }
+                    ))
+
+                    if account.type == .investment {
+                        Button(action: onEditPositions) {
+                            Label("Edit Stock Positions", systemImage: "chart.line.uptrend.xyaxis")
+                                .font(.caption)
+                        }
+                        .disabled(!state.canAddPositions)
+
+                        if !state.canAddPositions {
+                            Text("Create a separate brokerage account to track stocks.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if account.type == .retirement {
+                    Toggle("Track for PPR/tax purposes", isOn: Binding(
+                        get: { account.taxTrackingEnabled ?? (account.retirementKind == .ppr) },
+                        set: { account.taxTrackingEnabled = $0 }
+                    ))
+                }
+
+                Button(action: onAddBalanceSnapshot) {
+                    Label("Add Balance Snapshot", systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.caption)
+                }
+
+                Button(role: .destructive, action: onDelete) {
+                    Label("Delete Account", systemImage: "trash")
+                        .font(.caption)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct DataHealthSection: View {
+    let accounts: [Account]
+    let activeCategoryCount: Int
+
+    var body: some View {
+        if accounts.isEmpty {
+            DataHealthSummaryPanel(summary: DataHealthSummary(
+                accounts: [],
+                transactions: [],
+                pendingImports: [],
+                activeCategoryCount: activeCategoryCount,
+                importedStatementCount: 0
+            ))
+        } else {
+            DataHealthLoadedSection(accounts: accounts, activeCategoryCount: activeCategoryCount)
+        }
+    }
+}
+
+private struct DataHealthLoadedSection: View {
+    @Query private var transactions: [Transaction]
+    @Query private var statements: [Statement]
+    @Query private var pendingImports: [PendingImport]
+
+    let accounts: [Account]
+    let activeCategoryCount: Int
+
+    var body: some View {
+        DataHealthSummaryPanel(summary: DataHealthSummary(
+            accounts: accounts.map { DataHealthAccountInput(closedAt: $0.closedAt, currency: $0.currency) },
+            transactions: transactions.map {
+                DataHealthTransactionInput(
+                    postedAt: $0.postedAt,
+                    deletedAt: $0.deletedAt,
+                    isDuplicate: $0.isDuplicate,
+                    currency: $0.currency
+                )
+            },
+            pendingImports: pendingImports.map { DataHealthPendingInput(isResolved: $0.resolvedTransaction != nil) },
+            activeCategoryCount: activeCategoryCount,
+            importedStatementCount: statements.count
+        ))
+    }
+}
+
+private struct DataHealthSummaryPanel: View {
+    let summary: DataHealthSummary
+
+    var body: some View {
+        SectionCard(title: "Your data") {
+            VStack(alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                    DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed accounts excluded")
+                    DataHealthCard(label: "History", value: historyValue, detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet")
+                    DataHealthCard(label: "Last activity", value: summary.lastActivity?.formatted(date: .abbreviated, time: .omitted) ?? "—", detail: summary.lastActivity == nil ? "No activity yet" : "latest active transaction")
+                    DataHealthCard(label: "Needs attention", value: "\(summary.unresolvedPendingCount)", detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports", tint: summary.unresolvedPendingCount == 0 ? .green : .orange)
+                }
+
+                let currencySummary = summary.currenciesInUse.isEmpty ? "none" : summary.currenciesInUse.joined(separator: ", ")
+                Text("\(summary.importedStatementCount) statements imported · \(summary.activeCategoryCount) active categories · Currencies in use: \(currencySummary)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+        }
+    }
+
+    private var historyValue: String {
+        guard let start = summary.historyStart, let end = summary.historyEnd else { return "—" }
+        let calendar = Calendar.current
+        if calendar.isDate(start, inSameDayAs: end) {
+            return start.formatted(date: .abbreviated, time: .omitted)
+        }
+        return "\(start.formatted(date: .abbreviated, time: .omitted)) – \(end.formatted(date: .abbreviated, time: .omitted))"
     }
 }
 

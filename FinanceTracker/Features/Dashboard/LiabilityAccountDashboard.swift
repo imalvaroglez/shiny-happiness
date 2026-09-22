@@ -18,6 +18,9 @@ struct LiabilityAccountDashboard: View {
             if snapshot.account.type == .creditCard, !snapshot.activeInstallmentPlans.isEmpty {
                 installmentsCard
             }
+            if !snapshot.promotions.isEmpty {
+                PromotionsCard(promotions: snapshot.promotions, currencyCode: snapshot.currencyCode)
+            }
             if !snapshot.spendingByCategory.isEmpty {
                 spendingDonut
             }

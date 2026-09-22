@@ -430,6 +430,7 @@ final class DashboardViewModel {
 
         let plans = fetchActiveInstallmentPlans(context: context, accountId: account.id)
         let sourceStatements = fetchSourceStatements(context: context, accountId: account.id)
+        let promotions = evaluatePromotions(context: context, account: account)
 
         return LiabilityAccountSnapshot(
             period: period,
@@ -447,8 +448,29 @@ final class DashboardViewModel {
             activeInstallmentPlans: plans,
             sourceStatements: sourceStatements,
             recentTransactions: transactions,
-            totalTransactions: transactions.count
+            totalTransactions: transactions.count,
+            promotions: promotions
         )
+    }
+
+    /// Promociones: capa de reporte (AD-022) evaluada on-demand sobre el historial COMPLETO
+    /// de la cuenta — la conciliación MSI/refunds necesita movimientos fuera del periodo del
+    /// dashboard y reembolsos tardíos (spec G). Solo se evalúan las definiciones vinculadas
+    /// por UUID a ESTA cuenta (las desvinculadas viven en la salud de configuración).
+    private func evaluatePromotions(context: ModelContext, account: Account) -> [PromotionProgress] {
+        let catalog = PromotionCatalog.load()
+        let bound = catalog.definitions.filter { $0.accountUUID == account.id }
+        guard !bound.isEmpty else { return [] }
+        // ponytail: fetch de todas las vivas + filtro en Swift (906 tx) en lugar de
+        // #Predicate con recorrido de relación; si crece a 50k+, predicado por cuenta.
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { tx in tx.deletedAt == nil },
+            sortBy: [SortDescriptor(\.postedAt)])
+        let allLive = (try? context.fetch(descriptor)) ?? []
+        let accountHistory = allLive.filter { $0.account?.id == account.id }
+        return PromotionEvaluator().evaluate(definitions: bound, account: account,
+                                             transactions: accountHistory,
+                                             channelTable: catalog.channelTable, asOf: .now)
     }
 
     // MARK: - Computations (kept compatible with the old VM)
