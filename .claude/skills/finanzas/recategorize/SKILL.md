@@ -9,8 +9,11 @@ El lazo de escritura. Detecta transacciones mal categorizadas, propone cambios, 
 después de que el usuario apruebe cada uno— genera un `.ftbackup` que el usuario restaura
 manualmente en la app (Settings → Restore).
 
-**Alcance estricto**: solo `categoryId` / `flowKindRaw` / `treatmentKindRaw` / `movementKindRaw`.
-No crea `CategoryRule`, no soft-deleta, no toca montos/fechas/duplicados.
+**Alcance estricto**: reclasificar transacciones (`categoryId` / `flowKindRaw` / `treatmentKindRaw` /
+`movementKindRaw`) y —solo con aprobación explícita del usuario, igual que cada fila— crear
+`CategoryRule` nuevas vía `writeback.apply_category_rules` / `apply_writeback`. El writeback
+recalcula `contentHashes`/`modelCounts` del manifest (la UI de restore los valida). No soft-deleta,
+no toca montos/fechas/duplicados/descripciones.
 
 ## Flujo OBLIGATORIO (nunca saltarse)
 

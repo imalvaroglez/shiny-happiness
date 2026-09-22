@@ -33,6 +33,23 @@ H.recurring(txs, ds)                        # suscripciones/gastos recurrentes (
 H.mom_delta(txs, ds)                        # cambio mes-a-mes por categoría
 ```
 
+## Tracker de promociones (`scripts/promo.py`)
+
+Para preguntas "¿cómo voy de la promo X?": gasto bruto vs elegible, avance contra metas,
+días restantes y riesgos de conversión MSI. Clasifica por patrón primero (la categoría
+puede mentir); nunca recomienda gasto artificial:
+
+```bash
+python3 .claude/skills/finanzas/habits/scripts/promo.py \
+  --account "The Platinum Credit Card" --start 2026-09-09 --days 90 \
+  --targets 100000,105000,110000
+```
+
+Los specs de reglas MSI (`promo.MSI_RULES`) son la fuente canónica para crear CategoryRule
+vía `writeback.apply_category_rules` + `promo.resolve_rule_targets`. Como las categorías
+vienen duplicadas (household), pasa `prefer_ids` con los categoryIds que ya usan las
+transacciones de la cuenta (continuidad), no la primera instancia del archivo.
+
 ## Certeza por agregación
 
 | Agregación | Nivel | Por qué |
