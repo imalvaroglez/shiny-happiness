@@ -73,29 +73,22 @@ struct PromotionsCard: View {
         switch promo.shapeSummary {
         case .spendThreshold(let target, let remaining):
             bar(value: promo.eligibleFirm, total: max(target, 1))
-            let labels = [
-                remaining > 0 ? "falta \(MoneyFormat.string(code: currencyCode, remaining))" : nil,
-                promo.knownUnknowns.isEmpty ? nil : "estimación bajo supuestos",
-            ].compactMap { $0 }
             amountLine(firm: promo.eligibleFirm, total: target,
-                       suffix: labels.isEmpty ? nil : "· " + labels.joined(separator: " · "),
+                       suffix: remaining > 0 ? "· falta \(MoneyFormat.string(code: currencyCode, remaining))" : nil,
                        promo: promo)
 
         case .cashback(let devengado, let cap, _):
             bar(value: devengado, total: max(cap, 1))
-            let label = promo.knownUnknowns.isEmpty ? "cashback según registros" : "estimación bajo supuestos"
-            amountLine(firm: devengado, total: cap, suffix: label, promo: promo)
+            amountLine(firm: devengado, total: cap, suffix: nil, promo: promo)
 
         case .tieredPeriods(let periods, let earned, let cap):
             if let current = periods.first(where: { $0.phase == .current }) {
                 bar(value: current.firm, total: max(current.threshold, 1))
-                let earnedLabel = promo.knownUnknowns.isEmpty ? "según registros" : "estimación bajo supuestos"
                 amountLine(firm: current.firm, total: current.threshold,
-                           suffix: "· \(wonCount(periods))/\(periods.count) periodos · \(earnedLabel) \(MoneyFormat.string(code: currencyCode, earned))/\(MoneyFormat.string(code: currencyCode, cap))",
+                           suffix: "· \(wonCount(periods))/\(periods.count) periodos · devengado \(MoneyFormat.string(code: currencyCode, earned))/\(MoneyFormat.string(code: currencyCode, cap))",
                            promo: promo)
             } else {
-                let earnedLabel = promo.knownUnknowns.isEmpty ? "según registros" : "estimación bajo supuestos"
-                Text("\(wonCount(periods))/\(periods.count) periodos · \(earnedLabel) \(MoneyFormat.string(code: currencyCode, earned))/\(MoneyFormat.string(code: currencyCode, cap))")
+                Text("\(wonCount(periods))/\(periods.count) periodos · devengado \(MoneyFormat.string(code: currencyCode, earned))/\(MoneyFormat.string(code: currencyCode, cap))")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

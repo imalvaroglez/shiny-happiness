@@ -178,6 +178,449 @@
         "ámbito del tope anual ambiguo — se usa vigencia total (conservador)",
         "titular vs adicional — se asume titular único"
       ]
+    },
+    {
+      "id": "amex-gold-bienvenida-2026",
+      "displayName": "Bono de bienvenida Gold",
+      "accountUUID": "9e7e530f-d648-4541-9978-eb42a73cee3d",
+      "authoringNickname": "The Gold Card",
+      "window": {
+        "kind": "anchored",
+        "start": "2026-09-21",
+        "durationDays": 90,
+        "provenance": "activación reportada por el usuario; T&C por confirmar"
+      },
+      "shape": {
+        "kind": "spendThreshold",
+        "target": 100000,
+        "rewardAmount": 10000
+      },
+      "scope": {
+        "currency": "MXN",
+        "merchants": [],
+        "requireChannel": "any",
+        "excludeFees": true,
+        "excludeThirdParties": false
+      },
+      "refundPolicy": {
+        "kind": "subtract"
+      },
+      "msiPolicy": {
+        "kind": "countPostedInstallments",
+        "reversalPatterns": [
+          "(?i)MONTO A DIFERIR",
+          "(?i)MESES EN AUTOM[AÁ]TICO"
+        ],
+        "conversionRiskThreshold": 6000
+      },
+      "reward": {
+        "expectedAmount": 10000,
+        "descriptorPatterns": [
+          "(?i)BONIFICACI"
+        ]
+      },
+      "knownUnknowns": [
+        "anclaje (activación) con verificación T&C pendiente",
+        "titular vs adicional — se asume titular único"
+      ]
+    },
+    {
+      "id": "amex-gold-supermercados-2026",
+      "displayName": "Cashback Supermercados (legacy)",
+      "accountUUID": "9e7e530f-d648-4541-9978-eb42a73cee3d",
+      "authoringNickname": "The Gold Card",
+      "window": {
+        "kind": "fixed",
+        "start": "2026-01-07",
+        "end": "2026-10-11",
+        "provenance": "T&C Golden Cashback 2026"
+      },
+      "shape": {
+        "kind": "cashbackCap",
+        "ratePercent": 100,
+        "cap": 3000
+      },
+      "scope": {
+        "currency": "MXN",
+        "merchants": [
+          {
+            "id": "chedraui",
+            "patterns": [
+              "(?i)CHEDRAUI"
+            ],
+            "channel": null
+          },
+          {
+            "id": "city-market",
+            "patterns": [
+              "(?i)CITY MARKET"
+            ],
+            "channel": null
+          },
+          {
+            "id": "heb",
+            "patterns": [
+              "(?i)\\bHEB\\b"
+            ],
+            "channel": null
+          },
+          {
+            "id": "la-comer",
+            "patterns": [
+              "(?i)LA COMER"
+            ],
+            "channel": null
+          }
+        ],
+        "requireChannel": "any",
+        "excludeFees": true,
+        "excludeThirdParties": true
+      },
+      "refundPolicy": {
+        "kind": "subtract"
+      },
+      "msiPolicy": {
+        "kind": "uncertain",
+        "reversalPatterns": [
+          "(?i)MONTO A DIFERIR"
+        ],
+        "conversionRiskThreshold": null
+      },
+      "reward": {
+        "expectedAmount": 3000,
+        "descriptorPatterns": [
+          "(?i)BONIFICACI"
+        ]
+      },
+      "knownUnknowns": [
+        "inscripción previa a la compra — asumida",
+        "postedAt ≈ fecha de facturación (el T&C exige facturado dentro de vigencia)",
+        "titular vs adicional — se asume titular único",
+        "«no aplica con otras promos»: conteo único con Everyday Value no confirmado"
+      ]
+    },
+    {
+      "id": "amex-gold-restaurantes-2026",
+      "displayName": "Cashback Restaurantes (legacy)",
+      "accountUUID": "9e7e530f-d648-4541-9978-eb42a73cee3d",
+      "authoringNickname": "The Gold Card",
+      "window": {
+        "kind": "fixed",
+        "start": "2026-01-07",
+        "end": "2026-10-11",
+        "provenance": "T&C Golden Cashback 2026"
+      },
+      "shape": {
+        "kind": "cashbackCap",
+        "ratePercent": 100,
+        "cap": 3000
+      },
+      "scope": {
+        "currency": "MXN",
+        "merchants": [
+          {
+            "id": "aguachiles-macha",
+            "patterns": [
+              "(?i)AGUACHILES"
+            ],
+            "channel": null
+          },
+          {
+            "id": "luka-sushi",
+            "patterns": [
+              "(?i)LUKA SUSHI"
+            ],
+            "channel": null
+          },
+          {
+            "id": "parco",
+            "patterns": [
+              "(?i)PARCO"
+            ],
+            "channel": null
+          },
+          {
+            "id": "cafeteria-ibm",
+            "patterns": [
+              "(?i)CAFETERIA IBM",
+              "(?i)CAFETERÍA IBM",
+              "(?i)CAFECITO IBM"
+            ],
+            "channel": null
+          }
+        ],
+        "requireChannel": "physicalOnly",
+        "excludeFees": true,
+        "excludeThirdParties": true
+      },
+      "refundPolicy": {
+        "kind": "subtract"
+      },
+      "msiPolicy": {
+        "kind": "uncertain",
+        "reversalPatterns": [
+          "(?i)MONTO A DIFERIR"
+        ],
+        "conversionRiskThreshold": null
+      },
+      "reward": {
+        "expectedAmount": 3000,
+        "descriptorPatterns": [
+          "(?i)BONIFICACI"
+        ]
+      },
+      "knownUnknowns": [
+        "lista oficial de participantes desconocida — cifra es piso (semilla: restaurantes propios)",
+        "presencial requerido — canal no derivable del descriptor",
+        "inscripción previa a la compra — asumida",
+        "titular vs adicional — se asume titular único"
+      ]
+    },
+    {
+      "id": "amex-gold-casual-dining",
+      "displayName": "Cashback Casual Dining",
+      "accountUUID": "9e7e530f-d648-4541-9978-eb42a73cee3d",
+      "authoringNickname": "The Gold Card",
+      "window": {
+        "kind": "fixed",
+        "start": "2026-09-22",
+        "end": "2027-12-31",
+        "provenance": "T&C Golden Cashback 2026–2027"
+      },
+      "shape": {
+        "kind": "tieredPeriods",
+        "periods": [
+          {
+            "start": "2026-09-22",
+            "end": "2026-09-30"
+          },
+          {
+            "start": "2026-10-01",
+            "end": "2026-12-31"
+          },
+          {
+            "start": "2027-01-01",
+            "end": "2027-03-31"
+          },
+          {
+            "start": "2027-04-01",
+            "end": "2027-06-30"
+          },
+          {
+            "start": "2027-07-01",
+            "end": "2027-09-30"
+          },
+          {
+            "start": "2027-10-01",
+            "end": "2027-12-31"
+          }
+        ],
+        "threshold": 5000,
+        "rewardAmount": 1000,
+        "annualRewardCap": 4000,
+        "capScope": "promoLifetime"
+      },
+      "scope": {
+        "currency": "MXN",
+        "merchants": [
+          {
+            "id": "aguachiles-macha",
+            "patterns": [
+              "(?i)AGUACHILES"
+            ],
+            "channel": null
+          },
+          {
+            "id": "luka-sushi",
+            "patterns": [
+              "(?i)LUKA SUSHI"
+            ],
+            "channel": null
+          },
+          {
+            "id": "parco",
+            "patterns": [
+              "(?i)PARCO"
+            ],
+            "channel": null
+          },
+          {
+            "id": "cafeteria-ibm",
+            "patterns": [
+              "(?i)CAFETERIA IBM",
+              "(?i)CAFETERÍA IBM",
+              "(?i)CAFECITO IBM"
+            ],
+            "channel": null
+          }
+        ],
+        "requireChannel": "physicalOnly",
+        "excludeFees": true,
+        "excludeThirdParties": true
+      },
+      "refundPolicy": {
+        "kind": "subtract"
+      },
+      "msiPolicy": {
+        "kind": "uncertain",
+        "reversalPatterns": [
+          "(?i)MONTO A DIFERIR"
+        ],
+        "conversionRiskThreshold": null
+      },
+      "reward": {
+        "expectedAmount": 1000,
+        "descriptorPatterns": [
+          "(?i)BONIFICACI"
+        ]
+      },
+      "knownUnknowns": [
+        "lista oficial de participantes desconocida — cifra es piso",
+        "presencial directo requerido — canal no derivable del descriptor",
+        "MSI en cashback: tratamiento desconocido",
+        "ámbito del tope anual ambiguo — se usa vigencia total (conservador)",
+        "titular vs adicional — se asume titular único"
+      ]
+    },
+    {
+      "id": "amex-gold-wellbeing",
+      "displayName": "Cashback Wellbeing",
+      "accountUUID": "9e7e530f-d648-4541-9978-eb42a73cee3d",
+      "authoringNickname": "The Gold Card",
+      "window": {
+        "kind": "fixed",
+        "start": "2026-09-22",
+        "end": "2027-12-31",
+        "provenance": "T&C Golden Cashback 2026–2027"
+      },
+      "shape": {
+        "kind": "tieredPeriods",
+        "periods": [
+          {
+            "start": "2026-09-22",
+            "end": "2026-09-30"
+          },
+          {
+            "start": "2026-10-01",
+            "end": "2026-12-31"
+          },
+          {
+            "start": "2027-01-01",
+            "end": "2027-03-31"
+          },
+          {
+            "start": "2027-04-01",
+            "end": "2027-06-30"
+          },
+          {
+            "start": "2027-07-01",
+            "end": "2027-09-30"
+          },
+          {
+            "start": "2027-10-01",
+            "end": "2027-12-31"
+          }
+        ],
+        "threshold": 5000,
+        "rewardAmount": 1000,
+        "annualRewardCap": 4000,
+        "capScope": "promoLifetime"
+      },
+      "scope": {
+        "currency": "MXN",
+        "merchants": [
+          {
+            "id": "farmacia-guadalajara",
+            "patterns": [
+              "(?i)FARMACIA GUADALAJARA"
+            ],
+            "channel": null
+          },
+          {
+            "id": "farmacias-del-ahorro",
+            "patterns": [
+              "(?i)FARMACIAS DEL AHORRO",
+              "(?i)FARMACIA DEL AHORRO"
+            ],
+            "channel": null
+          },
+          {
+            "id": "farmacia-similares",
+            "patterns": [
+              "(?i)SIMILARES"
+            ],
+            "channel": null
+          },
+          {
+            "id": "chopo",
+            "patterns": [
+              "(?i)\\bCHOPO\\b"
+            ],
+            "channel": null
+          },
+          {
+            "id": "gnc",
+            "patterns": [
+              "(?i)\\bGNC\\b"
+            ],
+            "channel": null
+          },
+          {
+            "id": "sportium",
+            "patterns": [
+              "(?i)SPORTIUM"
+            ],
+            "channel": null
+          },
+          {
+            "id": "sports-world",
+            "patterns": [
+              "(?i)SPORTS WORLD"
+            ],
+            "channel": null
+          },
+          {
+            "id": "innovasport",
+            "patterns": [
+              "(?i)INNOVASPORT"
+            ],
+            "channel": null
+          },
+          {
+            "id": "innvictus",
+            "patterns": [
+              "(?i)INNVICTUS"
+            ],
+            "channel": null
+          }
+        ],
+        "requireChannel": "any",
+        "excludeFees": true,
+        "excludeThirdParties": true
+      },
+      "refundPolicy": {
+        "kind": "subtract"
+      },
+      "msiPolicy": {
+        "kind": "uncertain",
+        "reversalPatterns": [
+          "(?i)MONTO A DIFERIR"
+        ],
+        "conversionRiskThreshold": null
+      },
+      "reward": {
+        "expectedAmount": 1000,
+        "descriptorPatterns": [
+          "(?i)BONIFICACI"
+        ]
+      },
+      "knownUnknowns": [
+        "lista oficial incompleta y mutable — cifra es piso",
+        "canal por comercio sin confirmar — se asume que cualquier canal cuenta",
+        "MSI en cashback: tratamiento desconocido",
+        "ámbito del tope anual ambiguo — se usa vigencia total (conservador)",
+        "titular vs adicional — se asume titular único"
+      ]
     }
   ]
 }

@@ -36,7 +36,55 @@ struct PromotionBundleCatalogTests {
         #expect(catalog.channelTable.entries.contains { $0.pattern == "(?i)UBER EATS" })
     }
 
-    @Test("Evaluada contra la Platinum, E es no calculable (nunca revincula por nickname)")
+    @Test("Las 6 promos de la Gold + 1 de la Platinum están en el catálogo con ventanas correctas")
+func goldCatalogComplete() throws {
+    let catalog = PromotionCatalog.load(bundle: .main)
+    let ids = Set(catalog.definitions.map(\.id))
+    #expect(ids == [
+        "amex-platinum-bienvenida-2026",
+        "amex-gold-bienvenida-2026",
+        "amex-gold-supermercados-2026",
+        "amex-gold-restaurantes-2026",
+        "amex-gold-everyday-value",
+        "amex-gold-casual-dining",
+        "amex-gold-wellbeing",
+    ])
+    let gold = UUID(uuidString: "9E7E530F-D648-4541-9978-EB42A73CEE3D")!
+    let goldPromos = catalog.definitions.filter { $0.accountUUID == gold }
+    #expect(goldPromos.count == 6, "Las 6 promos de la Gold vinculadas por UUID")
+
+    let bono = try #require(catalog.definitions.first { $0.id == "amex-gold-bienvenida-2026" })
+    guard case .anchored(let start, let days, _) = bono.window else {
+        Issue.record("B debía ser anchored"); return }
+    #expect(start == "2026-09-21")
+    #expect(days == 90)
+    guard case .spendThreshold(let target, let reward) = bono.shape else { return }
+    #expect(target == 100_000)
+    #expect(reward == 10_000)
+    #expect(bono.scope.merchants.isEmpty, "B tiene alcance abierto: todo gasto cuenta")
+
+    for legacyID in ["amex-gold-supermercados-2026", "amex-gold-restaurantes-2026"] {
+        let def = try #require(catalog.definitions.first { $0.id == legacyID })
+        guard case .fixed(let s, let e, _) = def.window else {
+            Issue.record("\(legacyID) debía ser fixed"); return }
+        #expect(s == "2026-01-07")
+        #expect(e == "2026-10-11")
+        guard case .cashbackCap(let rate, let cap) = def.shape else { return }
+        #expect(rate == 100)
+        #expect(cap == 3_000)
+    }
+
+    for tieredID in ["amex-gold-everyday-value", "amex-gold-casual-dining", "amex-gold-wellbeing"] {
+        let def = try #require(catalog.definitions.first { $0.id == tieredID })
+        guard case .tieredPeriods(let periods, _, _, _, _) = def.shape else {
+            Issue.record("\(tieredID) debía ser tieredPeriods"); return }
+        #expect(periods.count == 6)
+        #expect(periods.first?.start == "2026-09-22")
+        #expect(periods.last?.end == "2027-12-31")
+    }
+}
+
+@Test("Evaluada contra la Platinum, E es no calculable (nunca revincula por nickname)")
     func unboundEverydayIsNotCalculableAgainstPlatinum() throws {
         // Solo comprobación del vínculo a nivel definición: el evaluador ya lo testea por
         // unidad; aquí garantizamos que el JSON real no vincula E a ninguna cuenta por error.
