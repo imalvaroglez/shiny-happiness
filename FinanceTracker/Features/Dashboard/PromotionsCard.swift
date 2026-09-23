@@ -1,183 +1,189 @@
 import SwiftUI
 
-/// Card «Promociones» para LiabilityAccountDashboard (spec F):
-/// una fila por promo activa con la consecuencia de su clase de incertidumbre;
-/// ausente con 0 promos; terminadas colapsadas al fondo. Solo mide, nunca recomienda gasto.
-struct PromotionsCard: View {
+/// Línea promo sutil para LiabilityAccountDashboard (feedback 2026-09-22):
+/// una sola línea bajo el header; click → lista compacta → drill-down.
+/// Solo mide, nunca recomienda gasto.
+struct PromoSummaryLine: View {
     let promotions: [PromotionProgress]
     let currencyCode: String
 
-    @State private var selected: PromotionProgress? = nil
-    @State private var showFinished = false
+    @State private var showList = false
 
-    private var active: [PromotionProgress] {
-        promotions.filter {
+    /// La promo más relevante: la del plazo más corto entre las activas con avance;
+    /// si ninguna tiene avance, la del plazo más corto (urgencia).
+    private var headline: PromotionProgress? {
+        let active = promotions.filter {
             if case .expired = $0.displayState { return false }
             if case .expiredSuspended = $0.displayState { return false }
             return true
         }
-    }
-
-    private var finished: [PromotionProgress] {
-        promotions.filter { !active.contains($0) }
+        guard !active.isEmpty else { return nil }
+        let withProgress = active.filter { $0.eligibleFirm > 0 }
+        let pool = withProgress.isEmpty ? active : withProgress
+        return pool.min { (a, b) in
+            (a.daysRemaining ?? Int.max) < (b.daysRemaining ?? Int.max)
+        }
     }
 
     var body: some View {
-        ChartCard(title: "Promociones") {
-            ForEach(active) { promo in
-                Button { selected = promo } label: { row(promo) }
-                    .buttonStyle(.plain)
-                if promo.id != active.last?.id { Divider() }
-            }
-            if !finished.isEmpty {
-                DisclosureGroup("Terminadas (\(finished.count))", isExpanded: $showFinished) {
-                    ForEach(finished) { promo in
-                        Button { selected = promo } label: { row(promo) }
-                            .buttonStyle(.plain)
+        if let promo = headline {
+            Button { showList = true } label: {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(stateColor(promo))
+                        .frame(width: 7, height: 7)
+                    Text(summaryText(promo))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    if promotions.count > 1 {
+                        Text("\(promotions.count) promos")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $showList) {
+                PromoListSheet(promotions: promotions, currencyCode: currencyCode)
             }
         }
+    }
+
+    private func summaryText(_ promo: PromotionProgress) -> String {
+        let name = promo.displayName
+        let amount: String
+        switch promo.shapeSummary {
+        case .spendThreshold:
+            amount = "\(MoneyFormat.string(code: currencyCode, promo.eligibleFirm)) / \(targetText(promo))"
+        case .cashback(let devengado, _, _):
+            amount = MoneyFormat.string(code: currencyCode, devengado)
+        case .tieredPeriods(let periods, _, _):
+            if let current = periods.first(where: { $0.phase == .current }) {
+                amount = "\(MoneyFormat.string(code: currencyCode, current.firm)) / \(MoneyFormat.string(code: currencyCode, current.threshold))"
+            } else {
+                amount = MoneyFormat.string(code: currencyCode, promo.eligibleFirm)
+            }
+        }
+        let days = promo.daysRemaining.map { " · quedan \($0)d" } ?? ""
+        return "\(name): \(amount)\(days)"
+    }
+
+    private func targetText(_ promo: PromotionProgress) -> String {
+        switch promo.shapeSummary {
+        case .spendThreshold(let target, _): return MoneyFormat.string(code: currencyCode, target)
+        default: return ""
+        }
+    }
+
+    private func stateColor(_ promo: PromotionProgress) -> Color {
+        switch promo.displayState {
+        case .enCurso: return .blue
+        case .thresholdReachedPerRecords: return .green
+        case .thresholdSuspended, .provisional, .estimated: return .orange
+        case .expiredSuspended: return .orange
+        case .expired: return .gray
+        }
+    }
+}
+
+/// Lista compacta de todas las promos (una línea por promo, tap → detalle).
+struct PromoListSheet: View {
+    let promotions: [PromotionProgress]
+    let currencyCode: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: PromotionProgress? = nil
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Promociones (\(promotions.count))").font(.headline)
+                Spacer()
+                Button("Cerrar") { dismiss() }
+            }
+            .padding()
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(promotions) { promo in
+                        Button { selected = promo } label: { listRow(promo) }
+                            .buttonStyle(.plain)
+                        if promo.id != promotions.last?.id {
+                            DashboardSeparator()
+                        }
+                    }
+                }
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
+                .padding(.horizontal)
+                .padding(.bottom)
+            }
+        }
+        .frame(minWidth: 420, minHeight: 320)
         .sheet(item: $selected) { promo in
             PromotionDetailSheet(promo: promo, currencyCode: currencyCode)
         }
     }
 
-    // MARK: - Fila por promo (número principal degradado según clase de incertidumbre)
-
-    @ViewBuilder
-    private func row(_ promo: PromotionProgress) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(promo.displayName).font(.body).lineLimit(1)
-                Spacer()
-                stateChip(promo)
-            }
-
-            switch promo.calculability {
-            case .notCalculable(let reason):
-                // Clase ①: sin número — solo qué falta.
-                Text("Pendiente: \(reason)")
-                    .font(.caption).foregroundStyle(.secondary)
-            case .calculable:
-                progressContent(promo)
+    private func listRow(_ promo: PromotionProgress) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(stateColor(promo))
+                .frame(width: 6, height: 6)
+            Text(promo.displayName)
+                .font(.body)
+                .lineLimit(1)
+            Spacer()
+            Text(amountText(promo))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            if let days = promo.daysRemaining {
+                Text("· \(days)d")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
     }
 
-    @ViewBuilder
-    private func progressContent(_ promo: PromotionProgress) -> some View {
+    private func amountText(_ promo: PromotionProgress) -> String {
         switch promo.shapeSummary {
-        case .spendThreshold(let target, let remaining):
-            bar(value: promo.eligibleFirm, total: max(target, 1))
-            amountLine(firm: promo.eligibleFirm, total: target,
-                       suffix: remaining > 0 ? "· falta \(MoneyFormat.string(code: currencyCode, remaining))" : nil,
-                       promo: promo)
-
-        case .cashback(let devengado, let cap, _):
-            bar(value: devengado, total: max(cap, 1))
-            amountLine(firm: devengado, total: cap, suffix: nil, promo: promo)
-
+        case .spendThreshold(_, let remaining):
+            return remaining > 0
+                ? MoneyFormat.string(code: currencyCode, promo.eligibleFirm)
+                : "\(MoneyFormat.string(code: currencyCode, promo.eligibleFirm)) ✓"
+        case .cashback(let devengado, _, _):
+            return MoneyFormat.string(code: currencyCode, devengado)
         case .tieredPeriods(let periods, let earned, let cap):
             if let current = periods.first(where: { $0.phase == .current }) {
-                bar(value: current.firm, total: max(current.threshold, 1))
-                amountLine(firm: current.firm, total: current.threshold,
-                           suffix: "· \(wonCount(periods))/\(periods.count) periodos · devengado \(MoneyFormat.string(code: currencyCode, earned))/\(MoneyFormat.string(code: currencyCode, cap))",
-                           promo: promo)
-            } else {
-                Text("\(wonCount(periods))/\(periods.count) periodos · devengado \(MoneyFormat.string(code: currencyCode, earned))/\(MoneyFormat.string(code: currencyCode, cap))")
-                    .font(.caption).foregroundStyle(.secondary)
+                return "\(MoneyFormat.string(code: currencyCode, current.firm)) / \(MoneyFormat.string(code: currencyCode, current.threshold))"
             }
-        }
-
-        // Banda de incertidumbre (clase ③): identificada y separada, jamás sumada al firme.
-        if promo.possiblePositiveAddition > 0 || promo.possibleNegativeAdjustment > 0 {
-            Text("± \(MoneyFormat.string(code: currencyCode, promo.possiblePositiveAddition)) por revisar · posible ajuste −\(MoneyFormat.string(code: currencyCode, promo.possibleNegativeAdjustment))")
-                .font(.caption2).foregroundStyle(.orange)
-        }
-        if !promo.overlaps.isEmpty {
-            Text("También cuenta en: \(promo.overlaps.joined(separator: ", ")) — conteo único no confirmado")
-                .font(.caption2).foregroundStyle(.secondary)
+            return "\(MoneyFormat.string(code: currencyCode, earned)) / \(MoneyFormat.string(code: currencyCode, cap))"
         }
     }
 
-    private func amountLine(firm: Decimal, total: Decimal, suffix: String?, promo: PromotionProgress) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("\(MoneyFormat.string(code: currencyCode, firm)) / \(MoneyFormat.string(code: currencyCode, total))")
-                .font(.caption.monospacedDigit())
-            if let suffix {
-                Text(suffix).font(.caption2).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if let days = promo.daysRemaining {
-                Text("quedan \(days)d").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func bar(value: Decimal, total: Decimal) -> some View {
-        let v = (value as NSDecimalNumber).doubleValue
-        let t = (total as NSDecimalNumber).doubleValue
-        return ProgressView(value: min(v / max(t, 1), 1))
-            .progressViewStyle(.linear)
-            .tint(.blue)
-    }
-
-    private func stateChip(_ promo: PromotionProgress) -> some View {
-        let text: String
-        let color: Color
+    private func stateColor(_ promo: PromotionProgress) -> Color {
         switch promo.displayState {
-        case .enCurso: text = "En curso"; color = .blue
-        case .thresholdReachedPerRecords: text = "Umbral alcanzado —según registros—"; color = .green
-        case .thresholdSuspended: text = "Suspendido —ambigüedad—"; color = .orange
-        case .provisional: text = "Provisional —por revisar—"; color = .orange
-        case .estimated: text = "Estimación bajo supuestos"; color = .orange
-        case .expiredSuspended: text = "Cerrada —pendiente de resolver—"; color = .orange
-        case .expired(true): text = "Cerrada —con avance—"; color = .secondary
-        case .expired(false): text = "Cerrada —sin alcanzar—"; color = .secondary
+        case .enCurso: return .blue
+        case .thresholdReachedPerRecords: return .green
+        case .thresholdSuspended, .provisional, .estimated: return .orange
+        case .expiredSuspended: return .orange
+        case .expired: return .gray
         }
-        return Text(text)
-            .font(.caption2)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(color.opacity(0.15), in: Capsule())
-            .foregroundStyle(color)
-    }
-
-    private func wonCount(_ periods: [PromotionProgress.PeriodOutcome]) -> Int {
-        periods.filter { $0.phase == .closedWon }.count
     }
 }
 
 extension PromotionProgress: Identifiable {
     var id: String { definitionID }
-}
-
-#Preview("Promotions — estimate under assumptions") {
-    var promo = PromotionProgress(definitionID: "gold", displayName: "Gold everyday value",
-                                  calculability: .calculable, eligibleFirm: 6_200, rows: [])
-    promo.displayState = .estimated
-    promo.knownUnknowns = ["PostedAt se aproxima a la fecha de facturación."]
-    return PromotionsCard(promotions: [promo], currencyCode: "MXN").frame(width: 480)
-}
-
-#Preview("Promotions — closed periods") {
-    var promo = PromotionProgress(definitionID: "gold", displayName: "Gold everyday value",
-                                  calculability: .calculable, eligibleFirm: 12_000, rows: [])
-    promo.displayState = .expired(reachedPerRecords: true)
-    promo.shapeSummary = .tieredPeriods(periods: [
-        .init(start: "2026-09-22", end: "2026-09-30", phase: .closedWon,
-              firm: 5_200, threshold: 5_000, rewardEarned: 1_000),
-        .init(start: "2026-10-01", end: "2026-12-31", phase: .closedLost,
-              firm: 4_000, threshold: 5_000, rewardEarned: 0),
-    ], earnedTotal: 1_000, annualCap: 4_000)
-    return PromotionsCard(promotions: [promo], currencyCode: "MXN").frame(width: 480)
-}
-
-#Preview("Promotion detail — empty / not calculable") {
-    PromotionDetailSheet(promo: PromotionProgress(definitionID: "unbound", displayName: "Gold promotion",
-        calculability: .notCalculable("UUID de cuenta pendiente"), eligibleFirm: 0, rows: []),
-        currencyCode: "MXN")
 }

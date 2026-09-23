@@ -75,6 +75,8 @@ struct ManualTransactionSheet: View {
                     .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
             )
 
+            promotionPreview
+
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
@@ -126,6 +128,101 @@ struct ManualTransactionSheet: View {
             }
         }
         .pickerStyle(.segmented)
+    }
+
+    // MARK: - Promoción preview (feedback 2026-09-22): evaluación en vivo de la tx candidata
+    // contra las promos de la cuenta. Cero persistencia — solo informa al capturar.
+
+    @ViewBuilder
+    private var promotionPreview: some View {
+        if let account = selectedAccount,
+           kind == .charge,
+           amount != 0,
+           !description.trimmingCharacters(in: .whitespaces).isEmpty {
+            let matches = promotionMatches(for: account)
+            if !matches.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Cuenta para:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(matches, id: \.definitionID) { promo in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(stateColor(promo))
+                                .frame(width: 5, height: 5)
+                            Text(promo.displayName)
+                                .font(.caption)
+                            Spacer()
+                            Text(projectionText(promo))
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        }
+    }
+
+    /// Evalúa la transacción candidata contra las promos de la cuenta (sin persistir nada).
+    @MainActor
+    private func promotionMatches(for account: Account) -> [PromotionProgress] {
+        let catalog = PromotionCatalog.load()
+        let bound = catalog.definitions.filter { $0.accountUUID == account.id }
+        guard !bound.isEmpty else { return [] }
+
+        // Historial existente de la cuenta (fetch vivo, sin tocar el store).
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { tx in tx.deletedAt == nil },
+            sortBy: [SortDescriptor(\.postedAt)]
+        )
+        let allLive = (try? modelContext.fetch(descriptor)) ?? []
+        let history = allLive.filter { $0.account?.id == account.id }
+
+        // Transacción candidata — NO insertada en el contexto; solo para evaluación.
+        let candidate = Transaction(
+            account: account,
+            postedAt: date,
+            amount: amount < 0 ? amount : -abs(amount),  // cargo
+            descriptionRaw: description
+        )
+
+        return PromotionEvaluator().evaluate(
+            definitions: bound, account: account,
+            transactions: history + [candidate],
+            channelTable: catalog.channelTable, asOf: date
+        ).filter { $0.eligibleFirm > 0 || $0.possiblePositiveAddition > 0 }
+    }
+
+    private func projectionText(_ promo: PromotionProgress) -> String {
+        switch promo.shapeSummary {
+        case .spendThreshold(let target, let remaining):
+            return remaining > 0
+                ? MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", promo.eligibleFirm)
+                    + " / " + MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", target)
+                : "✓"
+        case .cashback(let devengado, _, _):
+            return MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", devengado)
+        case .tieredPeriods(let periods, let earned, let cap):
+            if let current = periods.first(where: { $0.phase == .current }) {
+                return MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", current.firm)
+                    + " / " + MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", current.threshold)
+            }
+            _ = periods; _ = earned; _ = cap
+            return ""
+        }
+    }
+
+    private func stateColor(_ promo: PromotionProgress) -> Color {
+        switch promo.displayState {
+        case .enCurso: return .blue
+        case .thresholdReachedPerRecords: return .green
+        case .thresholdSuspended, .provisional, .estimated: return .orange
+        case .expiredSuspended: return .orange
+        case .expired: return .gray
+        }
     }
 
     @ViewBuilder

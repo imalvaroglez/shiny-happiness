@@ -14,12 +14,12 @@ struct LiabilityAccountDashboard: View {
     var body: some View {
         VStack(spacing: 20) {
             headerRow
+            if !snapshot.promotions.isEmpty {
+                PromoSummaryLine(promotions: snapshot.promotions, currencyCode: snapshot.currencyCode)
+            }
             chargesVsPaymentsChart
             if snapshot.account.type == .creditCard, !snapshot.activeInstallmentPlans.isEmpty {
                 installmentsCard
-            }
-            if !snapshot.promotions.isEmpty {
-                PromotionsCard(promotions: snapshot.promotions, currencyCode: snapshot.currencyCode)
             }
             if !snapshot.spendingByCategory.isEmpty {
                 spendingDonut
