@@ -106,6 +106,25 @@ struct SettingsAccountStateTests {
         #expect(updatedStates[investment.id]?.canAddPositions == false)
     }
 
+    @Test("Transaction classification invalidates the settings probe without changing its count")
+    func classificationChangeProbe() throws {
+        let container = try makeContainer()
+        let account = Account(institution: "Bank", type: .checking)
+        let transaction = Transaction(account: account, postedAt: .now, amount: -100,
+                                      descriptionRaw: "Expense", flowKindRaw: "expense")
+        container.mainContext.insert(account)
+        container.mainContext.insert(transaction)
+        let before = SettingsTransactionProbe.value(transaction)
+        let countBefore = try container.mainContext.fetchCount(FetchDescriptor<Transaction>())
+
+        transaction.flowKindRaw = "transfer"
+
+        let after = SettingsTransactionProbe.value(transaction)
+        let countAfter = try container.mainContext.fetchCount(FetchDescriptor<Transaction>())
+        #expect(before != after)
+        #expect(countBefore == countAfter)
+    }
+
     @Test("Empty account list does not load account state")
     func emptyAccountState() throws {
         let container = try makeContainer()

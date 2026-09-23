@@ -80,8 +80,10 @@ struct MultiHSBCAccountTests {
 
     @Test("AccountIdentity assigns distinct hues to two HSBC accounts")
     func identityColorsDiffer() async throws {
-        let a = Account(institution: "HSBC 2Now", type: .creditCard, accountNumber: "1111")
-        let b = Account(institution: "HSBC 2Now", type: .creditCard, accountNumber: "2222")
+        let a = Account(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                        institution: "HSBC 2Now", type: .creditCard, accountNumber: "1111")
+        let b = Account(id: UUID(uuidString: "FF000000-0000-0000-0000-000000000002")!,
+                        institution: "HSBC 2Now", type: .creditCard, accountNumber: "2222")
         let colorA = AccountIdentity.color(for: a)
         let colorB = AccountIdentity.color(for: b)
         #expect(colorA != colorB,

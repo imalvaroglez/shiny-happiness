@@ -294,7 +294,7 @@ struct SettingsView: View {
     }
 
     private var promotionsSection: some View {
-        PromotionHealthSection()
+        PromotionHealthSection(accountIDs: Set(accounts.map(\.id)))
     }
 
     private var categoriesSection: some View {
@@ -871,6 +871,9 @@ private struct AccountRowsView: View {
     // ponytail: SwiftData has no observed aggregate count; this query is a change probe,
     // and can be replaced with aggregate observation if the framework adds it.
     @Query private var transactions: [Transaction]
+    @Query private var statements: [Statement]
+    @Query private var snapshots: [AccountBalanceSnapshot]
+    @Query private var positions: [StockPosition]
 
     let accounts: [Account]
     let refreshToken: Int
@@ -896,13 +899,47 @@ private struct AccountRowsView: View {
             }
         }
         .task { refreshAccountStates() }
-        .onChange(of: accounts.map(\.id)) { _, _ in refreshAccountStates() }
-        .onChange(of: transactions.count) { _, _ in refreshAccountStates() }
+        .onChange(of: accountStateProbe) { _, _ in refreshAccountStates() }
+        .onChange(of: transactionProbe) { _, _ in refreshAccountStates() }
+        .onChange(of: statementProbe) { _, _ in refreshAccountStates() }
+        .onChange(of: snapshotProbe) { _, _ in refreshAccountStates() }
+        .onChange(of: positionProbe) { _, _ in refreshAccountStates() }
         .onChange(of: refreshToken) { _, _ in refreshAccountStates() }
+    }
+
+    private var transactionProbe: [String] {
+        transactions.map(SettingsTransactionProbe.value)
+    }
+
+    private var accountStateProbe: [String] {
+        accounts.map { "\($0.id.uuidString)|\($0.type.rawValue)" }
+    }
+
+    private var statementProbe: [String] {
+        statements.map { "\($0.id)|\($0.periodStart)|\($0.periodEnd)|\($0.closingBalance?.description ?? "")|\($0.sourceFileHash)|\($0.lastModifiedAt)" }
+    }
+
+    private var snapshotProbe: [String] {
+        snapshots.map { "\($0.id)|\($0.date)|\($0.amount)|\($0.kind.rawValue)|\($0.note ?? "")|\($0.lastModifiedAt)" }
+    }
+
+    private var positionProbe: [String] {
+        positions.map { "\($0.id)|\($0.emisoraSerie)|\($0.shares)|\($0.averageCost)|\($0.lastPrice?.description ?? "")|\($0.lastModifiedAt)" }
     }
 
     private func refreshAccountStates() {
         accountStates = SettingsAccountStateLoader.load(accounts: accounts, context: modelContext)
+    }
+}
+
+enum SettingsTransactionProbe {
+    static func value(_ tx: Transaction) -> String {
+        [tx.id.uuidString, tx.postedAt.description, tx.amount.description, tx.currency,
+         tx.descriptionRaw, tx.merchantNormalized, tx.isTransfer.description, tx.isDuplicate.description,
+         tx.deletedAt?.description ?? "", tx.flowKindRaw ?? "", tx.movementKindRaw ?? "",
+         tx.treatmentKindRaw ?? "", tx.expenseAssignmentRaw ?? "", tx.category?.id.uuidString ?? "",
+         tx.category?.name ?? "", tx.category?.kind.rawValue ?? "", tx.account?.id.uuidString ?? ""]
+            .joined(separator: "|")
     }
 }
 
