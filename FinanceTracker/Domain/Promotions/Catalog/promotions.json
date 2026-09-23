@@ -79,7 +79,7 @@
       "reward": { "expectedAmount": 1000, "descriptorPatterns": ["(?i)BONIFICACI"] },
       "knownUnknowns": [
         "lista de comercios sin confirmar — estimación según comercios asumidos",
-        "canal por comercio sin confirmar (default por revisar)",
+        "se asume que cualquier canal cuenta; la oferta puede restringirlo",
         "MSI en cashback: tratamiento desconocido",
         "ámbito del tope anual ambiguo — se usa vigencia total (conservador)",
         "desvinculada: falta el UUID de la cuenta Gold al crearla",

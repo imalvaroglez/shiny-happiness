@@ -64,6 +64,38 @@ struct PromotionCatalogTests {
         #expect(catalog.warnings.first?.kind == .decodeFailed)
     }
 
+    @Test("Una entrada con ID mal tipado no oculta las promociones válidas")
+    func malformedIDIsolated() throws {
+        let malformed = validThreshold.replacingOccurrences(of: "\"id\": \"amex-platinum-bienvenida-2026\"",
+                                                            with: "\"id\": 42")
+        let catalog = PromotionCatalog.decode(catalogJSON(malformed + ", " + validThreshold))
+        #expect(catalog.definitions.map(\.id) == ["amex-platinum-bienvenida-2026"])
+        #expect(catalog.warnings.count == 1)
+    }
+
+    @Test("Patrón de canal inválido hace que la tabla no esté disponible")
+    func invalidChannelTableIsRejected() {
+        let data = Data("{\"channels\":[{\"pattern\":\"[\",\"channel\":\"aggregator\"}]}".utf8)
+        #expect(PromotionCatalog.decodeChannelTable(data) == nil)
+        #expect(PromotionCatalog.decodeChannelTable(Data("{\"channels\":[]}".utf8)) == nil)
+    }
+
+    @Test("Periodo calendarYear que cruza año civil se rechaza")
+    func calendarYearPeriodMustStayWithinYear() {
+        let data = Data("""
+        {"promotions":[{
+          "id":"calendar-year","accountUUID":null,
+          "window":{"kind":"fixed","start":"2026-12-01","end":"2027-02-28","provenance":"test"},
+          "shape":{"kind":"tieredPeriods","periods":[{"start":"2026-12-31","end":"2027-01-01"}],
+                   "threshold":100,"rewardAmount":10,"annualRewardCap":100,"capScope":"calendarYear"},
+          "scope":{"currency":"MXN"},"knownUnknowns":[]
+        }]}
+        """.utf8)
+        let catalog = PromotionCatalog.decode(data)
+        #expect(catalog.definitions.isEmpty)
+        #expect(catalog.warnings.first?.message.contains("cruza años") == true)
+    }
+
     @Test("Ventana desconocida decodifica como unknown (caso B)")
     func unknownWindowDecodes() throws {
         let unknownWindow = """

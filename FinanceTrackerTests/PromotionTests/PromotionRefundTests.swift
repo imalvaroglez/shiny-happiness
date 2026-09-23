@@ -143,13 +143,67 @@ struct PromotionRefundTests {
         // Caso del spec: $5,100 contabilizados; posible reembolso $300 asociado ambiguamente.
         let progress = run(context, account: account, txs: [
             (10, -4_500, "COMPRA GRANDE"),
-            (11, -300, "TIENDA A"),
-            (12, -300, "TIENDA B"),
+            (11, -300, "TIENDA"),
+            (12, -300, "TIENDA"),
             (13, 300, "TIENDA"),  // ¿reembolsa A o B? Ambiguo.
         ])
         #expect(progress.eligibleFirm == 5_100, "El firme conserva el importe — provisional")
         #expect(progress.possibleNegativeAdjustment == 300,
                 "El posible ajuste negativo se exhibe (banda $4,800–$5,100)")
         #expect(progress.possiblePositiveAddition == 0)
+    }
+
+    @Test("Refund duplicado y crédito previo a la compra no se aplican")
+    func invalidRefundEvidenceIsIgnored() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "American Express Mexico", type: .creditCard)
+        context.insert(account)
+        let before = Transaction(account: account, postedAt: date(2026, 9, 9), amount: 300,
+                                 descriptionRaw: "TIENDA XYZ")
+        let charge = Transaction(account: account, postedAt: date(2026, 9, 10), amount: -500,
+                                 descriptionRaw: "TIENDA XYZ")
+        let duplicate = Transaction(account: account, postedAt: date(2026, 9, 11), amount: 500,
+                                    descriptionRaw: "TIENDA XYZ")
+        duplicate.isDuplicate = true
+        [before, charge, duplicate].forEach { context.insert($0) }
+        let progress = PromotionEvaluator().evaluate(definitions: [def(account: account)], account: account,
+            transactions: [before, charge, duplicate], channelTable: ChannelTable(entries: []),
+            asOf: date(2026, 9, 30)).first!
+        #expect(progress.eligibleFirm == 500)
+        #expect(progress.reconciliations.allSatisfy { $0.status == .unmatched })
+    }
+
+    @Test("Refund superior al saldo del cargo queda disputado, sin sobreaplicar")
+    func oversizedRefundIsDisputed() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "American Express Mexico", type: .creditCard)
+        context.insert(account)
+        let progress = run(context, account: account, txs: [
+            (10, -100, "TIENDA XYZ"),
+            (11, 150, "TIENDA XYZ"),
+        ])
+        #expect(progress.eligibleFirm == 100)
+        #expect(progress.possibleNegativeAdjustment == 100)
+        #expect(progress.reconciliations.first?.status == .disputed)
+    }
+
+    @Test("Refunds ambiguos múltiples no pueden descontar más que los cargos candidatos")
+    func ambiguousRefundsShareTheRemainingChargeCap() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "American Express Mexico", type: .creditCard)
+        context.insert(account)
+        let progress = run(context, account: account, txs: [
+            (10, -250, "TIENDA XYZ"),
+            (11, -250, "TIENDA XYZ"),
+            (12, 300, "TIENDA XYZ"),
+            (13, 300, "TIENDA XYZ"),
+        ])
+        #expect(progress.eligibleFirm == 500)
+        #expect(progress.possibleNegativeAdjustment == 500)
+        #expect(progress.reconciliations.filter { $0.status == .disputed }
+            .reduce(Decimal(0)) { $0 + $1.potentialAdjustment } == 500)
     }
 }

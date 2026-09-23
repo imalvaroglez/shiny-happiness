@@ -105,7 +105,44 @@ struct PromotionEvaluatorGatesTests {
         }
     }
 
-    @Test("Compuertas: pago→evidencia, transferencia/fee/duplicado/USD/original-MSI→excluidos; cargo en ventana→elegible")
+    @Test("Tabla de canal ausente no se interpreta como permiso para una promo dependiente")
+    func missingRequiredChannelTableIsNotCalculable() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "American Express Mexico", type: .creditCard)
+        context.insert(account)
+        let scope = PromotionScope(currency: "MXN",
+            merchants: [MerchantEntry(id: "store", patterns: ["STORE"], channel: nil)],
+            requireChannel: .physicalOnly, excludeFees: true, excludeThirdParties: false)
+        let result = PromotionEvaluator().evaluate(
+            definitions: [thresholdDef(accountUUID: account.id, scope: scope)], account: account,
+            transactions: [], channelTable: ChannelTable(entries: []), asOf: date(2026, 9, 10),
+            channelTableAvailable: false).first!
+        guard case .notCalculable(let reason) = result.calculability else {
+            Issue.record("La promoción con canal requerido debe bloquear su cálculo"); return
+        }
+        #expect(reason.contains("tabla de canal"))
+    }
+
+    @Test("Excluir terceros requiere reglas de agregadores, no una tabla vacía")
+    func emptyAggregatorRulesAreNotCalculable() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "American Express Mexico", type: .creditCard)
+        context.insert(account)
+        let scope = PromotionScope(currency: "MXN", merchants: [], requireChannel: .any,
+                                   excludeFees: true, excludeThirdParties: true)
+        let result = PromotionEvaluator().evaluate(
+            definitions: [thresholdDef(accountUUID: account.id, scope: scope)], account: account,
+            transactions: [], channelTable: ChannelTable(entries: []), asOf: date(2026, 9, 10),
+            channelTableAvailable: true).first!
+        guard case .notCalculable(let reason) = result.calculability else {
+            Issue.record("Sin patrones agregadores no puede simularse la exclusión"); return
+        }
+        #expect(reason.contains("tabla de canal"))
+    }
+
+    @Test("Compuertas: pago/transferencia/fee/duplicado/USD/original-MSI→excluidos; cargo en ventana→elegible")
     func structuralGates() throws {
         let container = try makeContainer()
         let context = container.mainContext
@@ -150,8 +187,8 @@ struct PromotionEvaluatorGatesTests {
         }
 
         #expect(outcome(eligibleCharge.id)?.0 == .eligible)
-        #expect(outcome(payment.id)?.0 == .evidence,
-                "Un crédito/pago es EVIDENCIA, no se descarta en etapa a (spec G.1a)")
+        #expect(outcome(payment.id)?.0 == .excluded,
+                "El pago de tarjeta no es un crédito candidato a refund ni cuenta como compra")
         #expect(outcome(transfer.id)?.0 == .excluded)
         #expect(outcome(fee.id)?.0 == .excluded, "Fees excluidos por política de oferta")
         #expect(outcome(duplicate.id)?.0 == .excluded)

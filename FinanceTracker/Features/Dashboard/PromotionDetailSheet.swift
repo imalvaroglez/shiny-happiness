@@ -25,9 +25,10 @@ struct PromotionDetailSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                summary
                 if case .calculable = promo.calculability {
+                    summary
                     periodsSection
+                    reconciliationsSection
                     reviewSection
                     eligibleSection
                     conversionRisksSection
@@ -59,7 +60,10 @@ struct PromotionDetailSheet: View {
 
     private var summary: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Avance firme: \(MoneyFormat.string(code: currencyCode, promo.eligibleFirm))")
+            let amountLabel = promo.knownUnknowns.isEmpty
+                ? "Avance firme"
+                : "Avance — estimación bajo supuestos"
+            Text("\(amountLabel): \(MoneyFormat.string(code: currencyCode, promo.eligibleFirm))")
                 .font(.title3.monospacedDigit())
             if promo.possiblePositiveAddition > 0 || promo.possibleNegativeAdjustment > 0 {
                 Text("± \(MoneyFormat.string(code: currencyCode, promo.possiblePositiveAddition)) por revisar · posible ajuste −\(MoneyFormat.string(code: currencyCode, promo.possibleNegativeAdjustment)) — provisional")
@@ -78,22 +82,53 @@ struct PromotionDetailSheet: View {
     @ViewBuilder
     private var periodsSection: some View {
         if case .tieredPeriods(let periods, let earned, let cap) = promo.shapeSummary {
-            Section(title: "Periodos — devengado \(MoneyFormat.string(code: currencyCode, earned)) de \(MoneyFormat.string(code: currencyCode, cap))") {
+            let label = promo.knownUnknowns.isEmpty ? "recompensa calculada" : "estimación bajo supuestos"
+            Section(title: "Periodos — \(label) \(MoneyFormat.string(code: currencyCode, earned)) de \(MoneyFormat.string(code: currencyCode, cap))") {
                 ForEach(periods, id: \.start) { p in
                     HStack {
                         Text("\(p.start) → \(p.end)").font(.caption.monospacedDigit())
                         Spacer()
-                        Text(phaseLabel(p.phase)).font(.caption2).foregroundStyle(.secondary)
+                        Text(phaseLabel(p.phase, underAssumptions: !promo.knownUnknowns.isEmpty))
+                            .font(.caption2).foregroundStyle(.secondary)
                         Text("\(MoneyFormat.string(code: currencyCode, p.firm)) / \(MoneyFormat.string(code: currencyCode, p.threshold))")
                             .font(.caption.monospacedDigit())
                         if p.rewardEarned > 0 {
-                            Text("+\(MoneyFormat.string(code: currencyCode, p.rewardEarned))")
+                            Text("\(promo.knownUnknowns.isEmpty ? "+" : "≈ +")\(MoneyFormat.string(code: currencyCode, p.rewardEarned))")
                                 .font(.caption2.monospacedDigit()).foregroundStyle(.green)
                         }
                     }
                 }
-                Text("Resultados de periodos cerrados son finales salvo statements importados tarde.")
+                Text("Los periodos cerrados se recalculan al importar movimientos tardíos.")
                     .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reconciliationsSection: some View {
+        if !promo.reconciliations.isEmpty {
+            Section(title: "Conciliación") {
+                ForEach(Array(promo.reconciliations.enumerated()), id: \.offset) { entry in
+                    let relation = entry.element
+                    let credit = promo.rows.first { $0.transactionID == relation.creditTransactionID }
+                    let charges = relation.candidateChargeIDs.compactMap { id in promo.rows.first { $0.transactionID == id } }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(relation.kind == .refund ? "Refund" : "Reversión MSI") · \(credit?.descriptor ?? "crédito") · \(reconciliationStatus(relation.status))")
+                            .font(.caption)
+                        if !charges.isEmpty {
+                            Text("Cargos: \(charges.map(\.descriptor).joined(separator: ", "))")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        if relation.amountApplied > 0 {
+                            Text("Aplicado: \(MoneyFormat.string(code: currencyCode, relation.amountApplied)) · contribución neta: \(MoneyFormat.string(code: currencyCode, relation.netContribution ?? 0))")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        if relation.potentialAdjustment > 0 {
+                            Text("Posible ajuste: −\(MoneyFormat.string(code: currencyCode, relation.potentialAdjustment))")
+                                .font(.caption2).foregroundStyle(.orange)
+                        }
+                    }
+                }
             }
         }
     }
@@ -192,14 +227,42 @@ struct PromotionDetailSheet: View {
         }
     }
 
-    private func phaseLabel(_ phase: PromotionProgress.PeriodOutcome.Phase) -> String {
+    private func phaseLabel(_ phase: PromotionProgress.PeriodOutcome.Phase, underAssumptions: Bool) -> String {
         switch phase {
-        case .closedWon: return "ganado"
-        case .closedLost: return "perdido"
+        case .closedWon: return underAssumptions ? "estimado — umbral" : "umbral alcanzado según registros"
+        case .closedLost: return underAssumptions ? "estimado — sin umbral" : "sin alcanzar"
+        case .provisional: return "provisional — por revisar"
         case .current: return "actual"
         case .future: return "futuro"
         }
     }
+
+    private func reconciliationStatus(_ status: PromotionProgress.Reconciliation.Status) -> String {
+        switch status {
+        case .matched: "conciliado"
+        case .disputed: "disputado"
+        case .unmatched: "sin asociación"
+        }
+    }
+}
+
+#Preview("Promotion detail — ambiguous refund") {
+    let chargeID = UUID()
+    let creditID = UUID()
+    let date = Date(timeIntervalSince1970: 1_790_000_000)
+    var promo = PromotionProgress(definitionID: "refund", displayName: "Refund under review",
+        calculability: .calculable, eligibleFirm: 5_100, rows: [
+            .init(transactionID: chargeID, outcome: .eligible, reason: "compra publicada",
+                  amount: -4_500, descriptor: "COMPRA GRANDE", postedAt: date),
+            .init(transactionID: creditID, outcome: .evidence, reason: "crédito/abono — evidencia",
+                  amount: 300, descriptor: "TIENDA", postedAt: date.addingTimeInterval(86_400)),
+        ])
+    promo.displayState = .thresholdSuspended
+    promo.possibleNegativeAdjustment = 300
+    promo.reconciliations = [.init(kind: .refund, creditTransactionID: creditID,
+        candidateChargeIDs: [chargeID], amountApplied: 0, potentialAdjustment: 300,
+        netContribution: nil, status: .disputed)]
+    return PromotionDetailSheet(promo: promo, currencyCode: "MXN")
 }
 
 private struct Section<Content: View>: View {

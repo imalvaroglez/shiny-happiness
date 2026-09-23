@@ -73,22 +73,29 @@ struct PromotionsCard: View {
         switch promo.shapeSummary {
         case .spendThreshold(let target, let remaining):
             bar(value: promo.eligibleFirm, total: max(target, 1))
+            let labels = [
+                remaining > 0 ? "falta \(MoneyFormat.string(code: currencyCode, remaining))" : nil,
+                promo.knownUnknowns.isEmpty ? nil : "estimación bajo supuestos",
+            ].compactMap { $0 }
             amountLine(firm: promo.eligibleFirm, total: target,
-                       suffix: remaining > 0 ? "· falta \(MoneyFormat.string(code: currencyCode, remaining))" : nil,
+                       suffix: labels.isEmpty ? nil : "· " + labels.joined(separator: " · "),
                        promo: promo)
 
         case .cashback(let devengado, let cap, _):
             bar(value: devengado, total: max(cap, 1))
-            amountLine(firm: devengado, total: cap, suffix: "devengado", promo: promo)
+            let label = promo.knownUnknowns.isEmpty ? "cashback según registros" : "estimación bajo supuestos"
+            amountLine(firm: devengado, total: cap, suffix: label, promo: promo)
 
         case .tieredPeriods(let periods, let earned, let cap):
             if let current = periods.first(where: { $0.phase == .current }) {
                 bar(value: current.firm, total: max(current.threshold, 1))
+                let earnedLabel = promo.knownUnknowns.isEmpty ? "según registros" : "estimación bajo supuestos"
                 amountLine(firm: current.firm, total: current.threshold,
-                           suffix: "· \(wonCount(periods))/\(periods.count) periodos · devengado \(MoneyFormat.string(code: currencyCode, earned))/\(MoneyFormat.string(code: currencyCode, cap))",
+                           suffix: "· \(wonCount(periods))/\(periods.count) periodos · \(earnedLabel) \(MoneyFormat.string(code: currencyCode, earned))/\(MoneyFormat.string(code: currencyCode, cap))",
                            promo: promo)
             } else {
-                Text("Sin periodo activo")
+                let earnedLabel = promo.knownUnknowns.isEmpty ? "según registros" : "estimación bajo supuestos"
+                Text("\(wonCount(periods))/\(periods.count) periodos · \(earnedLabel) \(MoneyFormat.string(code: currencyCode, earned))/\(MoneyFormat.string(code: currencyCode, cap))")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -133,6 +140,8 @@ struct PromotionsCard: View {
         case .enCurso: text = "En curso"; color = .blue
         case .thresholdReachedPerRecords: text = "Umbral alcanzado —según registros—"; color = .green
         case .thresholdSuspended: text = "Suspendido —ambigüedad—"; color = .orange
+        case .provisional: text = "Provisional —por revisar—"; color = .orange
+        case .estimated: text = "Estimación bajo supuestos"; color = .orange
         case .expiredSuspended: text = "Cerrada —pendiente de resolver—"; color = .orange
         case .expired(true): text = "Cerrada —con avance—"; color = .secondary
         case .expired(false): text = "Cerrada —sin alcanzar—"; color = .secondary
@@ -151,4 +160,31 @@ struct PromotionsCard: View {
 
 extension PromotionProgress: Identifiable {
     var id: String { definitionID }
+}
+
+#Preview("Promotions — estimate under assumptions") {
+    var promo = PromotionProgress(definitionID: "gold", displayName: "Gold everyday value",
+                                  calculability: .calculable, eligibleFirm: 6_200, rows: [])
+    promo.displayState = .estimated
+    promo.knownUnknowns = ["PostedAt se aproxima a la fecha de facturación."]
+    return PromotionsCard(promotions: [promo], currencyCode: "MXN").frame(width: 480)
+}
+
+#Preview("Promotions — closed periods") {
+    var promo = PromotionProgress(definitionID: "gold", displayName: "Gold everyday value",
+                                  calculability: .calculable, eligibleFirm: 12_000, rows: [])
+    promo.displayState = .expired(reachedPerRecords: true)
+    promo.shapeSummary = .tieredPeriods(periods: [
+        .init(start: "2026-09-22", end: "2026-09-30", phase: .closedWon,
+              firm: 5_200, threshold: 5_000, rewardEarned: 1_000),
+        .init(start: "2026-10-01", end: "2026-12-31", phase: .closedLost,
+              firm: 4_000, threshold: 5_000, rewardEarned: 0),
+    ], earnedTotal: 1_000, annualCap: 4_000)
+    return PromotionsCard(promotions: [promo], currencyCode: "MXN").frame(width: 480)
+}
+
+#Preview("Promotion detail — empty / not calculable") {
+    PromotionDetailSheet(promo: PromotionProgress(definitionID: "unbound", displayName: "Gold promotion",
+        calculability: .notCalculable("UUID de cuenta pendiente"), eligibleFirm: 0, rows: []),
+        currencyCode: "MXN")
 }

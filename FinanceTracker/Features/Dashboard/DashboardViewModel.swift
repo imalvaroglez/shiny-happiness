@@ -81,6 +81,13 @@ final class DashboardViewModel {
     private var consolidatedTransactionCache: (range: DateRange, transactions: [Transaction])?
     private var reuseBalanceSamplerCacheOnNextRefresh = false
     private var periodNow: Date = .now
+    private let promotionCatalogOverride: PromotionCatalog?
+    private let promotionEvaluationDate: Date?
+
+    init(promotionCatalog: PromotionCatalog? = nil, promotionEvaluationDate: Date? = nil) {
+        self.promotionCatalogOverride = promotionCatalog
+        self.promotionEvaluationDate = promotionEvaluationDate
+    }
 
     func setPeriod(_ kind: DashboardPeriodKind, customRange: DateRange? = nil, now: Date = .now) {
         periodKind = kind
@@ -458,7 +465,7 @@ final class DashboardViewModel {
     /// dashboard y reembolsos tardíos (spec G). Solo se evalúan las definiciones vinculadas
     /// por UUID a ESTA cuenta (las desvinculadas viven en la salud de configuración).
     private func evaluatePromotions(context: ModelContext, account: Account) -> [PromotionProgress] {
-        let catalog = PromotionCatalog.load()
+        let catalog = promotionCatalogOverride ?? PromotionCatalog.load()
         let bound = catalog.definitions.filter { $0.accountUUID == account.id }
         guard !bound.isEmpty else { return [] }
         // ponytail: fetch de todas las vivas + filtro en Swift (906 tx) en lugar de
@@ -466,11 +473,22 @@ final class DashboardViewModel {
         let descriptor = FetchDescriptor<Transaction>(
             predicate: #Predicate<Transaction> { tx in tx.deletedAt == nil },
             sortBy: [SortDescriptor(\.postedAt)])
-        let allLive = (try? context.fetch(descriptor)) ?? []
+        let allLive: [Transaction]
+        do {
+            allLive = try context.fetch(descriptor)
+        } catch {
+            return bound.map {
+                PromotionProgress(definitionID: $0.id, displayName: $0.displayName,
+                    calculability: .notCalculable("datos no disponibles — no se pudo leer el historial"),
+                    eligibleFirm: 0, rows: [])
+            }
+        }
         let accountHistory = allLive.filter { $0.account?.id == account.id }
         return PromotionEvaluator().evaluate(definitions: bound, account: account,
                                              transactions: accountHistory,
-                                             channelTable: catalog.channelTable, asOf: .now)
+                                             channelTable: catalog.channelTable,
+                                             asOf: promotionEvaluationDate ?? .now,
+                                             channelTableAvailable: catalog.channelTableAvailable)
     }
 
     // MARK: - Computations (kept compatible with the old VM)

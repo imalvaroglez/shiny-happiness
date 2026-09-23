@@ -25,10 +25,11 @@ struct PromotionShapesTests {
     }
 
     private func date(_ y: Int, _ m: Int, _ d: Int) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Mexico_City")!
         var c = DateComponents()
         c.year = y; c.month = m; c.day = d
-        c.timeZone = TimeZone(identifier: "America/Mexico_City")
-        return Calendar(identifier: .gregorian).date(from: c)!
+        return calendar.date(from: c)!
     }
 
     private func makeAccount(_ context: ModelContext) -> Account {
@@ -49,11 +50,13 @@ struct PromotionShapesTests {
                      asOf: Date) -> PromotionProgress {
         let account = txs.first?.account ?? Account(institution: "X", type: .creditCard)
         return PromotionEvaluator().evaluate(definitions: [def], account: account,
-                                             transactions: txs, channelTable: ChannelTable(entries: []),
+                                             transactions: txs, channelTable: ChannelTable(entries: [
+                                                .init(pattern: "(?i)UBER EATS", merchantID: nil, channel: .aggregator),
+                                             ]),
                                              asOf: asOf).first!
     }
 
-    private func thresholdDef(account: Account, target: Decimal) -> PromotionDefinition {
+    private func thresholdDef(account: Account, target: Decimal, assumptions: [String] = []) -> PromotionDefinition {
         PromotionDefinition(id: "t", displayName: "T", accountUUID: account.id, authoringNickname: nil,
                             window: .fixed(start: "2026-09-01", end: "2026-09-15", provenance: "test"),
                             shape: .spendThreshold(target: target, reward: 15_000),
@@ -63,7 +66,7 @@ struct PromotionShapesTests {
                             msiPolicy: MsiPolicy(kind: .countPostedInstallments,
                                                  reversalPatterns: [], conversionRiskThreshold: nil),
                             reward: RewardSpec(expectedAmount: 15_000, descriptorPatterns: []),
-                            knownUnknowns: [])
+                            knownUnknowns: assumptions)
     }
 
     // MARK: Umbral en ventana
@@ -99,6 +102,19 @@ struct PromotionShapesTests {
         #expect(remaining == 100)
     }
 
+    @Test("Los supuestos degradan el estado y nunca se afirma umbral alcanzado")
+    func assumptionsProduceEstimate() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = makeAccount(context)
+        let txs = [insertTx(context, account, day: 10, amount: -5_100)]
+        let p = run(context, def: thresholdDef(account: account, target: 5_000,
+            assumptions: ["fecha de publicación aproximada a facturación"]),
+            txs: txs, asOf: date(2026, 9, 10))
+        #expect(p.displayState == .estimated)
+        #expect(p.displayState != .thresholdReachedPerRecords)
+    }
+
     @Test("Suspensión v4-g: $5,100 firme + refund ambiguo $300 vs umbral $5,000")
     func thresholdSuspendedByAmbiguity() throws {
         let container = try makeContainer()
@@ -106,8 +122,8 @@ struct PromotionShapesTests {
         let account = makeAccount(context)
         let txs = [
             insertTx(context, account, day: 10, amount: -4_500, descriptor: "COMPRA GRANDE"),
-            insertTx(context, account, day: 11, amount: -300, descriptor: "TIENDA A"),
-            insertTx(context, account, day: 12, amount: -300, descriptor: "TIENDA B"),
+            insertTx(context, account, day: 11, amount: -300, descriptor: "TIENDA"),
+            insertTx(context, account, day: 12, amount: -300, descriptor: "TIENDA"),
             insertTx(context, account, day: 13, amount: 300, descriptor: "TIENDA"),
         ]
         let p = run(context, def: thresholdDef(account: account, target: 5_000),
@@ -253,5 +269,35 @@ struct PromotionShapesTests {
         #expect(periods[0].rewardEarned == 1_000)
         #expect(periods[1].rewardEarned == 500, "P2 acotado por el tope anual, no 1,000")
         #expect(earned == 1_500)
+    }
+
+    @Test("calendarYear reinicia el tope en enero según año civil CDMX")
+    func calendarYearCapResets() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = makeAccount(context)
+        let definition = PromotionDefinition(id: "calendar", displayName: "Calendar cap",
+            accountUUID: account.id, authoringNickname: nil,
+            window: .fixed(start: "2026-12-01", end: "2027-02-28", provenance: "test"),
+            shape: .tieredPeriods(periods: [
+                .init(start: "2026-12-01", end: "2026-12-31"),
+                .init(start: "2027-01-01", end: "2027-01-31"),
+            ], threshold: 5_000, reward: 1_000, annualCap: 1_000, capScope: .calendarYear),
+            scope: PromotionScope(currency: "MXN", merchants: [], requireChannel: .any,
+                                  excludeFees: true, excludeThirdParties: false),
+            refundPolicy: RefundPolicy(kind: .subtract),
+            msiPolicy: MsiPolicy(kind: .countPostedInstallments, reversalPatterns: [],
+                                 conversionRiskThreshold: nil),
+            reward: RewardSpec(expectedAmount: 1_000, descriptorPatterns: []), knownUnknowns: [])
+        let december = Transaction(account: account, postedAt: date(2026, 12, 10),
+                                   amount: -5_000, descriptionRaw: "DECEMBER")
+        let january = Transaction(account: account, postedAt: date(2027, 1, 10),
+                                  amount: -5_000, descriptionRaw: "JANUARY")
+        context.insert(december)
+        context.insert(january)
+        let p = run(context, def: definition, txs: [december, january], asOf: date(2027, 2, 1))
+        guard case .tieredPeriods(let periods, let earned, _) = p.shapeSummary else { return }
+        #expect(periods.map(\.rewardEarned) == [1_000, 1_000])
+        #expect(earned == 2_000)
     }
 }

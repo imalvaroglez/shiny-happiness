@@ -25,10 +25,15 @@ struct PromotionOverlapAndReceiptTests {
     }
 
     private func date(_ y: Int, _ m: Int, _ d: Int) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Mexico_City")!
         var c = DateComponents()
         c.year = y; c.month = m; c.day = d
-        c.timeZone = TimeZone(identifier: "America/Mexico_City")
-        return Calendar(identifier: .gregorian).date(from: c)!
+        return calendar.date(from: c)!
+    }
+
+    private var channelTable: ChannelTable {
+        ChannelTable(entries: [.init(pattern: "(?i)UBER EATS", merchantID: nil, channel: .aggregator)])
     }
 
     private func cashback(_ id: String, account: Account, merchantPattern: String) -> PromotionDefinition {
@@ -60,7 +65,7 @@ struct PromotionOverlapAndReceiptTests {
             definitions: [cashback("supermercados-legacy", account: account, merchantPattern: "(?i)CITY MARKET"),
                           cashback("everyday-value", account: account, merchantPattern: "(?i)CITY MARKET")],
             account: account, transactions: [tx],
-            channelTable: ChannelTable(entries: []), asOf: date(2026, 9, 12))
+            channelTable: channelTable, asOf: date(2026, 9, 12))
 
         let legacy = results.first { $0.definitionID == "supermercados-legacy" }!
         let everyday = results.first { $0.definitionID == "everyday-value" }!
@@ -83,7 +88,7 @@ struct PromotionOverlapAndReceiptTests {
             definitions: [cashback("a", account: account, merchantPattern: "(?i)CITY MARKET"),
                           cashback("b", account: account, merchantPattern: "(?i)FARMACIA")],
             account: account, transactions: [tx],
-            channelTable: ChannelTable(entries: []), asOf: date(2026, 9, 12))
+            channelTable: channelTable, asOf: date(2026, 9, 12))
         #expect(results.allSatisfy { $0.overlaps.isEmpty })
     }
 
@@ -105,7 +110,7 @@ struct PromotionOverlapAndReceiptTests {
         let results = PromotionEvaluator().evaluate(
             definitions: [cashback("everyday-value", account: account, merchantPattern: "(?i)CITY MARKET")],
             account: account, transactions: [charge, lateReward, unrelated],
-            channelTable: ChannelTable(entries: []), asOf: date(2026, 9, 25))
+            channelTable: channelTable, asOf: date(2026, 9, 25))
 
         let p = results.first!
         #expect(p.receiptCandidates.count == 1, "Solo el crédito «Bonificación» es candidato")
@@ -132,7 +137,7 @@ struct PromotionOverlapAndReceiptTests {
             definitions: [cashback("p1", account: account, merchantPattern: "(?i)CITY MARKET"),
                           cashback("p2", account: account, merchantPattern: "(?i)CITY MARKET")],
             account: account, transactions: [chargeA, credit],
-            channelTable: ChannelTable(entries: []), asOf: date(2026, 9, 12))
+            channelTable: channelTable, asOf: date(2026, 9, 12))
 
         // E, F y G esperando $1,000 cada una NO pueden marcar todas «recibida» con un solo
         // abono: en V1 el crédito se lista en ambas y no se asigna a ninguna (spec G-recibo).

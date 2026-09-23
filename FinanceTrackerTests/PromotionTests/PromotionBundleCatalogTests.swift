@@ -62,8 +62,9 @@ struct PromotionBundleCatalogTests {
         var c = DateComponents()
         c.year = 2026; c.month = 9; c.day = 10
         c.timeZone = TimeZone(identifier: "America/Mexico_City")
+        let asOf = Calendar(identifier: .gregorian).date(from: c)!
         let tx = Transaction(account: account,
-                             postedAt: Calendar(identifier: .gregorian).date(from: c)!,
+                             postedAt: asOf,
                              amount: -1_200, descriptionRaw: "OXXO 123")
         context.insert(tx)
 
@@ -72,7 +73,7 @@ struct PromotionBundleCatalogTests {
         let progress = PromotionEvaluator().evaluate(definitions: [platinum], account: account,
                                                      transactions: [tx],
                                                      channelTable: catalog.channelTable,
-                                                     asOf: c.date!) .first!
+                                                     asOf: asOf).first!
         #expect(progress.knownUnknowns.count == 2, "Los supuestos declarados viajan al UI")
         let row = try #require(progress.rows.first)
         #expect(row.descriptor == "OXXO 123", "Fila auto-suficiente (material fuente embebido)")

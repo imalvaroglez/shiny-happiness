@@ -24,10 +24,15 @@ struct PromotionScopePredicateTests {
     }
 
     private func date(_ y: Int, _ m: Int, _ d: Int) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Mexico_City")!
         var c = DateComponents()
         c.year = y; c.month = m; c.day = d
-        c.timeZone = TimeZone(identifier: "America/Mexico_City")
-        return Calendar(identifier: .gregorian).date(from: c)!
+        return calendar.date(from: c)!
+    }
+
+    private var channelTable: ChannelTable {
+        ChannelTable(entries: [.init(pattern: "(?i)UBER EATS", merchantID: nil, channel: .aggregator)])
     }
 
     private let ibmScope = PromotionScope(
@@ -54,7 +59,7 @@ struct PromotionScopePredicateTests {
 
     /// Evalúa una tx por descriptor y devuelve su outcome (índice posicional = orden de descriptors).
     private func evaluateOne(scope: PromotionScope, descriptor: String,
-                             channelTable: ChannelTable = ChannelTable(entries: [])) throws -> PromotionProgress.RowOutcome {
+                             channelTable: ChannelTable? = nil) throws -> PromotionProgress.RowOutcome {
         let container = try makeContainer()
         let context = container.mainContext
         let account = Account(institution: "American Express Mexico", type: .creditCard)
@@ -62,9 +67,10 @@ struct PromotionScopePredicateTests {
         let tx = Transaction(account: account, postedAt: date(2026, 9, 10), amount: -300,
                              descriptionRaw: descriptor)
         context.insert(tx)
+        let table = ChannelTable(entries: self.channelTable.entries + (channelTable?.entries ?? []))
         let progress = PromotionEvaluator().evaluate(
             definitions: [cashbackDef(account: account, scope: scope)], account: account,
-            transactions: [tx], channelTable: channelTable, asOf: .distantFuture).first!
+            transactions: [tx], channelTable: table, asOf: date(2026, 9, 12)).first!
         return progress.rows.first!
     }
 
