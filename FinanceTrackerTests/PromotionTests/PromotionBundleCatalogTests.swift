@@ -4,11 +4,11 @@ import SwiftData
 @testable import FinanceTracker
 
 /// Ciclo 8 (TDD): el catálogo real del bundle carga — A vinculada a la Platinum por UUID,
-/// E desvinculada (Gold inexistente) con sus 6 periodos literales; tabla de canal presente.
+/// E vinculada a la Gold con sus 6 periodos literales; tabla de canal presente.
 @Suite("Promotion Bundle Catalog")
 struct PromotionBundleCatalogTests {
 
-    @Test("El bundle entrega A vinculada y E desvinculada con 6 periodos y tabla de canal")
+    @Test("El bundle entrega A (Platinum) y E (Gold) vinculadas con 6 periodos y tabla de canal")
     func bundleCatalogLoads() throws {
         let catalog = PromotionCatalog.load(bundle: .main)
         #expect(catalog.warnings.isEmpty, "Warnings: \(catalog.warnings)")
@@ -21,7 +21,8 @@ struct PromotionBundleCatalogTests {
         #expect(days == 90)
 
         let everyday = try #require(catalog.definitions.first { $0.id == "amex-gold-everyday-value" })
-        #expect(everyday.accountUUID == nil, "E queda desvinculada hasta que exista la Gold (clase ①)")
+        #expect(everyday.accountUUID == UUID(uuidString: "9E7E530F-D648-4541-9978-EB42A73CEE3D"),
+                "E vinculada a la Gold (UUID capturado del store al crear la cuenta)")
         #expect(everyday.knownUnknowns.count >= 5, "knownUnknowns obligatorios declarados")
         guard case .tieredPeriods(let periods, let threshold, _, let cap, let capScope) = everyday.shape else {
             Issue.record("E debía ser tieredPeriods"); return }

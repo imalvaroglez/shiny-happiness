@@ -12,7 +12,11 @@
         "durationDays": 90,
         "provenance": "aprobación=activación confirmada por el usuario (día 90 = 2026-12-07); verificación T&C residual"
       },
-      "shape": { "kind": "spendThreshold", "target": 100000, "rewardAmount": 15000 },
+      "shape": {
+        "kind": "spendThreshold",
+        "target": 100000,
+        "rewardAmount": 15000
+      },
       "scope": {
         "currency": "MXN",
         "merchants": [],
@@ -20,13 +24,23 @@
         "excludeFees": true,
         "excludeThirdParties": false
       },
-      "refundPolicy": { "kind": "subtract" },
+      "refundPolicy": {
+        "kind": "subtract"
+      },
       "msiPolicy": {
         "kind": "countPostedInstallments",
-        "reversalPatterns": ["(?i)MONTO A DIFERIR", "(?i)MESES EN AUTOM[AÁ]TICO"],
+        "reversalPatterns": [
+          "(?i)MONTO A DIFERIR",
+          "(?i)MESES EN AUTOM[AÁ]TICO"
+        ],
         "conversionRiskThreshold": 6000
       },
-      "reward": { "expectedAmount": 15000, "descriptorPatterns": ["(?i)BONIFICACI"] },
+      "reward": {
+        "expectedAmount": 15000,
+        "descriptorPatterns": [
+          "(?i)BONIFICACI"
+        ]
+      },
       "knownUnknowns": [
         "titular vs adicional — se asume titular único",
         "anclaje de la ventana con verificación T&C residual"
@@ -35,8 +49,8 @@
     {
       "id": "amex-gold-everyday-value",
       "displayName": "Everyday Value (Gold)",
-      "accountUUID": null,
-      "authoringNickname": "The Gold Card American Express",
+      "accountUUID": "9e7e530f-d648-4541-9978-eb42a73cee3d",
+      "authoringNickname": "The Gold Card",
       "window": {
         "kind": "fixed",
         "start": "2026-09-22",
@@ -46,12 +60,30 @@
       "shape": {
         "kind": "tieredPeriods",
         "periods": [
-          { "start": "2026-09-22", "end": "2026-09-30" },
-          { "start": "2026-10-01", "end": "2026-12-31" },
-          { "start": "2027-01-01", "end": "2027-03-31" },
-          { "start": "2027-04-01", "end": "2027-06-30" },
-          { "start": "2027-07-01", "end": "2027-09-30" },
-          { "start": "2027-10-01", "end": "2027-12-31" }
+          {
+            "start": "2026-09-22",
+            "end": "2026-09-30"
+          },
+          {
+            "start": "2026-10-01",
+            "end": "2026-12-31"
+          },
+          {
+            "start": "2027-01-01",
+            "end": "2027-03-31"
+          },
+          {
+            "start": "2027-04-01",
+            "end": "2027-06-30"
+          },
+          {
+            "start": "2027-07-01",
+            "end": "2027-09-30"
+          },
+          {
+            "start": "2027-10-01",
+            "end": "2027-12-31"
+          }
         ],
         "threshold": 5000,
         "rewardAmount": 1000,
@@ -61,28 +93,89 @@
       "scope": {
         "currency": "MXN",
         "merchants": [
-          { "id": "chedraui", "patterns": ["(?i)CHEDRAUI"], "channel": null },
-          { "id": "la-comer", "patterns": ["(?i)LA COMER", "(?i)CITY MARKET"], "channel": null },
-          { "id": "fresko", "patterns": ["(?i)FRESKO"], "channel": null },
-          { "id": "heb", "patterns": ["(?i)\\bHEB\\b"], "channel": null },
-          { "id": "soriana", "patterns": ["(?i)SORIANA"], "channel": null },
-          { "id": "petco", "patterns": ["(?i)PETCO"], "channel": null },
-          { "id": "petland", "patterns": ["(?i)PETLAND"], "channel": null },
-          { "id": "justo", "patterns": ["(?i)J[UÜ]STO"], "channel": null }
+          {
+            "id": "chedraui",
+            "patterns": [
+              "(?i)CHEDRAUI"
+            ],
+            "channel": null
+          },
+          {
+            "id": "la-comer",
+            "patterns": [
+              "(?i)LA COMER",
+              "(?i)CITY MARKET"
+            ],
+            "channel": null
+          },
+          {
+            "id": "fresko",
+            "patterns": [
+              "(?i)FRESKO"
+            ],
+            "channel": null
+          },
+          {
+            "id": "heb",
+            "patterns": [
+              "(?i)\\bHEB\\b"
+            ],
+            "channel": null
+          },
+          {
+            "id": "soriana",
+            "patterns": [
+              "(?i)SORIANA"
+            ],
+            "channel": null
+          },
+          {
+            "id": "petco",
+            "patterns": [
+              "(?i)PETCO"
+            ],
+            "channel": null
+          },
+          {
+            "id": "petland",
+            "patterns": [
+              "(?i)PETLAND"
+            ],
+            "channel": null
+          },
+          {
+            "id": "justo",
+            "patterns": [
+              "(?i)J[UÜ]STO"
+            ],
+            "channel": null
+          }
         ],
         "requireChannel": "any",
         "excludeFees": true,
         "excludeThirdParties": true
       },
-      "refundPolicy": { "kind": "subtract" },
-      "msiPolicy": { "kind": "uncertain", "reversalPatterns": ["(?i)MONTO A DIFERIR"], "conversionRiskThreshold": null },
-      "reward": { "expectedAmount": 1000, "descriptorPatterns": ["(?i)BONIFICACI"] },
+      "refundPolicy": {
+        "kind": "subtract"
+      },
+      "msiPolicy": {
+        "kind": "uncertain",
+        "reversalPatterns": [
+          "(?i)MONTO A DIFERIR"
+        ],
+        "conversionRiskThreshold": null
+      },
+      "reward": {
+        "expectedAmount": 1000,
+        "descriptorPatterns": [
+          "(?i)BONIFICACI"
+        ]
+      },
       "knownUnknowns": [
         "lista de comercios sin confirmar — estimación según comercios asumidos",
         "se asume que cualquier canal cuenta; la oferta puede restringirlo",
         "MSI en cashback: tratamiento desconocido",
         "ámbito del tope anual ambiguo — se usa vigencia total (conservador)",
-        "desvinculada: falta el UUID de la cuenta Gold al crearla",
         "titular vs adicional — se asume titular único"
       ]
     }
