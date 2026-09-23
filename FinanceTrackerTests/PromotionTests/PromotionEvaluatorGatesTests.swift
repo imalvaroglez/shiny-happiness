@@ -175,12 +175,19 @@ struct PromotionEvaluatorGatesTests {
                                       descriptionRaw: "MUEBLES", installmentPlan: plan)
         let outside = Transaction(account: account, postedAt: date(2026, 10, 5), amount: -400,
                                   descriptionRaw: "OXXO 456")
+        // T&C Gold: anualidad diferida y retiros de efectivo NO cuentan como gasto elegible.
+        let anualidad = Transaction(account: account, postedAt: date(2026, 9, 30), amount: -2_800,
+                                    descriptionRaw: "ANUALIDAD THE GOLDCARD 1/3")
+        let retiro = Transaction(account: account, postedAt: date(2026, 9, 28), amount: -1_000,
+                                 descriptionRaw: "RETIRO DE EFECTIVO CAJERO")
         context.insert(eligibleCharge); context.insert(payment); context.insert(transfer)
         context.insert(fee); context.insert(duplicate); context.insert(usd)
         context.insert(msiOriginal); context.insert(outside)
+        context.insert(anualidad); context.insert(retiro)
 
         let progress = evaluate(thresholdDef(accountUUID: account.id), account: account,
-                                txs: [eligibleCharge, payment, transfer, fee, duplicate, usd, msiOriginal, outside])
+                                txs: [eligibleCharge, payment, transfer, fee, duplicate, usd, msiOriginal, outside,
+                                      anualidad, retiro])
 
         func outcome(_ id: UUID) -> (PromotionProgress.RowOutcome.Outcome, String)? {
             progress.rows.first { $0.transactionID == id }.map { ($0.outcome, $0.reason) }
@@ -195,6 +202,8 @@ struct PromotionEvaluatorGatesTests {
         #expect(outcome(usd.id)?.0 == .excluded, "Moneda ≠ MXN excluida")
         #expect(outcome(msiOriginal.id)?.0 == .excluded, "Original MSI sintetizado no cuenta (cuentan las cuotas)")
         #expect(outcome(outside.id)?.0 == .excluded, "Fuera de ventana excluido")
+        #expect(outcome(anualidad.id)?.0 == .excluded, "Anualidad (cuota diferida) no cuenta — T&C")
+        #expect(outcome(retiro.id)?.0 == .excluded, "Retiro de efectivo no cuenta — T&C")
 
         #expect(progress.eligibleFirm == 1_200)
     }

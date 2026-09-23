@@ -186,9 +186,9 @@
       "authoringNickname": "The Gold Card",
       "window": {
         "kind": "anchored",
-        "start": "2026-09-21",
+        "start": "2026-09-14",
         "durationDays": 90,
-        "provenance": "activación reportada por el usuario; T&C por confirmar"
+        "provenance": "90 días naturales posteriores a la APROBACIÓN (14-sep-2026, confirmado con T&C de la invitación 1–21 sep)"
       },
       "shape": {
         "kind": "spendThreshold",
@@ -216,12 +216,16 @@
       "reward": {
         "expectedAmount": 10000,
         "descriptorPatterns": [
-          "(?i)BONIFICACI"
+          "(?i)BONIFICACI",
+          "(?i)CR[ÉE]DITO POR PROMOCI"
         ]
       },
       "knownUnknowns": [
-        "anclaje (activación) con verificación T&C pendiente",
-        "titular vs adicional — se asume titular único"
+        "compras con Tarjetas Adicionales NO cuentan (T&C) — los imports Amex no etiquetan la tarjeta: se asume titular",
+        "retiros de efectivo y pagos diferidos no cuentan (T&C) — detectados por descriptor cuando el importe los identifique",
+        "no acumulable con otras ofertas (T&C): el conteo único frente a los cashbacks lo adjudica el emisor",
+        "la bonificación puede revertirse por devoluciones posteriores (T&C)",
+        "la bonificación llega como «Crédito por promoción» dentro de los 90 días naturales siguientes a alcanzar el gasto"
       ]
     },
     {

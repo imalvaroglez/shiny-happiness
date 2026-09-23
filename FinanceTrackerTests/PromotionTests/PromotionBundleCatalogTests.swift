@@ -56,7 +56,7 @@ func goldCatalogComplete() throws {
     let bono = try #require(catalog.definitions.first { $0.id == "amex-gold-bienvenida-2026" })
     guard case .anchored(let start, let days, _) = bono.window else {
         Issue.record("B debía ser anchored"); return }
-    #expect(start == "2026-09-21")
+    #expect(start == "2026-09-14", "ancla = fecha de APROBACIÓN (T&C), no activación")
     #expect(days == 90)
     guard case .spendThreshold(let target, let reward) = bono.shape else { return }
     #expect(target == 100_000)

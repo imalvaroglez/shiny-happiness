@@ -666,7 +666,8 @@ struct PromotionEvaluator {
         if tx.treatmentKind == .fee { return true }
         let text = (tx.categoryName + " " + tx.descriptionRaw)
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "es_MX"))
-        return ["interest", "interes", "fee", "comision", "commission", "cargo por pago tardio", "late fee"]
+        return ["interest", "interes", "fee", "comision", "commission", "cargo por pago tardio", "late fee",
+                    "anualidad", "cuota anual", "retiro de efectivo", "retiro en cajero", "avance de efectivo", "cash advance"]
             .contains { text.localizedStandardContains($0) }
     }
 
