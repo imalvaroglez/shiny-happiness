@@ -1,143 +1,133 @@
-"""Fixtures = snippets recortados de los PDFs reales (pdftotext -layout),
-201902.pdf y 202502.pdf, + caso sintético de wrap Dic→Ene."""
+"""Synthetic Amex-layout fixtures; no personal statement excerpts are committed."""
 
 from decimal import Decimal
 
 import amex
+import pytest
 
-# --- Recortes reales de 201902.pdf -----------------------------------------
-HEADER_2019 = """
-  Saldo Anterior   Créditos      Cargos generar intereses          Mínimo
-       6,264.76 - 6,339.07 +   5,301.72 =        5,227.41          362.50
-
-Pago mínimo más mensualidades sin intereses: $1,956.13
-Fecha límite de pago: 4 de Marzo
-
-Período de Facturación Del 12 de Enero al 11 de Febrero de 2019   Días del periodo: 31 días
-
+HEADER_2021 = """
+       1,000.00 - 300.00 + 500.00 = 1,200.00 50.00
+Período de Facturación Del 1 de Enero al 31 de Enero de 2021
+Fecha límite de pago: 15 de Febrero de 2021
 Nuevos Cargos incluyen los siguientes conceptos:
-Nuevas transacciones:                       4,550.88
-Interés Financiero:                              0.00
-Comisiones:                                      0.00
-
- Total Nuevos Cargos:                               5,301.72
-
-Pago Mínimo: $ 362.50
-Fecha límite de pago: 04 de Marzo 2019
+Nuevas transacciones: 400.00
+Interés Financiero: 20.00
+Comisiones: 50.00
+IVA: 30.00
+Total Nuevos Cargos: 500.00
 """
 
-DETAIL_2019 = """
-Fecha y Detalle de las operaciones                                            Importe en MN.
-23 de Enero    PAGO RECIBIDO, GRACIAS                                               6,264.76
+DETAIL_2021 = """
+Fecha y Detalle de las operaciones
+14 de Enero PAGO RECIBIDO, GRACIAS 300.00
                                                                                          CR
-11 de Enero    CINEPOLIS0485 000000000 DF                                              44.00
-               RFCCME981208VE4 /REF04850100207214
-11 de Enero    ITUNES.COM/BILL     CUPERTINO                                           9.00
+5 de Enero MERCADO LOCAL 300.00
+8 de Enero RESTAURANTE LOCAL 100.00
+31 de Enero INTERÉS FINANCIERO 20.00
+31 de Enero COMISIÓN DE SERVICIO 50.00
+31 de Enero IVA DE COMISIÓN 30.00
 """
 
-# --- Recortes reales de 202502.pdf -----------------------------------------
-CHARGES_2025 = """
+SUMMARY_2022 = """
+       2,000.00 - 550.00 + 450.00 = 1,900.00 50.00
+Período de Facturación Del 12 de Enero al 11 de Febrero de 2022
+Fecha límite de pago: 4 de Marzo de 2022
 Nuevos Cargos incluyen los siguientes conceptos:
-Nuevas transacciones:                       4,810.02
-Interés Financiero:                           288.70
-IVA:                                          142.20
-Comisiones:                                   600.00
-
- Total Nuevos Cargos:                               6,879.92
+Nuevas transacciones: 340.00
+Interés Financiero: 20.00
+IVA: 10.00
+Comisiones: 80.00
+Total Nuevos Cargos: 450.00
 """
 
-DETAIL_2025 = """
-Fecha y Detalle de las operaciones                                                                    Importe en MN.
-1 de Febrero   PAGO RECIBIDO, GRACIAS                                                                        7,126.20
-                                                                                                                  CR
-14 de Enero     CAFE SIRENA SOCIEDAD DE MEXICO CITY                                                            267.00
-                RFCCSI020226MV4 /REFP3LDW24PH5XDFVF3
-1 de Febrero WALMART CASHI VENTA EN CIUDAD DE MEXIC                                                            998.02
-                RFCNWM9709244W4 /REF91750101
-3 de Febrero AMAZON MX*AMAZON RETAIL MEXICO CITY                                                                49.50
-                RFCANE140618P37 /REF11qpsZKBU3D3t4XaJb9r                                                            CR
-11 de Febrero MESES EN AUTOMÁTICO NACIONAL                                                                   1,039.00
-                CARGO 03 DE 03
-31 de Enero     CARGO POR PAGO TARDÍO                                                                         600.00
-11 de Febrero INTERÉS FINANCIERO                                                     288.70
+DETAIL_2022 = """
+Fecha y Detalle de las operaciones
+20 de Enero PAGO RECIBIDO, GRACIAS 500.00
+25 de Enero TIENDA LOCAL 200.00
+1 de Febrero FARMACIA LOCAL 100.00
+3 de Febrero MERCADO DEVOLUCIÓN 50.00
+RFCXX000000 /REF123 CR
+11 de Febrero MESES EN AUTOMÁTICO NACIONAL 40.00
+31 de Enero CARGO POR PAGO TARDÍO 80.00
+11 de Febrero INTERÉS FINANCIERO 20.00
+11 de Febrero IVA DE COMISIÓN 10.00
 """
 
-PERIOD_2025 = """
-Período de Facturación Del 12 de Enero al 11 de Febrero de 2025   Días del periodo: 31 días
-Fecha límite de pago: 03 de Marzo 2025
-"""
-
-# --- Wrap Dic→Ene (estructura real de 202501.pdf, montos reales) -----------
 WRAP_2025 = """
-       4,643.20 - 7,175.70 +   6,879.92 =        4,347.42        3,600.00
-Período de Facturación Del 12 de Diciembre al 11 de Enero de 2025   Días del periodo: 31 días
-Fecha límite de pago: 31 de Enero 2025
-Fecha y Detalle de las operaciones                                                                            Importe en MN.
-4 de Diciembre  WALMART CASHI VENTA EN CIUDAD DE MEXIC                                                        417.51
-4 de Enero      WALMART CASHI VENTA EN CIUDAD DE MEXIC                                                             91.62
-5 de Enero      AMERICA MOVIL MI TELCEL DF                                                                         15.00
+       1,000.00 - 500.00 + 300.00 = 800.00 50.00
+Período de Facturación Del 12 de Diciembre al 11 de Enero de 2025
+Fecha límite de pago: 31 de Enero de 2025
+Fecha y Detalle de las operaciones
+14 de Diciembre SUPERMERCADO LOCAL 100.00
+4 de Enero FARMACIA LOCAL 150.00
+5 de Enero PAPELERÍA LOCAL 50.00
+20 de Diciembre PAGO RECIBIDO 500.00 CR
 """
 
 
-def test_resumen_2019():
-    parsed = amex.parse_pdf(HEADER_2019 + DETAIL_2019)
-    assert parsed.period_start == "2019-01-12"
-    assert parsed.period_end == "2019-02-11"
-    assert parsed.opening_balance == Decimal("6264.76")
-    assert parsed.closing_balance == Decimal("5227.41")
-    assert parsed.minimum_payment == Decimal("362.50")
-    assert parsed.payment_due_date == "2019-03-04"
-    assert parsed.interest == Decimal("0.00")
-    assert parsed.fees == Decimal("0.00")
-    assert parsed.iva is None  # 2019 no traía IVA en el bloque
+def test_synthetic_statement_summary_and_transaction_totals_reconcile():
+    parsed = amex.parse_pdf(HEADER_2021 + DETAIL_2021)
+    assert parsed.period_start == "2021-01-01"
+    assert parsed.period_end == "2021-01-31"
+    assert parsed.opening_balance == Decimal("1000.00")
+    assert parsed.closing_balance == Decimal("1200.00")
+    assert parsed.minimum_payment == Decimal("50.00")
+    assert parsed.payment_due_date == "2021-02-15"
+    assert parsed.interest == Decimal("20.00")
+    assert parsed.fees == Decimal("50.00")
+    assert parsed.iva == Decimal("30.00")
+    assert parsed.summary_credit_total == Decimal("300.00")
+    assert parsed.summary_charge_total == Decimal("500.00")
+    assert sum((tx.amount for tx in parsed.transactions if tx.is_credit), Decimal(0)) == Decimal("300.00")
+    assert sum((tx.amount for tx in parsed.transactions if not tx.is_credit), Decimal(0)) == Decimal("500.00")
 
 
-def test_transacciones_2019():
-    txs = amex.parse_pdf(HEADER_2019 + DETAIL_2019).transactions
-    assert len(txs) == 3
-    pago, cinepolis, itunes = txs
-    assert pago.posted_date == "2019-01-23"
-    assert pago.amount == Decimal("6264.76")
-    assert pago.is_credit  # CR en línea de continuación
-    assert "PAGO RECIBIDO" in pago.description
-    assert cinepolis.posted_date == "2019-01-11"
-    assert not cinepolis.is_credit  # continuación RFC sin CR
-    assert cinepolis.amount == Decimal("44.00")
-    assert itunes.posted_date == "2019-01-11"
-    assert itunes.amount == Decimal("9.00")
+def test_synthetic_credit_and_refund_continuation():
+    parsed = amex.parse_pdf(SUMMARY_2022 + DETAIL_2022)
+    assert len(parsed.transactions) == 8
+    payment, store, pharmacy, refund, installment, fee, interest, iva = parsed.transactions
+    assert payment.is_credit and payment.description.startswith("PAGO RECIBIDO")
+    assert not store.is_credit and store.amount == Decimal("200.00")
+    assert not pharmacy.is_credit
+    assert refund.is_credit and refund.posted_date == "2022-02-03"
+    assert installment.description.startswith("MESES EN AUTOMÁTICO")
+    assert fee.amount == Decimal("80.00")
+    assert interest.amount == Decimal("20.00")
+    assert iva.amount == Decimal("10.00")
 
 
-def test_cr_al_final_de_linea_rfc_2025():
-    txs = amex.parse_pdf(PERIOD_2025 + CHARGES_2025 + DETAIL_2025).transactions
-    assert len(txs) == 7
-    pago, sirena, walmart, amazon, msi, tardio, interes = txs
-    assert pago.is_credit and pago.amount == Decimal("7126.20")
-    assert not sirena.is_credit
-    assert not walmart.is_credit and walmart.posted_date == "2025-02-01"
-    assert amazon.is_credit  # CR al final de la línea RFC de continuación
-    assert amazon.posted_date == "2025-02-03"
-    assert msi.amount == Decimal("1039.00") and not msi.is_credit
-    assert tardio.amount == Decimal("600.00")
-    assert interes.amount == Decimal("288.70") and interes.posted_date == "2025-02-11"
-
-
-def test_charges_meta_2025():
-    parsed = amex.parse_pdf(PERIOD_2025 + CHARGES_2025 + DETAIL_2025)
-    assert parsed.interest == Decimal("288.70")
-    assert parsed.fees == Decimal("600.00")
-    assert parsed.iva == Decimal("142.20")
-
-
-def test_wrap_dic_a_enero():
+def test_synthetic_statement_crossing_year():
     parsed = amex.parse_pdf(WRAP_2025)
     assert parsed.period_start == "2024-12-12"
     assert parsed.period_end == "2025-01-11"
     assert parsed.payment_due_date == "2025-01-31"
-    fechas = [t.posted_date for t in parsed.transactions]
-    assert fechas == ["2024-12-04", "2025-01-04", "2025-01-05"]
+    assert [tx.posted_date for tx in parsed.transactions] == [
+        "2024-12-14", "2025-01-04", "2025-01-05", "2024-12-20"
+    ]
 
 
-def test_sin_periodo_es_error():
-    import pytest
-    with pytest.raises(ValueError):
-        amex.parse_pdf("texto sin periodo ni nada reconocible")
+def test_unrecognized_dated_row_blocks_statement():
+    with pytest.raises(ValueError, match="unrecognized dated transaction row"):
+        amex.parse_pdf(HEADER_2021 + DETAIL_2021 + "12 de Enero DESCRIPCIÓN SIN IMPORTE\n")
+
+
+def test_transaction_totals_must_match_statement_summary():
+    text = HEADER_2021 + DETAIL_2021.replace("MERCADO LOCAL 300.00", "MERCADO LOCAL 301.00")
+    with pytest.raises(ValueError, match="do not reconcile"):
+        amex.parse_pdf(text)
+
+
+def test_statement_with_charges_but_no_detail_rows_is_rejected():
+    with pytest.raises(ValueError, match="no transaction detail rows"):
+        amex.parse_pdf(HEADER_2021)
+
+
+def test_transaction_dates_must_fall_inside_billing_period():
+    outside = HEADER_2021.replace("Del 1 de Enero", "Del 6 de Enero") + DETAIL_2021
+    with pytest.raises(ValueError, match="outside the billing period"):
+        amex.parse_pdf(outside)
+
+
+def test_no_billing_period_is_an_error():
+    with pytest.raises(ValueError, match="Período de Facturación"):
+        amex.parse_pdf("synthetic text with no billing period")

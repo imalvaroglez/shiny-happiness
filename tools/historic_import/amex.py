@@ -7,6 +7,7 @@ continuación, y secciones MSI/financieras como líneas fechadas normales.
 """
 
 import re
+from datetime import date
 from decimal import Decimal
 
 from models import ParsedStatement, TxLine
@@ -25,6 +26,7 @@ DUE_RE_YEAR = re.compile(r"Fecha l[íi]mite de pago:\s*(\d{1,2}) de ([A-Za-zÁÉ
 DUE_RE = re.compile(r"Fecha l[íi]mite de pago:\s*(\d{1,2}) de ([A-Za-zÁÉÍÓÚÑáéíóúñ]+)")
 TX_RE = re.compile(
     r"^\s{0,8}(\d{1,2}) de ([A-Za-zÁÉÍÓÚÑáéíóúñ]+)\s+(.+?)\s+([\d,]+\.\d{2})\s*(CR)?\s*$")
+DATED_ROW_RE = re.compile(r"^\s{0,8}(\d{1,2})\s+de\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+)\b", re.IGNORECASE)
 CR_TAIL_RE = re.compile(r"(?:^|\s)CR\s*$")
 DETAIL_HEADER = "Fecha y Detalle de las operaciones"
 
@@ -46,9 +48,14 @@ def _period(text: str) -> tuple[str, str, int, int] | None:
     start_month, end_month = _month(sm), _month(em)
     end_year = int(ey)
     start_year = end_year - 1 if start_month > end_month else end_year
-    return (f"{start_year:04d}-{start_month:02d}-{int(sd):02d}",
-            f"{end_year:04d}-{end_month:02d}-{int(ed):02d}",
-            end_month, end_year)
+    start = f"{start_year:04d}-{start_month:02d}-{int(sd):02d}"
+    end = f"{end_year:04d}-{end_month:02d}-{int(ed):02d}"
+    try:
+        if date.fromisoformat(start) > date.fromisoformat(end):
+            raise ValueError("period start is after period end")
+    except ValueError as exc:
+        raise ValueError(f"invalid billing period: {exc}") from exc
+    return start, end, end_month, end_year
 
 
 def _due_date(text: str, end_month: int, end_year: int) -> str | None:
@@ -83,22 +90,36 @@ def _transactions(text: str, end_month: int, end_year: int) -> list[TxLine]:
         return []
     txs: list[TxLine] = []
     pending: TxLine | None = None
-    for line in text[anchor:].splitlines():
+    for line_number, line in enumerate(text[anchor:].splitlines(), start=1):
         m = TX_RE.match(line)
         if m:
             day, month_name, desc, amount, cr = m.groups()
-            month = _month(month_name)
+            try:
+                month = _month(month_name)
+            except KeyError as exc:
+                raise ValueError(f"unrecognized transaction month on detail line {line_number}: {month_name}") from exc
             year = end_year - 1 if month > end_month else end_year
+            posted_date = f"{year:04d}-{month:02d}-{int(day):02d}"
+            try:
+                date.fromisoformat(posted_date)
+            except ValueError as exc:
+                raise ValueError(f"invalid transaction date on detail line {line_number}: {posted_date}") from exc
+            value = _dec(amount)
+            if value <= 0:
+                raise ValueError(f"non-positive transaction amount on detail line {line_number}")
             tx = TxLine(
-                posted_date=f"{year:04d}-{month:02d}-{int(day):02d}",
-                amount=_dec(amount),
+                posted_date=posted_date,
+                amount=value,
                 description=desc.strip(),
                 is_credit=bool(cr) or desc.upper().startswith("PAGO RECIBIDO"),
             )
             txs.append(tx)
             pending = tx
-        elif pending is not None and CR_TAIL_RE.search(line):
-            pending.is_credit = True
+        elif DATED_ROW_RE.match(line):
+            raise ValueError(f"unrecognized dated transaction row on detail line {line_number}: {line.strip()[:120]}")
+        elif pending is not None and line.strip():
+            if CR_TAIL_RE.search(line):
+                pending.is_credit = True
             pending = None
     return txs
 
@@ -108,24 +129,43 @@ def parse_pdf(text: str) -> ParsedStatement:
     if not period:
         raise ValueError("no se encontró 'Período de Facturación'")
     txs = _transactions(text, period[2], period[3])
+    if not txs:
+        raise ValueError("no transaction detail rows were recognized")
+    if any(tx.posted_date < period[0] or tx.posted_date > period[1] for tx in txs):
+        raise ValueError("transaction date falls outside the billing period")
     interest, fees, iva = _charges_meta(text)
     opening = closing = min_pay = None
     m = SUMMARY_RE.search(text)
+    credit_total = charge_total = None
     if m:
-        opening, _payments, _charges, closing, min_pay = (_dec(g) for g in m.groups())
+        opening, credit_total, charge_total, closing, min_pay = (_dec(g) for g in m.groups())
+        if opening - credit_total + charge_total != closing:
+            raise ValueError("statement summary does not reconcile: opening − credits + charges ≠ closing")
+        actual_credits = sum((tx.amount for tx in txs if tx.is_credit), Decimal(0))
+        actual_charges = sum((tx.amount for tx in txs if not tx.is_credit), Decimal(0))
+        if actual_credits != credit_total or actual_charges != charge_total:
+            raise ValueError("recognized transactions do not reconcile with statement credit/charge totals")
     else:
         m2 = MIN_PAY_RE.search(text)
         if m2:
             min_pay = _dec(m2.group(1))
+    due_date = _due_date(text, period[2], period[3])
+    if due_date:
+        try:
+            date.fromisoformat(due_date)
+        except ValueError as exc:
+            raise ValueError(f"invalid payment due date: {due_date}") from exc
     return ParsedStatement(
         period_start=period[0],
         period_end=period[1],
         opening_balance=opening,
         closing_balance=closing,
         minimum_payment=min_pay,
-        payment_due_date=_due_date(text, period[2], period[3]),
+        payment_due_date=due_date,
         interest=interest,
         fees=fees,
         iva=iva,
         transactions=txs,
+        summary_credit_total=credit_total,
+        summary_charge_total=charge_total,
     )

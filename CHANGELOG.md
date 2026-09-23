@@ -6,8 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Traceable promotion reports.** Card dashboards now show assumptions and provisional outcomes, while promotion detail exposes the credit-to-charge reconciliations and capped refund adjustments behind each total. Invalid or unbound definitions and missing channel data are surfaced in Settings.
+
 ### Fixed
 
+- **Promotion reconciliation and evaluation.** Duplicates, deleted rows, other accounts, and future transactions can no longer affect promotion totals or be revived by MSI policy. MSI reversals and refunds reconcile over account history with date, currency, merchant identity, uniqueness, and amount-cap checks before eligible spend is summed. Calendar-year caps, uncertain outcomes, and CDMX civil-day counts are applied consistently.
+- **Settings account-state refresh.** Classification, assignment, statement, balance-snapshot, position, and account-type changes invalidate account summaries even when transaction count is unchanged; nickname edits do not trigger the transaction probe.
+- **Historic import integrity.** The Amex importer now requires an explicit schema-7 reference backup, account UUID, source, and new output path. It validates documents before merge, preserves the reference and unchanged model/resource bytes, and publishes only a complete self-checked backup.
 - **Settings account editing performance.** Renaming an account no longer reloads all transactions or recomputes per-account transaction and portfolio checks on every keystroke.
 
 ## [0.14.0] - 2026-08-17

@@ -1,8 +1,9 @@
-"""Validador independiente del bundle generado. Sale no-cero al primer fallo.
-Espejo de las reglas que BackupArchive.restore exige + invariantes del piloto."""
+"""Validate a complete schema-7 backup using only references inside that bundle."""
 
 import hashlib
 import json
+import math
+import plistlib
 import re
 import sys
 from datetime import datetime
@@ -11,124 +12,213 @@ from pathlib import Path
 from ftbackup import REQUIRED_MODELS
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-TX_REQUIRED = ["id", "accountId", "postedAt", "amount", "currency",
-               "descriptionRaw", "merchantNormalized", "fxRateToBase",
-               "isTransfer", "isDuplicate", "lastModifiedAt"]
+DATE_KEYS = {"periodStart", "periodEnd", "monthStart", "firstChargeDate", "date"}
+MONEY_KEYS = {
+    "creditLimit", "amount", "shares", "averageCost", "lastPrice", "userIncomeManualOverride",
+    "customUserPercent", "customPartnerPercent", "customFerAmount", "fxRateToBase", "openingBalance",
+    "closingBalance", "minimumPayment", "paymentForNoInterest", "interestCharged", "feesCharged",
+    "ivaCharged", "originalAmount", "monthlyAmount", "ratePercent", "parsedAmount",
+}
 FLOW_KINDS = {"income", "expense", "transfer", "charge", "cardCredit", "payment"}
 
 
-def check(bundle_dir: Path, ref_models_dir: Path | None = None) -> list[str]:
+def check(bundle_dir: Path) -> list[str]:
     errors: list[str] = []
+    def err(message: str) -> None:
+        errors.append(message)
 
-    def err(msg: str):
-        errors.append(msg)
-
-    # 1. Estructura, counts y hashes
-    manifest = json.loads((bundle_dir / "manifest.json").read_text())
+    try:
+        manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"manifest is invalid: {exc}"]
+    if not isinstance(manifest, dict):
+        return ["manifest must be a JSON object"]
     if manifest.get("schemaVersion") != 7:
         err(f"schemaVersion != 7: {manifest.get('schemaVersion')}")
+    if not isinstance(manifest.get("appVersion"), str) or not manifest["appVersion"]:
+        err("manifest.appVersion is missing or invalid")
+    created_at = manifest.get("createdAt")
+    if not isinstance(created_at, str):
+        err("manifest.createdAt is missing or invalid")
+    else:
+        try:
+            datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            err("manifest.createdAt is not UTC ISO-8601")
+    try:
+        info = plistlib.loads((bundle_dir / "Info.plist").read_bytes())
+        if not isinstance(info, dict) or info.get("CFBundlePackageType") != "BNDL":
+            err("Info.plist has an invalid bundle structure")
+    except (OSError, ValueError, plistlib.InvalidFileException) as exc:
+        err(f"Info.plist is missing or invalid: {exc}")
+    counts, hashes = manifest.get("modelCounts"), manifest.get("contentHashes")
+    if not isinstance(counts, dict):
+        err("manifest.modelCounts must be an object")
+        counts = {}
+    if not isinstance(hashes, dict):
+        err("manifest.contentHashes must be an object")
+        hashes = {}
+
     data: dict[str, list] = {}
     for name in REQUIRED_MODELS:
         path = bundle_dir / "models" / f"{name}.json"
-        if not path.exists():
-            err(f"falta models/{name}.json")
-            continue
         try:
-            data[name] = json.loads(path.read_bytes())
-        except json.JSONDecodeError as e:
-            err(f"{name}.json no es JSON válido: {e}")
+            payload = path.read_bytes()
+            rows = json.loads(payload)
+        except (OSError, json.JSONDecodeError) as exc:
+            err(f"{name}.json invalid or missing: {exc}")
             continue
-        if not isinstance(data[name], list):
-            err(f"{name}.json no es array top-level")
+        if not isinstance(rows, list):
+            err(f"{name}.json is not a top-level array")
             continue
-        if manifest["modelCounts"].get(name) != len(data[name]):
-            err(f"modelCounts[{name}] = {manifest['modelCounts'].get(name)} != {len(data[name])}")
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        if manifest["contentHashes"].get(name) != digest:
-            err(f"contentHashes[{name}] no coincide con sha256 del archivo")
+        data[name] = rows
+        if counts.get(name) != len(rows):
+            err(f"modelCounts[{name}] does not match array length")
+        if hashes.get(name) != hashlib.sha256(payload).hexdigest():
+            err(f"contentHashes[{name}] does not match sha256")
 
-    txs = data.get("Transaction", [])
-    stmts = data.get("Statement", [])
-
-    # 2. Fechas ISO8601 sin fracciones, en todos los modelos con fechas
-    def walk_dates(obj, where: str):
+    def walk_dates(obj, where: str) -> None:
         if isinstance(obj, dict):
             for key, value in obj.items():
-                if key.endswith(("At", "Date", "date")) and isinstance(value, str):
-                    if not DATE_RE.match(value):
-                        err(f"{where}: fecha inválida '{key}': {value}")
+                if key.endswith(("At", "Date", "date")) or key in DATE_KEYS:
+                    if value is not None and not isinstance(value, str):
+                        err(f"{where}: invalid date type {key}={value!r}")
+                    elif isinstance(value, str) and not DATE_RE.fullmatch(value):
+                        err(f"{where}: invalid date {key}={value!r}")
+                    elif isinstance(value, str):
+                        try:
+                            datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+                        except ValueError:
+                            err(f"{where}: impossible date {key}={value!r}")
                 walk_dates(value, where)
         elif isinstance(obj, list):
-            for i, item in enumerate(obj):
-                walk_dates(item, f"{where}[{i}]")
-    walk_dates({"Transaction": txs, "Statement": stmts}, "bundle")
+            for index, item in enumerate(obj):
+                walk_dates(item, f"{where}[{index}]")
+    walk_dates(data, "bundle")
 
-    # 3. Campos requeridos y dominio de Transaction
-    stmt_ids = {s["id"] for s in stmts}
-    for i, tx in enumerate(txs):
-        for field in TX_REQUIRED:
-            if field not in tx:
-                err(f"Transaction[{i}] sin campo requerido '{field}'")
-        if tx.get("source") != "imported":
-            err(f"Transaction[{i}].source != 'imported'")
-        if not isinstance(tx.get("amount"), (int, float)):
-            err(f"Transaction[{i}].amount no es número JSON")
-        if tx.get("flowKindRaw") not in FLOW_KINDS:
-            err(f"Transaction[{i}].flowKindRaw inválido: {tx.get('flowKindRaw')}")
-        if tx.get("householdScopeRaw") != "excluded":
-            err(f"Transaction[{i}].householdScopeRaw != 'excluded'")
-        if tx.get("statementId") not in stmt_ids:
-            err(f"Transaction[{i}].statementId no existe en el bundle")
+    def walk_money(obj, where: str) -> None:
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                if key in MONEY_KEYS and value is not None:
+                    if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                            or isinstance(value, float) and not math.isfinite(value)):
+                        err(f"{where}: {key} is not a finite JSON number")
+                walk_money(value, where)
+        elif isinstance(obj, list):
+            for index, item in enumerate(obj):
+                walk_money(item, f"{where}[{index}]")
+    walk_money(data, "bundle")
 
-    # 4. FKs contra bundle ∪ backup de referencia
-    if ref_models_dir is not None and ref_models_dir.exists():
-        ref_accounts = json.loads((ref_models_dir / "Account.json").read_text())
-        ref_categories = json.loads((ref_models_dir / "Category.json").read_text())
-        account_ids = {a["id"] for a in data.get("Account", [])} | {a["id"] for a in ref_accounts}
-        category_ids = {c["id"] for c in ref_categories}
-        for i, tx in enumerate(txs):
-            if tx.get("accountId") not in account_ids:
-                err(f"Transaction[{i}].accountId no existe en bundle ∪ referencia")
-            if tx.get("categoryId") and tx["categoryId"] not in category_ids:
-                err(f"Transaction[{i}].categoryId no existe en referencia")
-        for i, stmt in enumerate(stmts):
-            if stmt.get("accountId") not in account_ids:
-                err(f"Statement[{i}].accountId no existe en bundle ∪ referencia")
-
-    # 5. Cutoff: nada >= cutoff de la cuenta (min postedAt en la referencia)
-    if ref_models_dir is not None and ref_models_dir.exists():
-        ref_txs = json.loads((ref_models_dir / "Transaction.json").read_text())
-        cutoff: dict[str, datetime] = {}
-        for tx in ref_txs:
-            if tx.get("deletedAt"):
-                continue
-            dt = datetime.fromisoformat(tx["postedAt"].replace("Z", "+00:00"))
-            aid = tx["accountId"]
-            if aid and (aid not in cutoff or dt < cutoff[aid]):
-                cutoff[aid] = dt
-        for i, tx in enumerate(txs):
-            cut = cutoff.get(tx["accountId"])
-            if cut and datetime.fromisoformat(tx["postedAt"].replace("Z", "+00:00")) >= cut:
-                err(f"Transaction[{i}] postedAt {tx['postedAt']} >= cutoff {cut} de su cuenta")
-        for i, stmt in enumerate(stmts):
-            cut = cutoff.get(stmt["accountId"])
-            if cut and datetime.fromisoformat(stmt["periodEnd"].replace("Z", "+00:00")) >= cut:
-                err(f"Statement[{i}] periodEnd {stmt['periodEnd']} >= cutoff {cut} de su cuenta")
-
-    # 6. Invariantes de TDC: closing negativo
-    for i, stmt in enumerate(stmts):
-        if stmt.get("closingBalance") is not None and stmt["closingBalance"] > 0:
-            err(f"Statement[{i}].closingBalance positivo en tarjeta de crédito (AD-010)")
-
-    # 7. Sin ids duplicados en el bundle
-    seen: dict[str, set[str]] = {}
+    ids: dict[str, set[str]] = {}
     for name in REQUIRED_MODELS:
-        for row in data.get(name, []):
-            if "id" in row:
-                seen.setdefault(name, set())
-                if row["id"] in seen[name]:
-                    err(f"id duplicado en {name}: {row['id']}")
-                seen[name].add(row["id"])
+        for index, row in enumerate(data.get(name, [])):
+            if not isinstance(row, dict):
+                err(f"{name}[{index}] is not an object")
+                continue
+            identifier = row.get("id")
+            if not isinstance(identifier, str) or not identifier:
+                err(f"{name}[{index}].id is missing or not a nonempty string")
+                continue
+            bucket = ids.setdefault(name, set())
+            normalized_id = identifier.casefold()
+            if normalized_id in bucket:
+                err(f"duplicate id in {name}: {identifier}")
+            bucket.add(normalized_id)
+
+    account_by_id = {row["id"]: row for row in data.get("Account", [])
+                     if isinstance(row, dict) and isinstance(row.get("id"), str)}
+    account_ids = set(account_by_id)
+    def ids_for(name: str) -> set[str]:
+        return {row["id"] for row in data.get(name, [])
+                if isinstance(row, dict) and isinstance(row.get("id"), str)}
+    statement_ids = ids_for("Statement")
+    category_ids = ids_for("Category")
+    transaction_ids = ids_for("Transaction")
+    plan_ids = ids_for("InstallmentPlan")
+
+    def require_fk(rows: list, field: str, valid: set, model: str) -> None:
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            value = row.get(field)
+            if value is not None and (not isinstance(value, str) or value not in valid):
+                err(f"{model}[{index}].{field} points outside the full backup: {value}")
+
+    for name, field in (("Statement", "accountId"), ("Transaction", "accountId"),
+                        ("AccountBalanceSnapshot", "accountId"), ("StockPosition", "accountId"),
+                        ("InstallmentPlan", "accountId"), ("PendingImport", "accountId")):
+        require_fk(data.get(name, []), field, account_ids, name)
+    require_fk(data.get("Transaction", []), "statementId", statement_ids, "Transaction")
+    require_fk(data.get("Transaction", []), "categoryId", category_ids, "Transaction")
+    require_fk(data.get("Transaction", []), "installmentPlanId", plan_ids, "Transaction")
+    require_fk(data.get("Category", []), "parentId", category_ids, "Category")
+    require_fk(data.get("CategoryRule", []), "categoryId", category_ids, "CategoryRule")
+    require_fk(data.get("InstallmentPlan", []), "originalPurchaseId", transaction_ids, "InstallmentPlan")
+    require_fk(data.get("PendingImport", []), "statementId", statement_ids, "PendingImport")
+    require_fk(data.get("PendingImport", []), "resolvedTransactionId", transaction_ids, "PendingImport")
+    require_fk(data.get("PendingImport", []), "matchedDeletedTransactionId", transaction_ids, "PendingImport")
+    require_fk(data.get("SettlementDueDateOverride", []), "transactionID", transaction_ids,
+               "SettlementDueDateOverride")
+    for index, plan in enumerate(data.get("InstallmentPlan", [])):
+        if not isinstance(plan, dict):
+            continue
+        installment_ids = plan.get("installmentsIds", [])
+        if not isinstance(installment_ids, list):
+            err(f"InstallmentPlan[{index}].installmentsIds is not an array")
+            continue
+        for tx_id in installment_ids:
+            if not isinstance(tx_id, str) or tx_id not in transaction_ids:
+                err(f"InstallmentPlan[{index}].installmentsIds references absent transaction {tx_id}")
+
+    for index, tx in enumerate(data.get("Transaction", [])):
+        if not isinstance(tx, dict):
+            continue
+        if tx.get("source") not in (None, "imported"):
+            err(f"Transaction[{index}].source invalid: {tx.get('source')}")
+        if tx.get("flowKindRaw") is not None and tx.get("flowKindRaw") not in FLOW_KINDS:
+            err(f"Transaction[{index}].flowKindRaw invalid: {tx.get('flowKindRaw')}")
+        if tx.get("householdScopeRaw") is not None and tx.get("householdScopeRaw") not in {"included", "excluded"}:
+            err(f"Transaction[{index}].householdScopeRaw invalid: {tx.get('householdScopeRaw')}")
+        amount = tx.get("amount")
+        if (not isinstance(amount, (int, float)) or isinstance(amount, bool)
+                or not math.isfinite(amount)):
+            err(f"Transaction[{index}].amount is not a JSON number")
+
+    for index, statement in enumerate(data.get("Statement", [])):
+        if not isinstance(statement, dict):
+            continue
+        start, end = statement.get("periodStart"), statement.get("periodEnd")
+        if not isinstance(start, str) or not isinstance(end, str):
+            err(f"Statement[{index}] is missing periodStart or periodEnd")
+        if not isinstance(statement.get("sourceFileHash"), str):
+            err(f"Statement[{index}].sourceFileHash is missing or invalid")
+        if isinstance(start, str) and isinstance(end, str):
+            try:
+                if datetime.strptime(start, "%Y-%m-%dT%H:%M:%SZ") > datetime.strptime(end, "%Y-%m-%dT%H:%M:%SZ"):
+                    err(f"Statement[{index}].periodStart is after periodEnd")
+            except ValueError:
+                pass  # walk_dates already reports the malformed value.
+        account_id = statement.get("accountId")
+        account = account_by_id.get(account_id, {}) if isinstance(account_id, str) else {}
+        closing_balance = statement.get("closingBalance")
+        if closing_balance is not None and (
+                not isinstance(closing_balance, (int, float)) or isinstance(closing_balance, bool)
+                or not math.isfinite(closing_balance)):
+            err(f"Statement[{index}].closingBalance is not a finite JSON number")
+        elif account.get("type") == "creditCard" and closing_balance is not None:
+            if closing_balance > 0:
+                err(f"Statement[{index}].closingBalance must be signed-negative for a credit card")
+        archived_path = statement.get("sourceArchivedPath")
+        if archived_path:
+            if not isinstance(archived_path, str):
+                err(f"Statement[{index}].sourceArchivedPath is not a string")
+                continue
+            relative = archived_path.removeprefix("FinanceTracker/Statements/")
+            resource = (bundle_dir / "statements" / relative).resolve()
+            if (Path(relative).is_absolute() or ".." in Path(relative).parts
+                    or not resource.is_relative_to((bundle_dir / "statements").resolve())
+                    or not resource.is_file()):
+                err(f"Statement[{index}] archived source is missing: {relative}")
 
     return errors
 
@@ -137,15 +227,12 @@ def main() -> int:
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("bundle", type=Path)
-    parser.add_argument("--backup", type=Path, default=None,
-                        help="models/ del .ftbackup de referencia")
     args = parser.parse_args()
-    ref = args.backup / "models" if args.backup else None
-    errors = check(args.bundle, ref)
+    errors = check(args.bundle)
     if errors:
-        print(f"SELFCHECK FALLÓ ({len(errors)} errores):")
-        for e in errors[:30]:
-            print(" -", e)
+        print(f"SELFCHECK FAILED ({len(errors)} errors):")
+        for error in errors[:30]:
+            print(" -", error)
         return 1
     print("selfcheck OK")
     return 0

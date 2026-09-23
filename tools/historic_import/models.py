@@ -1,6 +1,7 @@
 """Dominio del pipeline: ParsedStatement, builders de snapshots .ftbackup y codificación JSON."""
 
 import json
+import math
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -32,6 +33,8 @@ class ParsedStatement:
     fees: Decimal | None
     iva: Decimal | None
     transactions: list[TxLine] = field(default_factory=list)
+    summary_credit_total: Decimal | None = None
+    summary_charge_total: Decimal | None = None
 
 
 def local_date_to_iso_utc(date_str: str) -> str:
@@ -135,8 +138,7 @@ def stmt_dict(stmt_id: str, account_id: str, source_name: str, source_hash: str,
 
 
 def dump_models(models: dict[str, list]) -> dict[str, bytes]:
-    """Codifica cada models/Name.json. Decimal→float (repr shortest-roundtrip:
-    exacto a 2 decimales MXN; ponytail: techo ~16 dígitos significativos)."""
+    """Encode added rows; reject Decimal values that cannot survive JSON numbers exactly."""
     return {
         name: json.dumps(rows, indent=2, sort_keys=True, ensure_ascii=False,
                          default=_decimal_default).encode("utf-8")
@@ -146,5 +148,8 @@ def dump_models(models: dict[str, list]) -> dict[str, bytes]:
 
 def _decimal_default(obj):
     if isinstance(obj, Decimal):
-        return float(obj)
+        value = float(obj)
+        if not math.isfinite(value) or Decimal(str(value)) != obj:
+            raise ValueError(f"Decimal would lose precision in JSON: {obj}")
+        return value
     raise TypeError(f"not JSON serializable: {type(obj)}")
