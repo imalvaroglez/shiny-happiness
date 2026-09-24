@@ -10,7 +10,7 @@ struct BackupManifest: Codable {
     var contentHashes: [String: String]
 }
 
-struct BackupSummary {
+struct BackupSummary: Sendable {
     let url: URL
     let createdAt: Date
     let schemaVersion: Int

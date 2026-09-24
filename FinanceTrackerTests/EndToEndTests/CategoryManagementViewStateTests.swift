@@ -135,6 +135,27 @@ struct CategoryManagementViewStateTests {
         #expect(tree.subcategories(for: transport).map(\.name) == ["Gas"])
     }
 
+    @Test("Category revision changes when rows or their display relationships change")
+    func categoryRevisionTracksInputChanges() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let food = try insertCategory("Food", context: context)
+        let initialRevision = CategoryManagementTree.revision(from: [food])
+        let coffee = try insertCategory("Coffee", parent: food, context: context)
+        let updatedCategories = [food, coffee]
+        let insertedRevision = CategoryManagementTree.revision(from: updatedCategories)
+
+        #expect(insertedRevision != initialRevision)
+
+        coffee.name = "Espresso"
+        let renamedRevision = CategoryManagementTree.revision(from: updatedCategories)
+        #expect(renamedRevision != insertedRevision)
+
+        let beverages = try insertCategory("Beverages", context: context)
+        coffee.parent = beverages
+        #expect(CategoryManagementTree.revision(from: updatedCategories) != renamedRevision)
+    }
+
     @Test("Empty category state has no visible parents")
     func emptyStateHasNoVisibleParents() async throws {
         let tree = CategoryManagementTree(categories: [])

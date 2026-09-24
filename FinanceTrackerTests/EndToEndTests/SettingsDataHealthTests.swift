@@ -106,23 +106,31 @@ struct SettingsAccountStateTests {
         #expect(updatedStates[investment.id]?.canAddPositions == false)
     }
 
-    @Test("Transaction classification invalidates the settings probe without changing its count")
-    func classificationChangeProbe() throws {
+    @Test("Account summaries update when an unchanged transaction moves accounts")
+    func accountSummaryTracksReassignmentWithoutTotalCountChange() throws {
         let container = try makeContainer()
-        let account = Account(institution: "Bank", type: .checking)
-        let transaction = Transaction(account: account, postedAt: .now, amount: -100,
-                                      descriptionRaw: "Expense", flowKindRaw: "expense")
-        container.mainContext.insert(account)
-        container.mainContext.insert(transaction)
-        let before = SettingsTransactionProbe.value(transaction)
-        let countBefore = try container.mainContext.fetchCount(FetchDescriptor<Transaction>())
+        let context = container.mainContext
+        let checking = Account(institution: "Bank", type: .checking)
+        let investment = Account(institution: "Broker", type: .investment)
+        let transaction = Transaction(account: checking, postedAt: .now, amount: -100,
+                                      descriptionRaw: "Purchase")
+        context.insert(checking)
+        context.insert(investment)
+        context.insert(transaction)
+        try context.save()
 
-        transaction.flowKindRaw = "transfer"
+        let before = SettingsAccountStateLoader.load(accounts: [checking, investment], context: context)
+        let totalBefore = try context.fetchCount(FetchDescriptor<Transaction>())
 
-        let after = SettingsTransactionProbe.value(transaction)
-        let countAfter = try container.mainContext.fetchCount(FetchDescriptor<Transaction>())
-        #expect(before != after)
-        #expect(countBefore == countAfter)
+        transaction.account = investment
+        try context.save()
+
+        let after = SettingsAccountStateLoader.load(accounts: [checking, investment], context: context)
+        let totalAfter = try context.fetchCount(FetchDescriptor<Transaction>())
+        #expect(totalBefore == totalAfter)
+        #expect(before[checking.id]?.transactionCount == 1)
+        #expect(after[checking.id]?.transactionCount == 0)
+        #expect(after[investment.id]?.transactionCount == 1)
     }
 
     @Test("Empty account list does not load account state")
@@ -131,6 +139,24 @@ struct SettingsAccountStateTests {
         let states = SettingsAccountStateLoader.load(accounts: [], context: container.mainContext)
 
         #expect(states.isEmpty)
+    }
+
+    @Test("Data health loads from an isolated model actor")
+    func backgroundDataHealthLoad() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Bank", type: .checking, currency: "MXN")
+        context.insert(account)
+        context.insert(Transaction(account: account, postedAt: .now, amount: -25, descriptionRaw: "Groceries"))
+        try context.save()
+
+        let loader = DataHealthSnapshotLoader(modelContainer: container)
+        let summary = try await loader.load(activeCategoryCount: 12)
+
+        #expect(summary.activeAccountCount == 1)
+        #expect(summary.hasTransactionHistory)
+        #expect(summary.activeCategoryCount == 12)
+        #expect(summary.importedStatementCount == 0)
     }
 }
 

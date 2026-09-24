@@ -67,6 +67,9 @@ struct SettingsView: View {
     @State private var isExporting = false
     @State private var isRestoring = false
     @State private var backupStatus = ""
+    @State private var latestBackupSummary: BackupSummary?
+    @State private var didLoadLatestBackup = false
+    @State private var dataHealthRefreshToken = 0
     @State private var pendingRestore: BackupSummary?
     @State private var pendingRestoreDirectory: URL?
     @State private var showingRestoreConfirmation = false
@@ -113,34 +116,41 @@ struct SettingsView: View {
         let currentPane = SettingsPane(rawValue: selectedPaneRawValue) ?? .accounts
 
         TabView(selection: selectedPane) {
-            settingsPane(.backupData) {
+            settingsPane(.backupData, isSelected: currentPane == .backupData) {
                 backupSection
-                if currentPane == .backupData {
-                    dataSection
-                }
+                dataSection
                 resetSection
             }
 
-            settingsPane(.accounts) {
-                if currentPane == .accounts {
-                    accountsSection
-                }
+            settingsPane(.accounts, isSelected: currentPane == .accounts) {
+                accountsSection
             }
 
-            settingsPane(.categories) {
+            settingsPane(.categories, isSelected: currentPane == .categories) {
                 categoriesSection
                 promotionsSection
             }
 
-            settingsPane(.integrations) {
+            settingsPane(.integrations, isSelected: currentPane == .integrations) {
                 dataBursatilSection
             }
 
-            settingsPane(.about) {
+            settingsPane(.about, isSelected: currentPane == .about) {
                 aboutSection
             }
         }
         .navigationTitle("Settings")
+        .task(id: currentPane) {
+            guard currentPane == .backupData, !didLoadLatestBackup else { return }
+            await Task.yield()
+            let directory = backupsDirectory
+            let summary = await Task.detached(priority: .utility) {
+                BackupArchive.latestBackup(in: directory)
+            }.value
+            guard !Task.isCancelled else { return }
+            latestBackupSummary = summary
+            didLoadLatestBackup = true
+        }
         .alert("Delete Account?", isPresented: Binding(
             get: { accountDeletionTarget != nil },
             set: { if !$0 { accountDeletionTarget = nil } }
@@ -237,15 +247,18 @@ struct SettingsView: View {
     @ViewBuilder
     private func settingsPane<Content: View>(
         _ pane: SettingsPane,
+        isSelected: Bool,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
-                content()
+            if isSelected {
+                LazyVStack(spacing: 16) {
+                    content()
+                }
+                .frame(maxWidth: 1180)
+                .frame(maxWidth: .infinity)
+                .padding()
             }
-            .frame(maxWidth: 1180)
-            .frame(maxWidth: .infinity)
-            .padding()
         }
         .tabItem {
             Label(pane.title, systemImage: pane.systemImage)
@@ -530,7 +543,11 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    if presentation.hasVerifiedSnapshot,
+                    if !didLoadLatestBackup {
+                        Text("Checking for automatic backups…")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    } else if presentation.hasVerifiedSnapshot,
                        let createdAt = presentation.createdAt,
                        let latestPath = presentation.latestPath {
                         LabeledContent("Last verified snapshot") {
@@ -619,7 +636,11 @@ struct SettingsView: View {
     }
 
     private var dataSection: some View {
-        DataHealthSection(accounts: accounts, activeCategoryCount: categories.count)
+        DataHealthSection(
+            accounts: accounts,
+            activeCategoryCount: categories.count,
+            refreshToken: dataHealthRefreshToken
+        )
     }
 
     private var resetSection: some View {
@@ -697,21 +718,18 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "The sidebar Accounts list can be sorted by account name, institution, or type, and collapsed when you don't need it.",
-        "The Insights section was removed from the dashboard — it never produced reliable signal.",
-        "The Cash Flow Income/Expenses toggles are now hidden in Month view, where they had no effect.",
+        "Track active, upcoming, and finished card promotions with clear deadlines and reconciled results.",
+        "Keep transaction filters and sorting while moving between screens during your session.",
+        "Settings and category selection respond sooner, and spending charts use easier-to-distinguish colors.",
+        "Add account and dashboard actions are easier to reach in compact menus.",
     ]
-
-    private var latestBackup: BackupSummary? {
-        BackupArchive.latestBackup(in: backupsDirectory)
-    }
 
     private var backupsDirectory: URL {
         BackupFolderStore.defaultDirectory
     }
 
     private var backupPresentation: BackupStatusPresentation {
-        BackupStatusPresentation(latestBackup: latestBackup, managedDirectory: backupsDirectory)
+        BackupStatusPresentation(latestBackup: latestBackupSummary, managedDirectory: backupsDirectory)
     }
 
     private func exportBackup() {
@@ -790,6 +808,7 @@ struct SettingsView: View {
                 let strategy: RestoreStrategy = hasFinancialRows ? .mergeKeepingNewer : .replaceAll
                 try await BackupArchive.restore(from: summary.url, into: modelContext, strategy: strategy)
                 backupStatus = "Restore complete: \(summary.createdAt.formatted(date: .abbreviated, time: .shortened))"
+                dataHealthRefreshToken += 1
             } catch {
                 backupStatus = "Restore failed: \(error.localizedDescription)"
             }
@@ -835,6 +854,7 @@ struct SettingsView: View {
         do {
             try AppDataResetService.resetAllData(context: modelContext)
             resetErrorMessage = nil
+            dataHealthRefreshToken += 1
             onDataReset()
         } catch {
             resetErrorMessage = error.localizedDescription
@@ -868,12 +888,6 @@ enum SettingsAccountStateLoader {
 
 private struct AccountRowsView: View {
     @Environment(\.modelContext) private var modelContext
-    // ponytail: SwiftData has no observed aggregate count; this query is a change probe,
-    // and can be replaced with aggregate observation if the framework adds it.
-    @Query private var transactions: [Transaction]
-    @Query private var statements: [Statement]
-    @Query private var snapshots: [AccountBalanceSnapshot]
-    @Query private var positions: [StockPosition]
 
     let accounts: [Account]
     let refreshToken: Int
@@ -882,13 +896,15 @@ private struct AccountRowsView: View {
     let onDelete: (Account) -> Void
 
     @State private var accountStates: [UUID: SettingsAccountState] = [:]
+    @State private var isLoading = true
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
                 AccountEditorRow(
                     account: account,
-                    state: accountStates[account.id] ?? SettingsAccountState(transactionCount: 0, canAddPositions: false),
+                    state: accountStates[account.id],
+                    isLoading: isLoading,
                     onEditPositions: { onEditPositions(account) },
                     onAddBalanceSnapshot: { onAddBalanceSnapshot(account) },
                     onDelete: { onDelete(account) }
@@ -898,54 +914,29 @@ private struct AccountRowsView: View {
                 }
             }
         }
-        .task { refreshAccountStates() }
-        .onChange(of: accountStateProbe) { _, _ in refreshAccountStates() }
-        .onChange(of: transactionProbe) { _, _ in refreshAccountStates() }
-        .onChange(of: statementProbe) { _, _ in refreshAccountStates() }
-        .onChange(of: snapshotProbe) { _, _ in refreshAccountStates() }
-        .onChange(of: positionProbe) { _, _ in refreshAccountStates() }
-        .onChange(of: refreshToken) { _, _ in refreshAccountStates() }
+        .task(id: refreshRevision) {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            accountStates = SettingsAccountStateLoader.load(accounts: accounts, context: modelContext)
+            isLoading = false
+        }
     }
 
-    private var transactionProbe: [String] {
-        transactions.map(SettingsTransactionProbe.value)
-    }
-
-    private var accountStateProbe: [String] {
-        accounts.map { "\($0.id.uuidString)|\($0.type.rawValue)" }
-    }
-
-    private var statementProbe: [String] {
-        statements.map { "\($0.id)|\($0.periodStart)|\($0.periodEnd)|\($0.closingBalance?.description ?? "")|\($0.sourceFileHash)|\($0.lastModifiedAt)" }
-    }
-
-    private var snapshotProbe: [String] {
-        snapshots.map { "\($0.id)|\($0.date)|\($0.amount)|\($0.kind.rawValue)|\($0.note ?? "")|\($0.lastModifiedAt)" }
-    }
-
-    private var positionProbe: [String] {
-        positions.map { "\($0.id)|\($0.emisoraSerie)|\($0.shares)|\($0.averageCost)|\($0.lastPrice?.description ?? "")|\($0.lastModifiedAt)" }
-    }
-
-    private func refreshAccountStates() {
-        accountStates = SettingsAccountStateLoader.load(accounts: accounts, context: modelContext)
-    }
-}
-
-enum SettingsTransactionProbe {
-    static func value(_ tx: Transaction) -> String {
-        [tx.id.uuidString, tx.postedAt.description, tx.amount.description, tx.currency,
-         tx.descriptionRaw, tx.merchantNormalized, tx.isTransfer.description, tx.isDuplicate.description,
-         tx.deletedAt?.description ?? "", tx.flowKindRaw ?? "", tx.movementKindRaw ?? "",
-         tx.treatmentKindRaw ?? "", tx.expenseAssignmentRaw ?? "", tx.category?.id.uuidString ?? "",
-         tx.category?.name ?? "", tx.category?.kind.rawValue ?? "", tx.account?.id.uuidString ?? ""]
-            .joined(separator: "|")
+    private var refreshRevision: Int {
+        var hasher = Hasher()
+        hasher.combine(refreshToken)
+        for account in accounts {
+            hasher.combine(account.id)
+            hasher.combine(account.type.rawValue)
+        }
+        return hasher.finalize()
     }
 }
 
 private struct AccountEditorRow: View {
     let account: Account
-    let state: SettingsAccountState
+    let state: SettingsAccountState?
+    let isLoading: Bool
     let onEditPositions: () -> Void
     let onAddBalanceSnapshot: () -> Void
     let onDelete: () -> Void
@@ -958,9 +949,15 @@ private struct AccountEditorRow: View {
                 Text("\(account.type.displayName) · \(account.currency)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text("\(state.transactionCount) transactions")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if let state {
+                    Text("\(state.transactionCount) transactions")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if isLoading {
+                    ProgressView("Loading account summary…")
+                        .controlSize(.small)
+                        .font(.caption2)
+                }
             }
             .frame(width: 180, alignment: .topLeading)
 
@@ -1042,9 +1039,9 @@ private struct AccountEditorRow: View {
                             Label("Edit Stock Positions", systemImage: "chart.line.uptrend.xyaxis")
                                 .font(.caption)
                         }
-                        .disabled(!state.canAddPositions)
+                        .disabled(state?.canAddPositions != true)
 
-                        if !state.canAddPositions {
+                        if let state, !state.canAddPositions {
                             Text("Create a separate brokerage account to track stocks.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -1079,6 +1076,9 @@ private struct AccountEditorRow: View {
 private struct DataHealthSection: View {
     let accounts: [Account]
     let activeCategoryCount: Int
+    let refreshToken: Int
+
+    @State private var isReady = false
 
     var body: some View {
         if accounts.isEmpty {
@@ -1089,35 +1089,82 @@ private struct DataHealthSection: View {
                 activeCategoryCount: activeCategoryCount,
                 importedStatementCount: 0
             ))
+        } else if isReady {
+            DataHealthLoadedSection(
+                accounts: accounts,
+                activeCategoryCount: activeCategoryCount,
+                refreshToken: refreshToken
+            )
         } else {
-            DataHealthLoadedSection(accounts: accounts, activeCategoryCount: activeCategoryCount)
+            SectionCard(title: "Your data") {
+                ProgressView("Calculating data summary…")
+                    .frame(maxWidth: .infinity, minHeight: 100)
+                    .padding(16)
+            }
+            .task {
+                await Task.yield()
+                isReady = true
+            }
         }
     }
 }
 
 private struct DataHealthLoadedSection: View {
-    @Query private var transactions: [Transaction]
-    @Query private var statements: [Statement]
-    @Query private var pendingImports: [PendingImport]
+    @Environment(\.modelContext) private var modelContext
 
     let accounts: [Account]
     let activeCategoryCount: Int
+    let refreshToken: Int
+
+    @State private var summary: DataHealthSummary?
+    @State private var loadError: String?
 
     var body: some View {
-        DataHealthSummaryPanel(summary: DataHealthSummary(
-            accounts: accounts.map { DataHealthAccountInput(closedAt: $0.closedAt, currency: $0.currency) },
-            transactions: transactions.map {
-                DataHealthTransactionInput(
-                    postedAt: $0.postedAt,
-                    deletedAt: $0.deletedAt,
-                    isDuplicate: $0.isDuplicate,
-                    currency: $0.currency
-                )
-            },
-            pendingImports: pendingImports.map { DataHealthPendingInput(isResolved: $0.resolvedTransaction != nil) },
-            activeCategoryCount: activeCategoryCount,
-            importedStatementCount: statements.count
-        ))
+        Group {
+            if let summary {
+                DataHealthSummaryPanel(summary: summary)
+            } else if let loadError {
+                SectionCard(title: "Your data") {
+                    Label("Data summary unavailable: \(loadError)", systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, minHeight: 100)
+                        .padding(16)
+                }
+            } else {
+                SectionCard(title: "Your data") {
+                    ProgressView("Calculating data summary…")
+                        .frame(maxWidth: .infinity, minHeight: 100)
+                        .padding(16)
+                }
+            }
+        }
+        .task(id: refreshRevision) {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            do {
+                let loader = DataHealthSnapshotLoader(modelContainer: modelContext.container)
+                let calculatedSummary = try await loader.load(activeCategoryCount: activeCategoryCount)
+                guard !Task.isCancelled else { return }
+                summary = calculatedSummary
+                loadError = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                loadError = error.localizedDescription
+            }
+        }
+    }
+
+    private var refreshRevision: Int {
+        var hasher = Hasher()
+        for account in accounts {
+            hasher.combine(account.id)
+            hasher.combine(account.closedAt)
+            hasher.combine(account.currency)
+        }
+        hasher.combine(refreshToken)
+        hasher.combine(activeCategoryCount)
+        return hasher.finalize()
     }
 }
 
@@ -1197,33 +1244,70 @@ private struct CategoryManagementPanel: View {
     let onDeleteSubcategory: (Category, Category) -> Void
 
     @FocusState private var focusedField: CategoryPanelFocus?
+    @State private var tree: CategoryManagementTree
+    @State private var isTreeReady = false
 
-    private var tree: CategoryManagementTree {
-        CategoryManagementTree(categories: categories)
+    init(
+        categories: [Category],
+        selectedCategoryID: Binding<UUID?>,
+        searchText: Binding<String>,
+        kindFilter: Binding<CategoryKindFilter>,
+        newSubcategoryName: Binding<String>,
+        focusRequest: Int,
+        onNewCategory: @escaping () -> Void,
+        onCreateSubcategory: @escaping (Category) -> Void,
+        onDeleteParent: @escaping (Category) -> Void,
+        onDeleteSubcategory: @escaping (Category, Category) -> Void
+    ) {
+        self.categories = categories
+        self._selectedCategoryID = selectedCategoryID
+        self._searchText = searchText
+        self._kindFilter = kindFilter
+        self._newSubcategoryName = newSubcategoryName
+        self.focusRequest = focusRequest
+        self.onNewCategory = onNewCategory
+        self.onCreateSubcategory = onCreateSubcategory
+        self.onDeleteParent = onDeleteParent
+        self.onDeleteSubcategory = onDeleteSubcategory
+        self._tree = State(initialValue: CategoryManagementTree(categories: []))
     }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 0) {
-                browserPane
-                    .frame(width: 340)
-                Divider()
-                detailPane
-                    .frame(minWidth: 520, maxWidth: .infinity, minHeight: 420, alignment: .topLeading)
-            }
+        let categoryRevision = CategoryManagementTree.revision(from: categories)
 
-            VStack(spacing: 0) {
-                browserPane
-                    .frame(maxWidth: .infinity)
-                Divider()
-                detailPane
-                    .frame(maxWidth: .infinity, minHeight: 360, alignment: .topLeading)
+        Group {
+            if isTreeReady {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 0) {
+                        browserPane
+                            .frame(width: 340)
+                        Divider()
+                        detailPane
+                            .frame(minWidth: 520, maxWidth: .infinity, minHeight: 420, alignment: .topLeading)
+                    }
+
+                    VStack(spacing: 0) {
+                        browserPane
+                            .frame(maxWidth: .infinity)
+                        Divider()
+                        detailPane
+                            .frame(maxWidth: .infinity, minHeight: 360, alignment: .topLeading)
+                    }
+                }
+            } else {
+                ProgressView("Loading categories…")
+                    .frame(maxWidth: .infinity, minHeight: 420)
             }
         }
-        .onAppear(perform: reconcileSelection)
-        .onChange(of: tree.selectionSignature) { _, _ in reconcileSelection() }
-        .onChange(of: searchText) { _, _ in reconcileSelection() }
-        .onChange(of: kindFilter) { _, _ in reconcileSelection() }
+        .task(id: categoryRevision) {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            tree = CategoryManagementTree(categories: categories)
+            isTreeReady = true
+            reconcileSelection()
+        }
+        .onChange(of: searchText) { _, _ in if isTreeReady { reconcileSelection() } }
+        .onChange(of: kindFilter) { _, _ in if isTreeReady { reconcileSelection() } }
         .onChange(of: selectedCategoryID) { _, _ in
             newSubcategoryName = ""
         }
@@ -1233,7 +1317,9 @@ private struct CategoryManagementPanel: View {
     }
 
     private var browserPane: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let visibleParents = tree.visibleParents(searchText: searchText, kindFilter: kindFilter)
+
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 TextField("Search categories", text: $searchText)
                     .textFieldStyle(.roundedBorder)
@@ -1252,7 +1338,7 @@ private struct CategoryManagementPanel: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Category Families")
                         .font(.callout.weight(.semibold))
-                    Text("\(tree.visibleParents(searchText: searchText, kindFilter: kindFilter).count) shown")
+                    Text("\(visibleParents.count) shown")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1268,8 +1354,6 @@ private struct CategoryManagementPanel: View {
 
             ScrollView {
                 LazyVStack(spacing: 6) {
-                    let visibleParents = tree.visibleParents(searchText: searchText, kindFilter: kindFilter)
-
                     if !tree.hasCategories {
                         browserEmptyState(
                             title: "No categories yet",
@@ -1475,6 +1559,7 @@ private struct CategoryManagementPanel: View {
     }
 
     private func reconcileSelection() {
+        guard isTreeReady else { return }
         let resolved = tree.resolvedSelectionID(
             current: selectedCategoryID,
             searchText: searchText,

@@ -44,35 +44,56 @@ enum CategoryKindFilter: Hashable, CaseIterable {
 }
 
 struct CategoryManagementTree {
-    let categories: [Category]
-
-    init(categories: [Category]) {
-        self.categories = Self.displayCategories(from: categories)
+    struct Revision: Equatable {
+        let id: UUID
+        let parentID: UUID?
+        let kind: CategoryKind
+        let name: String
+        let deletedAt: Date?
     }
 
-    var parents: [Category] {
-        categories
+    let categories: [Category]
+    let parents: [Category]
+
+    private let parentsByID: [UUID: Category]
+    private let subcategoriesByParentID: [UUID: [Category]]
+    private let subcategoryNamesByParentID: [UUID: Set<String>]
+
+    init(categories: [Category]) {
+        let displayCategories = Self.displayCategories(from: categories)
+        let parents = displayCategories
             .filter { $0.parent == nil }
             .sorted(by: Self.categoryDisplaySort)
+
+        var childrenByParent: [UUID: [Category]] = [:]
+        for category in displayCategories {
+            guard let parentID = category.parent?.id else { continue }
+            childrenByParent[parentID, default: []].append(category)
+        }
+        let sortedChildrenByParent = childrenByParent.mapValues {
+            $0.sorted(by: Self.categoryDisplaySort)
+        }
+
+        self.categories = displayCategories
+        self.parents = parents
+        self.parentsByID = Dictionary(uniqueKeysWithValues: parents.map { ($0.id, $0) })
+        self.subcategoriesByParentID = sortedChildrenByParent
+        self.subcategoryNamesByParentID = sortedChildrenByParent.mapValues { Set($0.map(\.name)) }
     }
 
     var hasCategories: Bool {
         !parents.isEmpty
     }
 
-    var selectionSignature: String {
-        categories
-            .map { category in
-                let parentID = category.parent?.id.uuidString ?? "root"
-                return "\(category.id.uuidString)|\(parentID)|\(category.kind.rawValue)|\(category.name)"
-            }
-            .sorted()
-            .joined(separator: "\n")
+    static func revision(from categories: [Category]) -> [Revision] {
+        categories.map {
+            Revision(id: $0.id, parentID: $0.parent?.id, kind: $0.kind, name: $0.name, deletedAt: $0.deletedAt)
+        }.sorted { $0.id.uuidString < $1.id.uuidString }
     }
 
     func parent(id: UUID?) -> Category? {
         guard let id else { return nil }
-        return parents.first { $0.id == id }
+        return parentsByID[id]
     }
 
     func visibleParents(searchText: String, kindFilter: CategoryKindFilter) -> [Category] {
@@ -95,9 +116,7 @@ struct CategoryManagementTree {
     }
 
     func subcategories(for parent: Category) -> [Category] {
-        categories
-            .filter { $0.parent?.id == parent.id }
-            .sorted(by: Self.categoryDisplaySort)
+        subcategoriesByParentID[parent.id] ?? []
     }
 
     func resolvedSelectionID(current: UUID?, searchText: String, kindFilter: CategoryKindFilter) -> UUID? {
@@ -111,7 +130,7 @@ struct CategoryManagementTree {
     func isDuplicateSubcategoryName(_ name: String, parent: Category) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        return subcategories(for: parent).contains { $0.name == trimmed }
+        return subcategoryNamesByParentID[parent.id]?.contains(trimmed) == true
     }
 
     static func displayCategories(from categories: [Category]) -> [Category] {
