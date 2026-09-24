@@ -10,6 +10,7 @@ struct CategoryPickerView: View {
     private let selectedCategoryID: UUID?
     private let allowedKinds: Set<CategoryKind>?
     private let onCategorySelected: (Category, String?) -> Void
+    @State private var groupedCategories: [CategoryPickerSection] = []
 
     init(
         transaction: Transaction,
@@ -33,25 +34,6 @@ struct CategoryPickerView: View {
         self.onCategorySelected = { category, _ in onCategorySelected(category) }
     }
 
-    private var groupedCategories: [(kind: CategoryKind, categories: [Category])] {
-        let parents = displayCategories.filter { category in
-            category.parent == nil && (allowedKinds?.contains(category.kind) ?? true)
-        }
-        let kinds: [CategoryKind] = [.expense, .income, .transfer, .investment, .creditCardPayment]
-        return kinds.compactMap { kind in
-            let cats = parents.filter { $0.kind == kind }.sorted { $0.name < $1.name }
-            return cats.isEmpty ? nil : (kind, cats)
-        }
-    }
-
-    private var displayCategories: [Category] {
-        // Dirty-store guard only; SeedDataLoader is responsible for repairing duplicates.
-        var seen = Set<String>()
-        return categories.sorted(by: categoryDisplaySort).filter { category in
-            seen.insert(categoryDisplayKey(category)).inserted
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             Text("Choose Category")
@@ -59,23 +41,17 @@ struct CategoryPickerView: View {
                 .padding()
 
             ScrollView {
-                ForEach(groupedCategories, id: \.kind) { group in
-                    VStack(alignment: .leading, spacing: 4) {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(groupedCategories) { group in
                         Text(group.kind.rawValue.capitalized)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.horizontal)
                             .padding(.top, 8)
 
-                        ForEach(group.categories) { cat in
-                            categoryRow(cat)
-                            let subs = displayCategories
-                                .filter { $0.parent?.id == cat.id }
-                                .sorted { $0.name < $1.name }
-                            if !subs.isEmpty {
-                                ForEach(subs) { sub in
-                                    categoryRow(sub, depth: 1)
-                                }
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(group.rows) { row in
+                                categoryRow(row.category, depth: row.depth)
                             }
                         }
                     }
@@ -88,9 +64,21 @@ struct CategoryPickerView: View {
                 .padding(.bottom, 12)
         }
         .frame(minWidth: 300, minHeight: 400)
+        .onChange(of: categoryIndexRevision, initial: true) { _, _ in
+            groupedCategories = CategoryPickerIndex.build(categories: categories, allowedKinds: allowedKinds)
+        }
     }
 
-    private func categoryRow(_ category: Category, depth: Int = 0) -> some View {
+    private var categoryIndexRevision: CategoryPickerIndexRevision {
+        CategoryPickerIndexRevision(
+            categories: categories.map {
+                CategoryPickerCategoryRevision(id: $0.id, name: $0.name, parentID: $0.parent?.id, kind: $0.kind.rawValue)
+            },
+            allowedKinds: allowedKinds?.map(\.rawValue).sorted()
+        )
+    }
+
+    private func categoryRow(_ category: Category, depth: Int) -> some View {
         Button {
             let keyword = transaction.flatMap { MerchantExtractor.extractMerchant(from: $0.descriptionRaw) }
             onCategorySelected(category, keyword)
@@ -114,14 +102,79 @@ struct CategoryPickerView: View {
         }
         .buttonStyle(.plain)
     }
+}
 
-    private func categoryDisplayKey(_ category: Category) -> String {
+struct CategoryPickerRow: Identifiable {
+    let category: Category
+    let depth: Int
+
+    var id: UUID { category.id }
+}
+
+struct CategoryPickerSection: Identifiable {
+    let kind: CategoryKind
+    let rows: [CategoryPickerRow]
+
+    var id: CategoryKind { kind }
+}
+
+private struct CategoryPickerCategoryRevision: Equatable {
+    let id: UUID
+    let name: String
+    let parentID: UUID?
+    let kind: String
+}
+
+private struct CategoryPickerIndexRevision: Equatable {
+    let categories: [CategoryPickerCategoryRevision]
+    let allowedKinds: [String]?
+}
+
+enum CategoryPickerIndex {
+    private static let kindOrder: [CategoryKind] = [.expense, .income, .transfer, .investment, .creditCardPayment]
+
+    static func build(categories: [Category], allowedKinds: Set<CategoryKind>?) -> [CategoryPickerSection] {
+        let visible = deduplicated(categories)
+        var parentsByKind: [CategoryKind: [Category]] = [:]
+        var childrenByParentID: [UUID: [Category]] = [:]
+
+        for category in visible {
+            if let parentID = category.parent?.id {
+                childrenByParentID[parentID, default: []].append(category)
+            } else if allowedKinds?.contains(category.kind) ?? true {
+                parentsByKind[category.kind, default: []].append(category)
+            }
+        }
+
+        for parentID in Array(childrenByParentID.keys) {
+            childrenByParentID[parentID]?.sort { $0.name < $1.name }
+        }
+
+        return kindOrder.compactMap { kind in
+            guard let parents = parentsByKind[kind], !parents.isEmpty else { return nil }
+            let sortedParents = parents.sorted { $0.name < $1.name }
+            let rows = sortedParents.flatMap { parent in
+                [CategoryPickerRow(category: parent, depth: 0)]
+                    + (childrenByParentID[parent.id] ?? []).map { CategoryPickerRow(category: $0, depth: 1) }
+            }
+            return CategoryPickerSection(kind: kind, rows: rows)
+        }
+    }
+
+    private static func deduplicated(_ categories: [Category]) -> [Category] {
+        var seen = Set<String>()
+        return categories.sorted(by: displaySort).filter { category in
+            seen.insert(displayKey(category)).inserted
+        }
+    }
+
+    private static func displayKey(_ category: Category) -> String {
         let parentID = category.parent?.id.uuidString ?? "root"
         let name = category.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return "\(parentID)|\(category.kind.rawValue)|\(name)"
     }
 
-    private func categoryDisplaySort(_ lhs: Category, _ rhs: Category) -> Bool {
+    private static func displaySort(_ lhs: Category, _ rhs: Category) -> Bool {
         let lhsName = lhs.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let rhsName = rhs.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if lhsName != rhsName { return lhsName < rhsName }

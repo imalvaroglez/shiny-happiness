@@ -1,6 +1,14 @@
 import SwiftData
 import SwiftUI
 
+struct ManualPromotionPreviewKey: Equatable {
+    let accountID: UUID
+    let kind: ManualTransactionKind
+    let date: Date
+    let amount: Decimal
+    let description: String
+}
+
 struct ManualTransactionSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -30,6 +38,11 @@ struct ManualTransactionSheet: View {
     @State private var includeInHousehold: Bool = false
     @State private var showingCategoryPicker = false
     @State private var errorMessage: String?
+    @State private var promotionHistoryAccountID: UUID?
+    @State private var promotionHistory: [Transaction] = []
+    @State private var promotionCatalog: PromotionCatalog?
+    @State private var promotionPreviewResults: [PromotionProgress] = []
+    @State private var promotionPreviewTask: Task<Void, Never>?
 
     private var selectedAccount: Account? {
         accounts.first { $0.id == accountID }
@@ -55,6 +68,19 @@ struct ManualTransactionSheet: View {
         case .payment, .transfer:
             return []
         }
+    }
+
+    private var promotionPreviewKey: ManualPromotionPreviewKey? {
+        guard kind == .charge, amount != 0,
+              !description.trimmingCharacters(in: .whitespaces).isEmpty,
+              let selectedAccount else { return nil }
+        return ManualPromotionPreviewKey(
+            accountID: selectedAccount.id,
+            kind: kind,
+            date: date,
+            amount: amount < 0 ? amount : -abs(amount),
+            description: description
+        )
     }
 
     var body: some View {
@@ -102,12 +128,21 @@ struct ManualTransactionSheet: View {
             updateCounterparty()
         }
         .onChange(of: accountID) {
+            promotionHistoryAccountID = nil
+            promotionHistory = []
+            promotionCatalog = nil
             normalizeKindAndCategory()
             updateCounterparty()
         }
         .onChange(of: kind) {
             normalizeKindAndCategory()
             updateCounterparty()
+        }
+        .onChange(of: promotionPreviewKey, initial: true) { _, key in
+            schedulePromotionPreview(for: key)
+        }
+        .onDisappear {
+            promotionPreviewTask?.cancel()
         }
         .sheet(isPresented: $showingCategoryPicker) {
             CategoryPickerView(
@@ -130,69 +165,114 @@ struct ManualTransactionSheet: View {
         .pickerStyle(.segmented)
     }
 
-    // MARK: - Promoción preview (feedback 2026-09-22): evaluación en vivo de la tx candidata
-    // contra las promos de la cuenta. Cero persistencia — solo informa al capturar.
+    // MARK: - Promotion preview, cached by candidate inputs (never by view presentation state)
 
     @ViewBuilder
     private var promotionPreview: some View {
-        if let account = selectedAccount,
-           kind == .charge,
-           amount != 0,
-           !description.trimmingCharacters(in: .whitespaces).isEmpty {
-            let matches = promotionMatches(for: account)
-            if !matches.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Cuenta para:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    ForEach(matches, id: \.definitionID) { promo in
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(stateColor(promo))
-                                .frame(width: 5, height: 5)
-                            Text(promo.displayName)
-                                .font(.caption)
-                            Spacer()
-                            Text(projectionText(promo))
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
+        if !promotionPreviewResults.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Cuenta para:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(promotionPreviewResults, id: \.definitionID) { promo in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(stateColor(promo))
+                            .frame(width: 5, height: 5)
+                        Text(promo.displayName)
+                            .font(.caption)
+                        Spacer()
+                        Text(projectionText(promo))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 
-    /// Evalúa la transacción candidata contra las promos de la cuenta (sin persistir nada).
-    @MainActor
-    private func promotionMatches(for account: Account) -> [PromotionProgress] {
-        let catalog = PromotionCatalog.load()
-        let bound = catalog.definitions.filter { $0.accountUUID == account.id }
-        guard !bound.isEmpty else { return [] }
+    private func schedulePromotionPreview(for key: ManualPromotionPreviewKey?) {
+        promotionPreviewTask?.cancel()
+        promotionPreviewTask = nil
+        guard let key else {
+            promotionPreviewResults = []
+            return
+        }
 
-        // Historial existente de la cuenta (fetch vivo, sin tocar el store).
-        let descriptor = FetchDescriptor<Transaction>(
-            predicate: #Predicate<Transaction> { tx in tx.deletedAt == nil },
-            sortBy: [SortDescriptor(\.postedAt)]
-        )
-        let allLive = (try? modelContext.fetch(descriptor)) ?? []
-        let history = allLive.filter { $0.account?.id == account.id }
+        promotionPreviewResults = []
+
+        promotionPreviewTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 200_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, promotionPreviewKey == key else { return }
+            updatePromotionPreview(for: key)
+            promotionPreviewTask = nil
+        }
+    }
+
+    /// Fetches the complete account history once per selected account and evaluates
+    /// only after candidate inputs settle; opening the category sheet does no work here.
+    @MainActor
+    private func updatePromotionPreview(for key: ManualPromotionPreviewKey) {
+        guard let account = accounts.first(where: { $0.id == key.accountID }) else {
+            promotionPreviewResults = []
+            return
+        }
+
+        if promotionHistoryAccountID != key.accountID {
+            let catalog = PromotionCatalog.load()
+            promotionCatalog = catalog
+            promotionHistoryAccountID = key.accountID
+            let bound = catalog.definitions.filter { $0.accountUUID == key.accountID }
+            guard !bound.isEmpty else {
+                promotionHistory = []
+                promotionPreviewResults = []
+                return
+            }
+
+            let descriptor = FetchDescriptor<Transaction>(
+                predicate: #Predicate<Transaction> { tx in tx.deletedAt == nil },
+                sortBy: [SortDescriptor(\.postedAt)]
+            )
+            do {
+                promotionHistory = try modelContext.fetch(descriptor).filter { $0.account?.id == key.accountID }
+            } catch {
+                promotionHistoryAccountID = nil
+                promotionCatalog = nil
+                promotionHistory = []
+                promotionPreviewResults = []
+                return
+            }
+        }
+
+        guard let catalog = promotionCatalog else {
+            promotionPreviewResults = []
+            return
+        }
+        let bound = catalog.definitions.filter { $0.accountUUID == key.accountID }
+        guard !bound.isEmpty else {
+            promotionPreviewResults = []
+            return
+        }
 
         // Transacción candidata — NO insertada en el contexto; solo para evaluación.
         let candidate = Transaction(
             account: account,
-            postedAt: date,
-            amount: amount < 0 ? amount : -abs(amount),  // cargo
-            descriptionRaw: description
+            postedAt: key.date,
+            amount: key.amount,
+            descriptionRaw: key.description
         )
 
-        return PromotionEvaluator().evaluate(
+        promotionPreviewResults = PromotionEvaluator().evaluate(
             definitions: bound, account: account,
-            transactions: history + [candidate],
-            channelTable: catalog.channelTable, asOf: date
+            transactions: promotionHistory + [candidate],
+            channelTable: catalog.channelTable, asOf: key.date
         ).filter { $0.eligibleFirm > 0 || $0.possiblePositiveAddition > 0 }
     }
 

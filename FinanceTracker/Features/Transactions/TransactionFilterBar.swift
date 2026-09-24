@@ -3,6 +3,7 @@ import SwiftUI
 struct TransactionFilterBar: View {
     @State private var showingFilters = false
 
+    @Binding var searchText: String
     @Binding var accountFilterID: UUID?
     @Binding var categoryFilter: CategoryFilter
     @Binding var assignmentFilter: AssignmentFilter
@@ -10,14 +11,20 @@ struct TransactionFilterBar: View {
     @Binding var presetMonth: YearMonth?
     @Binding var sortMode: TransactionSortMode
     @Binding var showingRecentlyDeleted: Bool
+    @Binding var selectionMode: Bool
+
+    let hasSelection: Bool
+    let onToggleSelection: () -> Void
     let deletedCount: Int
     let visibleCount: Int
     let accounts: [Account]
     let parentCategories: [Category]
     let childrenOf: (Category) -> [Category]
+    let onAssignSelected: (ExpenseAssignment) -> Void
+    let onAddTransaction: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 8) {
             Button {
                 showingFilters.toggle()
             } label: {
@@ -27,73 +34,91 @@ struct TransactionFilterBar: View {
             .popover(isPresented: $showingFilters, arrowEdge: .bottom) {
                 filterPopover
                     .frame(width: 360)
-                    .padding(16)
+                    .padding(14)
             }
 
-            activeFilterChips
+            sortMenu
 
-            Menu {
-                Picker("Sort order", selection: $sortMode) {
-                    ForEach(TransactionSortMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-            } label: {
-                Label(sortMode.rawValue, systemImage: "arrow.up.arrow.down")
-                    .labelStyle(.titleAndIcon)
-            }
-            .menuStyle(.button)
-
-            if activeFilterCount > 0 {
-                Button("Clear") {
-                    clearFilters()
-                }
-                .font(.caption)
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
+            TextField("Search transactions", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 90, maxWidth: 260)
+                .layoutPriority(1)
 
             Text("\(visibleCount) transactions")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+
+            Spacer(minLength: 4)
+
+            if selectionMode {
+                Menu {
+                    Button("Mark User") { onAssignSelected(.user) }
+                    Button("Mark Shared") { onAssignSelected(.shared) }
+                    Button("Mark Partner") { onAssignSelected(.partner) }
+                } label: {
+                    Label("Assign", systemImage: "person.2")
+                }
+                .disabled(!hasSelection)
+            }
+
+            if !showingRecentlyDeleted {
+                Button(selectionMode ? "Done" : "Select", action: onToggleSelection)
+            }
+
+            Button(action: onAddTransaction) {
+                Label("Add", systemImage: "plus")
+            }
+            .accessibilityLabel("Add Transaction")
+            .help("Add Transaction")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
     }
 
+    private var sortMenu: some View {
+        Menu {
+            ForEach(TransactionSortMode.allCases, id: \.self) { mode in
+                Button {
+                    sortMode = mode
+                } label: {
+                    if sortMode == mode {
+                        Label(mode.rawValue, systemImage: "checkmark")
+                    } else {
+                        Text(mode.rawValue)
+                    }
+                }
+            }
+        } label: {
+            Label(sortMode.rawValue, systemImage: "arrow.up.arrow.down")
+                .labelStyle(.titleAndIcon)
+        }
+        .menuStyle(.button)
+    }
+
     private var filterPopover: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Filters")
                     .font(.headline)
                 Spacer()
-                if activeFilterCount > 0 {
-                    Button("Clear") {
-                        clearFilters()
-                    }
-                    .font(.caption)
+                if hasClearableCriteria {
+                    Button("Clear", action: clearFilters)
+                        .font(.caption)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Account")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            filterRow("Account") {
                 Picker("Account", selection: $accountFilterID) {
                     Text("All Accounts").tag(nil as UUID?)
                     ForEach(accounts, id: \.id) { account in
                         Text(account.displayName).tag(account.id as UUID?)
                     }
                 }
-                .labelsHidden()
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Category")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            filterRow("Category") {
                 Picker(selection: $categoryFilter) {
                     Text("All Categories").tag(CategoryFilter.all)
                     Text("Uncategorized").tag(CategoryFilter.uncategorized)
@@ -102,38 +127,30 @@ struct TransactionFilterBar: View {
                         Section(parent.name) {
                             Text("All \(parent.name)")
                                 .tag(CategoryFilter.parent(parent.id))
-                            ForEach(childrenOf(parent), id: \.id) { sub in
-                                Text(sub.name).tag(CategoryFilter.specific(sub.id))
+                            ForEach(childrenOf(parent), id: \.id) { subcategory in
+                                Text(subcategory.name).tag(CategoryFilter.specific(subcategory.id))
                             }
                         }
                     }
                 } label: {
-                    EmptyView()
+                    Text("Category")
                 }
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Assignment")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            filterRow("Assignment") {
                 Picker("Assignment", selection: $assignmentFilter) {
                     ForEach(AssignmentFilter.allCases, id: \.self) { filter in
                         Text(filter.displayName).tag(filter)
                     }
                 }
-                .labelsHidden()
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Household")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            filterRow("Household") {
                 Picker("Household", selection: $householdInclusionFilter) {
                     ForEach(HouseholdInclusionFilter.allCases, id: \.self) { filter in
                         Text(filter.displayName).tag(filter)
                     }
                 }
-                .labelsHidden()
             }
 
             if deletedCount > 0 {
@@ -145,35 +162,19 @@ struct TransactionFilterBar: View {
         }
     }
 
-    @ViewBuilder
-    private var activeFilterChips: some View {
-        if let presetMonth {
-            filterChip(presetMonth.displayName)
+    private func filterRow<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(width: 82, alignment: .leading)
+            content()
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        if let selectedAccountName {
-            filterChip(selectedAccountName)
-        }
-        if let selectedCategoryName {
-            filterChip(selectedCategoryName)
-        }
-        if let selectedAssignmentName {
-            filterChip(selectedAssignmentName)
-        }
-        if householdInclusionFilter != .all {
-            filterChip(householdInclusionFilter.displayName)
-        }
-        if showingRecentlyDeleted {
-            filterChip("Deleted")
-        }
-    }
-
-    private func filterChip(_ title: String) -> some View {
-        Text(title)
-            .font(.caption)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.thinMaterial, in: Capsule())
     }
 
     private var activeFilterCount: Int {
@@ -191,39 +192,18 @@ struct TransactionFilterBar: View {
         activeFilterCount == 0 ? "Filters" : "Filters (\(activeFilterCount))"
     }
 
-    private var selectedAccountName: String? {
-        guard let accountFilterID else { return nil }
-        return accounts.first { $0.id == accountFilterID }?.displayName
-    }
-
-    private var selectedCategoryName: String? {
-        switch categoryFilter {
-        case .all:
-            return nil
-        case .uncategorized:
-            return "Uncategorized"
-        case .parent(let id):
-            if let parent = parentCategories.first(where: { $0.id == id }) {
-                return "All \(parent.name)"
-            } else {
-                return nil
-            }
-        case .specific(let id):
-            let allSubs = parentCategories.flatMap { childrenOf($0) }
-            return allSubs.first(where: { $0.id == id })?.name
-        }
-    }
-
-    private var selectedAssignmentName: String? {
-        assignmentFilter == .all ? nil : assignmentFilter.displayName
+    private var hasClearableCriteria: Bool {
+        activeFilterCount > 0 || !searchText.isEmpty || sortMode != .dateDesc
     }
 
     private func clearFilters() {
+        searchText = ""
         presetMonth = nil
         accountFilterID = nil
         categoryFilter = .all
         assignmentFilter = .all
         householdInclusionFilter = .all
         showingRecentlyDeleted = false
+        sortMode = .dateDesc
     }
 }

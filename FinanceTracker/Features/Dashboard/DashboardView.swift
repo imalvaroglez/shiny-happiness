@@ -18,6 +18,7 @@ struct DashboardView: View {
     @State private var showingPositionsSheet = false
     @State private var dataResetGeneration = 0
     @State private var pendingTransactionPreset: TransactionFilterPreset?
+    @State private var transactionSession = TransactionSessionState()
 
     @Query private var accounts: [Account]
     @AppStorage("sidebarAccountSort") private var sidebarAccountSort = "nickname"
@@ -198,6 +199,7 @@ struct DashboardView: View {
                     .fixedSize()
                     .help("Sort accounts")
                 }
+                .padding(.trailing, 16)
             }
 
 
@@ -227,7 +229,8 @@ struct DashboardView: View {
             TransactionsView(
                 resetSignal: dataResetGeneration,
                 preset: pendingTransactionPreset,
-                onPresetConsumed: { _ in pendingTransactionPreset = nil }
+                onPresetConsumed: { _ in pendingTransactionPreset = nil },
+                sessionState: $transactionSession
             )
         case .householdSettlement:
             HouseholdSettlementView(onReviewTransactions: { month in
@@ -272,13 +275,49 @@ struct DashboardView: View {
             .padding()
         }
         .navigationTitle(navigationTitle)
-        .safeAreaInset(edge: .bottom) {
-            HStack {
-                Spacer()
-                dashboardActions
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    if let account = selectedAccount {
+                        if !selectedAccountInPortfolioMode {
+                            Button {
+                                showingManualTransaction = true
+                            } label: {
+                                Label("Add Transaction", systemImage: "plus.circle")
+                            }
+                            Button {
+                                balanceSnapshotAccount = account
+                            } label: {
+                                Label("Add Balance", systemImage: "chart.line.uptrend.xyaxis")
+                            }
+                        }
+
+                        if account.type == .investment {
+                            let canAddPositions = PortfolioService.canAddPositions(account: account, context: modelContext)
+                            Button {
+                                showingPositionsSheet = true
+                            } label: {
+                                Label(selectedAccountInPortfolioMode ? "Edit Stock Positions" : "Add Stock Positions", systemImage: "chart.line.uptrend.xyaxis")
+                            }
+                            .disabled(!canAddPositions)
+                            if !canAddPositions {
+                                Button("Create a separate brokerage account to track stocks.") {}
+                                    .disabled(true)
+                            }
+                        }
+                        Divider()
+                    }
+
+                    Button {
+                        showingImport = true
+                    } label: {
+                        Label("Import Statement", systemImage: "doc.badge.plus")
+                    }
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
+                .help("Dashboard actions")
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
         }
         .sheet(isPresented: $showingImport) {
             NavigationStack {
@@ -297,57 +336,6 @@ struct DashboardView: View {
                 lockedAccountID: selectedAccount?.id,
                 onSaved: { viewModel.refresh() }
             )
-        }
-    }
-
-    private var dashboardActions: some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            if let account = selectedAccount {
-                if account.type == .investment {
-                    let canAddPositions = PortfolioService.canAddPositions(account: account, context: modelContext)
-                    Button {
-                        showingPositionsSheet = true
-                    } label: {
-                        Label(selectedAccountInPortfolioMode ? "Edit Stock Positions" : "Add Stock Positions", systemImage: "chart.line.uptrend.xyaxis")
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                    }
-                    .buttonStyle(.glass)
-                    .disabled(!canAddPositions)
-                    if !canAddPositions {
-                        Text("Create a separate brokerage account to track stocks.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if !selectedAccountInPortfolioMode {
-                    Button {
-                        showingManualTransaction = true
-                    } label: {
-                        Label("Add Transaction", systemImage: "plus.circle")
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                    }
-                    .buttonStyle(.glass)
-                    Button {
-                        balanceSnapshotAccount = account
-                    } label: {
-                        Label("Add Balance", systemImage: "chart.line.uptrend.xyaxis")
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                    }
-                    .buttonStyle(.glass)
-                }
-            }
-            Button {
-                showingImport = true
-            } label: {
-                Label("Import Statement", systemImage: "doc.badge.plus")
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-            }
-            .buttonStyle(.glassProminent)
         }
     }
 

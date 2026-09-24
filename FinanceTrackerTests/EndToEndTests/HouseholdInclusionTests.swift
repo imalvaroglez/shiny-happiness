@@ -25,6 +25,30 @@ struct HouseholdInclusionTests {
         #expect(HouseholdInclusionFilter.allCases.contains(.included))
     }
 
+    @Test("Transaction session filters are in-memory and reset together")
+    func transactionSessionStateReset() {
+        var state = TransactionSessionState()
+        state.searchText = "groceries"
+        state.accountFilterID = UUID()
+        state.categoryFilter = .uncategorized
+        state.assignmentFilter = .shared
+        state.householdInclusionFilter = .included
+        state.presetMonth = YearMonth(year: 2026, month: 7)
+        state.sortMode = .amountAsc
+        state.showingRecentlyDeleted = true
+
+        state.reset()
+
+        #expect(state.searchText.isEmpty)
+        #expect(state.accountFilterID == nil)
+        #expect(state.categoryFilter == .all)
+        #expect(state.assignmentFilter == .all)
+        #expect(state.householdInclusionFilter == .all)
+        #expect(state.presetMonth == nil)
+        #expect(state.sortMode == .dateDesc)
+        #expect(!state.showingRecentlyDeleted)
+    }
+
     @Test("HouseholdScopeResolver maps legacy assignments deterministically")
     func resolverMapping() {
         #expect(HouseholdScopeResolver.resolveScope(assignmentRaw: nil) == .excluded)
