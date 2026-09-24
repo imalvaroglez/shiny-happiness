@@ -1,6 +1,14 @@
 import SwiftData
 import SwiftUI
 
+struct ManualPromotionPreviewKey: Equatable {
+    let accountID: UUID
+    let kind: ManualTransactionKind
+    let date: Date
+    let amount: Decimal
+    let description: String
+}
+
 struct ManualTransactionSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -30,6 +38,11 @@ struct ManualTransactionSheet: View {
     @State private var includeInHousehold: Bool = false
     @State private var showingCategoryPicker = false
     @State private var errorMessage: String?
+    @State private var promotionHistoryAccountID: UUID?
+    @State private var promotionHistory: [Transaction] = []
+    @State private var promotionCatalog: PromotionCatalog?
+    @State private var promotionPreviewResults: [PromotionProgress] = []
+    @State private var promotionPreviewTask: Task<Void, Never>?
 
     private var selectedAccount: Account? {
         accounts.first { $0.id == accountID }
@@ -57,6 +70,19 @@ struct ManualTransactionSheet: View {
         }
     }
 
+    private var promotionPreviewKey: ManualPromotionPreviewKey? {
+        guard kind == .charge, amount != 0,
+              !description.trimmingCharacters(in: .whitespaces).isEmpty,
+              let selectedAccount else { return nil }
+        return ManualPromotionPreviewKey(
+            accountID: selectedAccount.id,
+            kind: kind,
+            date: date,
+            amount: amount < 0 ? amount : -abs(amount),
+            description: description
+        )
+    }
+
     var body: some View {
         VStack(spacing: 18) {
             Text("Add Transaction")
@@ -74,6 +100,8 @@ struct ManualTransactionSheet: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
             )
+
+            promotionPreview
 
             if let errorMessage {
                 Text(errorMessage)
@@ -100,12 +128,21 @@ struct ManualTransactionSheet: View {
             updateCounterparty()
         }
         .onChange(of: accountID) {
+            promotionHistoryAccountID = nil
+            promotionHistory = []
+            promotionCatalog = nil
             normalizeKindAndCategory()
             updateCounterparty()
         }
         .onChange(of: kind) {
             normalizeKindAndCategory()
             updateCounterparty()
+        }
+        .onChange(of: promotionPreviewKey, initial: true) { _, key in
+            schedulePromotionPreview(for: key)
+        }
+        .onDisappear {
+            promotionPreviewTask?.cancel()
         }
         .sheet(isPresented: $showingCategoryPicker) {
             CategoryPickerView(
@@ -126,6 +163,146 @@ struct ManualTransactionSheet: View {
             }
         }
         .pickerStyle(.segmented)
+    }
+
+    // MARK: - Promotion preview, cached by candidate inputs (never by view presentation state)
+
+    @ViewBuilder
+    private var promotionPreview: some View {
+        if !promotionPreviewResults.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Cuenta para:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(promotionPreviewResults, id: \.definitionID) { promo in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(stateColor(promo))
+                            .frame(width: 5, height: 5)
+                        Text(promo.displayName)
+                            .font(.caption)
+                        Spacer()
+                        Text(projectionText(promo))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private func schedulePromotionPreview(for key: ManualPromotionPreviewKey?) {
+        promotionPreviewTask?.cancel()
+        promotionPreviewTask = nil
+        guard let key else {
+            promotionPreviewResults = []
+            return
+        }
+
+        promotionPreviewResults = []
+
+        promotionPreviewTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 200_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, promotionPreviewKey == key else { return }
+            updatePromotionPreview(for: key)
+            promotionPreviewTask = nil
+        }
+    }
+
+    /// Fetches the complete account history once per selected account and evaluates
+    /// only after candidate inputs settle; opening the category sheet does no work here.
+    @MainActor
+    private func updatePromotionPreview(for key: ManualPromotionPreviewKey) {
+        guard let account = accounts.first(where: { $0.id == key.accountID }) else {
+            promotionPreviewResults = []
+            return
+        }
+
+        if promotionHistoryAccountID != key.accountID {
+            let catalog = PromotionCatalog.load()
+            promotionCatalog = catalog
+            promotionHistoryAccountID = key.accountID
+            let bound = catalog.definitions.filter { $0.accountUUID == key.accountID }
+            guard !bound.isEmpty else {
+                promotionHistory = []
+                promotionPreviewResults = []
+                return
+            }
+
+            let descriptor = FetchDescriptor<Transaction>(
+                predicate: #Predicate<Transaction> { tx in tx.deletedAt == nil },
+                sortBy: [SortDescriptor(\.postedAt)]
+            )
+            do {
+                promotionHistory = try modelContext.fetch(descriptor).filter { $0.account?.id == key.accountID }
+            } catch {
+                promotionHistoryAccountID = nil
+                promotionCatalog = nil
+                promotionHistory = []
+                promotionPreviewResults = []
+                return
+            }
+        }
+
+        guard let catalog = promotionCatalog else {
+            promotionPreviewResults = []
+            return
+        }
+        let bound = catalog.definitions.filter { $0.accountUUID == key.accountID }
+        guard !bound.isEmpty else {
+            promotionPreviewResults = []
+            return
+        }
+
+        // Transacción candidata — NO insertada en el contexto; solo para evaluación.
+        let candidate = Transaction(
+            account: account,
+            postedAt: key.date,
+            amount: key.amount,
+            descriptionRaw: key.description
+        )
+
+        promotionPreviewResults = PromotionEvaluator().evaluate(
+            definitions: bound, account: account,
+            transactions: promotionHistory + [candidate],
+            channelTable: catalog.channelTable, asOf: key.date
+        ).filter { $0.eligibleFirm > 0 || $0.possiblePositiveAddition > 0 }
+    }
+
+    private func projectionText(_ promo: PromotionProgress) -> String {
+        switch promo.shapeSummary {
+        case .spendThreshold(let target, let remaining):
+            return remaining > 0
+                ? MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", promo.eligibleFirm)
+                    + " / " + MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", target)
+                : "✓"
+        case .cashback(let devengado, _, _):
+            return MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", devengado)
+        case .tieredPeriods(let periods, let earned, let cap):
+            if let current = periods.first(where: { $0.phase == .current }) {
+                return MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", current.firm)
+                    + " / " + MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", current.threshold)
+            }
+            _ = periods; _ = earned; _ = cap
+            return ""
+        }
+    }
+
+    private func stateColor(_ promo: PromotionProgress) -> Color {
+        switch promo.displayState {
+        case .enCurso: return .blue
+        case .thresholdReachedPerRecords: return .green
+        case .thresholdSuspended, .provisional, .estimated: return .orange
+        case .expiredSuspended: return .orange
+        case .expired: return .gray
+        }
     }
 
     @ViewBuilder

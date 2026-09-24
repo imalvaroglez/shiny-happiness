@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import FinanceTracker
 
@@ -69,6 +70,93 @@ struct SettingsDataHealthTests {
         #expect(summary.unresolvedPendingCount == 0)
         #expect(summary.currenciesInUse.isEmpty)
         #expect(!summary.hasTransactionHistory)
+    }
+}
+
+@Suite("Settings account state")
+@MainActor
+struct SettingsAccountStateTests {
+    private func makeContainer() throws -> ModelContainer {
+        let config = ModelConfiguration(schema: AppSchema.schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: AppSchema.schema, configurations: [config])
+    }
+
+    @Test("Loads transaction counts per account and portfolio availability")
+    func accountState() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let checking = Account(institution: "Bank", type: .checking)
+        let investment = Account(institution: "Broker", type: .investment)
+        context.insert(checking)
+        context.insert(investment)
+        context.insert(Transaction(account: checking, postedAt: .now, amount: 100, descriptionRaw: "Deposit"))
+        try context.save()
+
+        let states = SettingsAccountStateLoader.load(accounts: [checking, investment], context: context)
+
+        #expect(states[checking.id]?.transactionCount == 1)
+        #expect(states[investment.id]?.transactionCount == 0)
+        #expect(states[investment.id]?.canAddPositions == true)
+
+        context.insert(Transaction(account: investment, postedAt: .now, amount: 20, descriptionRaw: "Purchase"))
+        try context.save()
+        let updatedStates = SettingsAccountStateLoader.load(accounts: [checking, investment], context: context)
+
+        #expect(updatedStates[investment.id]?.transactionCount == 1)
+        #expect(updatedStates[investment.id]?.canAddPositions == false)
+    }
+
+    @Test("Account summaries update when an unchanged transaction moves accounts")
+    func accountSummaryTracksReassignmentWithoutTotalCountChange() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let checking = Account(institution: "Bank", type: .checking)
+        let investment = Account(institution: "Broker", type: .investment)
+        let transaction = Transaction(account: checking, postedAt: .now, amount: -100,
+                                      descriptionRaw: "Purchase")
+        context.insert(checking)
+        context.insert(investment)
+        context.insert(transaction)
+        try context.save()
+
+        let before = SettingsAccountStateLoader.load(accounts: [checking, investment], context: context)
+        let totalBefore = try context.fetchCount(FetchDescriptor<Transaction>())
+
+        transaction.account = investment
+        try context.save()
+
+        let after = SettingsAccountStateLoader.load(accounts: [checking, investment], context: context)
+        let totalAfter = try context.fetchCount(FetchDescriptor<Transaction>())
+        #expect(totalBefore == totalAfter)
+        #expect(before[checking.id]?.transactionCount == 1)
+        #expect(after[checking.id]?.transactionCount == 0)
+        #expect(after[investment.id]?.transactionCount == 1)
+    }
+
+    @Test("Empty account list does not load account state")
+    func emptyAccountState() throws {
+        let container = try makeContainer()
+        let states = SettingsAccountStateLoader.load(accounts: [], context: container.mainContext)
+
+        #expect(states.isEmpty)
+    }
+
+    @Test("Data health loads from an isolated model actor")
+    func backgroundDataHealthLoad() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Bank", type: .checking, currency: "MXN")
+        context.insert(account)
+        context.insert(Transaction(account: account, postedAt: .now, amount: -25, descriptionRaw: "Groceries"))
+        try context.save()
+
+        let loader = DataHealthSnapshotLoader(modelContainer: container)
+        let summary = try await loader.load(activeCategoryCount: 12)
+
+        #expect(summary.activeAccountCount == 1)
+        #expect(summary.hasTransactionHistory)
+        #expect(summary.activeCategoryCount == 12)
+        #expect(summary.importedStatementCount == 0)
     }
 }
 

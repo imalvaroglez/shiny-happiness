@@ -37,7 +37,7 @@ struct ManualAccountSheet: View {
                         }
                     }
                     .labelsHidden()
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                 }
                 Divider().padding(.leading, 132)
 

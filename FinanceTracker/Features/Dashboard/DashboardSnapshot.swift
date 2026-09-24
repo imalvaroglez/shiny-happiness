@@ -171,6 +171,9 @@ struct LiabilityAccountSnapshot {
     let sourceStatements: [StatementSourceSummary]
     let recentTransactions: [Transaction]
     let totalTransactions: Int
+    /// Progreso de promociones de la cuenta (evaluado sobre el historial completo, no el
+    /// periodo visible — spec G: conciliación hasta la fecha de evaluación).
+    var promotions: [PromotionProgress] = []
 
     var amountOwed: Decimal { abs(currentBalance) }
     var daysUntilDue: Int? {

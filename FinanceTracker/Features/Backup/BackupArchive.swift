@@ -12,11 +12,11 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    private static let schemaVersion = 7
-    private static let modelsSubdirectory = "models"
+    nonisolated private static let schemaVersion = 7
+    nonisolated private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
-    static func summaries(in directory: URL) -> [BackupSummary] {
+    nonisolated static func summaries(in directory: URL) -> [BackupSummary] {
         let fm = FileManager.default
         let candidates: [URL]
         if directory.pathExtension == "ftbackup" {
@@ -34,11 +34,11 @@ enum BackupArchive {
             }
     }
 
-    static func latestBackup(in directory: URL) -> BackupSummary? {
+    nonisolated static func latestBackup(in directory: URL) -> BackupSummary? {
         summaries(in: directory).first
     }
 
-    static func summary(at bundleURL: URL) -> BackupSummary? {
+    nonisolated static func summary(at bundleURL: URL) -> BackupSummary? {
         guard bundleURL.pathExtension == "ftbackup" else { return nil }
         guard let data = try? Data(contentsOf: bundleURL.appendingPathComponent("manifest.json")) else { return nil }
 
@@ -50,7 +50,7 @@ enum BackupArchive {
         return BackupSummary(url: bundleURL, createdAt: manifest.createdAt, schemaVersion: manifest.schemaVersion)
     }
 
-    private static func isValidBundle(_ manifest: BackupManifest, at bundleURL: URL) -> Bool {
+    private nonisolated static func isValidBundle(_ manifest: BackupManifest, at bundleURL: URL) -> Bool {
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
         for name in requiredModelNames(for: manifest.schemaVersion) {
             guard arrayData(for: name, in: modelsDir) != nil else { return false }
@@ -69,7 +69,7 @@ enum BackupArchive {
         return true
     }
 
-    private static func arrayData(for name: String, in modelsDir: URL) -> Data? {
+    private nonisolated static func arrayData(for name: String, in modelsDir: URL) -> Data? {
         let url = modelsDir.appendingPathComponent("\(name).json")
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data),
@@ -77,7 +77,7 @@ enum BackupArchive {
         return data
     }
 
-    private static func requiredModelNames(for schemaVersion: Int) -> [String] {
+    private nonisolated static func requiredModelNames(for schemaVersion: Int) -> [String] {
         var names = [
             "Account",
             "Statement",

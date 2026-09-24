@@ -265,10 +265,22 @@ report them and exclude them from commits.
 All commands require the Xcode 26 toolchain prefix:
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
 
+### Canonical development app location
+
+For this checkout, the one app artifact used for manual development validation
+is Xcode's default DerivedData product:
+`~/Library/Developer/Xcode/DerivedData/FinanceTracker-arvotgkffgafitgsepmdkzzfxhna/Build/Products/Debug/FinanceTracker Dev.app`.
+Build the `FinanceTracker` scheme with no `-derivedDataPath` override, then open
+that exact bundle. Do not hand off a build from `/tmp`, a worktree-specific
+DerivedData directory, or another custom path; keeping one predictable app
+location prevents confusion between stale and current builds. If this checkout
+is moved and Xcode's default hash changes, update this documented path and keep
+the no-override rule.
+
 | Check | Exact command | When required | Expected | Blocking | Limitation |
 |---|---|---|---|---|---|
 | Project regen | `xcodegen generate` | After adding/moving/deleting any `.swift`, or editing `project.yml` (AD-005) | `Created project at ...FinanceTracker.xcodeproj` | Yes (before build if files changed) | None |
-| Debug build | `DEVELOPER_DIR=…/Developer xcodebuild -project FinanceTracker.xcodeproj -scheme FinanceTracker build` | Every implementation slice | `** BUILD SUCCEEDED **` | Yes | Produces `FinanceTracker Dev` (dev bundle id) |
+| Debug build | `DEVELOPER_DIR=…/Developer xcodebuild -project FinanceTracker.xcodeproj -scheme FinanceTracker -configuration Debug build` | Every implementation slice | `** BUILD SUCCEEDED **` | Yes | Produces `FinanceTracker Dev` (dev bundle id) in the canonical location above; omit `-derivedDataPath` |
 | Release build | `… xcodebuild -project FinanceTracker.xcodeproj -scheme FinanceTracker -configuration Release build` | Release prep | `** BUILD SUCCEEDED **` | Yes (release) | Produces `FinanceTracker.app` (prod bundle id) |
 | Build for testing | `… xcodebuild build-for-testing -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests -destination 'platform=macOS'` | When iterating on tests | `** TEST BUILD SUCCEEDED **` | No | Not documented in AGENTS/README but valid |
 | Full serial suite | `… xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests -destination 'platform=macOS' -parallel-testing-enabled NO` | Before READY FOR DEVELOPMENT VALIDATION and before release | `Test run with N tests … passed` / `** TEST SUCCEEDED **` | Yes | **`-parallel-testing-enabled NO` is mandatory** — parallel runs hang on PDFKit/Vision teardown |

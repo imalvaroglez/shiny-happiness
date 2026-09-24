@@ -66,6 +66,21 @@ struct TransactionFilterPreset: Identifiable, Equatable {
     let inclusion: HouseholdInclusionFilter
 }
 
+struct TransactionSessionState {
+    var searchText = ""
+    var accountFilterID: UUID?
+    var categoryFilter: CategoryFilter = .all
+    var assignmentFilter: AssignmentFilter = .all
+    var householdInclusionFilter: HouseholdInclusionFilter = .all
+    var presetMonth: YearMonth?
+    var sortMode: TransactionSortMode = .dateDesc
+    var showingRecentlyDeleted = false
+
+    mutating func reset() {
+        self = Self()
+    }
+}
+
 struct TransactionsView: View {
     var resetSignal: Int = 0
     var preset: TransactionFilterPreset? = nil
@@ -78,17 +93,12 @@ struct TransactionsView: View {
            sort: \PendingImport.createdAt, order: .reverse)
     private var pendingImports: [PendingImport]
 
+    @Binding var sessionState: TransactionSessionState
+
+    @State private var appliedResetSignal = 0
     @State private var allTransactions: [Transaction] = []
     @State private var deletedTransactions: [Transaction] = []
-    @State private var searchText = ""
-    @State private var accountFilterID: UUID?
-    @State private var categoryFilter: CategoryFilter = .all
-    @State private var assignmentFilter: AssignmentFilter = .all
-    @State private var householdInclusionFilter: HouseholdInclusionFilter = .all
-    @State private var presetMonth: YearMonth?
     @State private var consumedPresetID: UUID?
-    @State private var sortMode: TransactionSortMode = .dateDesc
-    @State private var showingRecentlyDeleted = false
     @State private var selectionMode = false
     @State private var selectedIDs: Set<UUID> = []
 
@@ -120,8 +130,8 @@ struct TransactionsView: View {
     private func consumePresetIfNeeded() {
         guard let preset, preset.id != consumedPresetID else { return }
         consumedPresetID = preset.id
-        if let month = preset.month { presetMonth = month }
-        householdInclusionFilter = preset.inclusion
+        if let month = preset.month { sessionState.presetMonth = month }
+        sessionState.householdInclusionFilter = preset.inclusion
         onPresetConsumed?(preset)
     }
 
@@ -145,7 +155,7 @@ struct TransactionsView: View {
     }
 
     private func recomputeDisplay() {
-        let active = showingRecentlyDeleted ? deletedTransactions : allTransactions
+        let active = sessionState.showingRecentlyDeleted ? deletedTransactions : allTransactions
 
         if accounts.isEmpty {
             dayGroups = []
@@ -155,11 +165,11 @@ struct TransactionsView: View {
 
         var result = Array(active)
 
-        if let filterID = accountFilterID {
+        if let filterID = sessionState.accountFilterID {
             result = result.filter { $0.account?.id == filterID }
         }
 
-        switch categoryFilter {
+        switch sessionState.categoryFilter {
         case .all:
             break
         case .uncategorized:
@@ -173,14 +183,14 @@ struct TransactionsView: View {
             result = result.filter { tx in tx.category?.id == id }
         }
 
-        if let assignment = assignmentFilter.assignment {
+        if let assignment = sessionState.assignmentFilter.assignment {
             result = result.filter {
                 HouseholdSettlementReportService.isSettlementEligible($0)
                     && $0.expenseAssignment == assignment
             }
         }
 
-        switch householdInclusionFilter {
+        switch sessionState.householdInclusionFilter {
         case .all:
             break
         case .included:
@@ -195,15 +205,15 @@ struct TransactionsView: View {
             }
         }
 
-        if let month = presetMonth {
+        if let month = sessionState.presetMonth {
             let calendar = Calendar(identifier: .gregorian)
             result = result.filter { calendar.isDate($0.postedAt, equalTo: month.startDate, toGranularity: .month) }
         }
 
-        if !searchText.isEmpty {
+        if !sessionState.searchText.isEmpty {
             result = result.filter {
-                $0.descriptionRaw.localizedCaseInsensitiveContains(searchText) ||
-                $0.merchantNormalized.localizedCaseInsensitiveContains(searchText)
+                $0.descriptionRaw.localizedCaseInsensitiveContains(sessionState.searchText) ||
+                $0.merchantNormalized.localizedCaseInsensitiveContains(sessionState.searchText)
             }
         }
 
@@ -211,10 +221,10 @@ struct TransactionsView: View {
         groups = groups.map { group in
             TransactionDayGroup(
                 date: group.date,
-                transactions: group.transactions.sorted(by: sortMode.rowSort)
+                transactions: group.transactions.sorted(by: sessionState.sortMode.rowSort)
             )
         }
-        if sortMode.groupsReversed {
+        if sessionState.sortMode.groupsReversed {
             groups.reverse()
         }
 
@@ -225,18 +235,27 @@ struct TransactionsView: View {
     var body: some View {
         VStack(spacing: 0) {
             TransactionFilterBar(
-                accountFilterID: $accountFilterID,
-                categoryFilter: $categoryFilter,
-                assignmentFilter: $assignmentFilter,
-                householdInclusionFilter: $householdInclusionFilter,
-                presetMonth: $presetMonth,
-                sortMode: $sortMode,
-                showingRecentlyDeleted: $showingRecentlyDeleted,
+                searchText: $sessionState.searchText,
+                accountFilterID: $sessionState.accountFilterID,
+                categoryFilter: $sessionState.categoryFilter,
+                assignmentFilter: $sessionState.assignmentFilter,
+                householdInclusionFilter: $sessionState.householdInclusionFilter,
+                presetMonth: $sessionState.presetMonth,
+                sortMode: $sessionState.sortMode,
+                showingRecentlyDeleted: $sessionState.showingRecentlyDeleted,
+                selectionMode: $selectionMode,
+                hasSelection: !selectedIDs.isEmpty,
+                onToggleSelection: {
+                    selectionMode.toggle()
+                    if !selectionMode { selectedIDs.removeAll() }
+                },
                 deletedCount: deletedTransactions.count,
                 visibleCount: dayGroups.reduce(0) { $0 + $1.count },
                 accounts: accounts,
                 parentCategories: parentCategories,
-                childrenOf: children(of:)
+                childrenOf: children(of:),
+                onAssignSelected: applyAssignment,
+                onAddTransaction: { showingManualTransaction = true }
             )
             if !pendingImports.isEmpty {
                 PendingReviewSection(pendings: pendingImports) { _ in
@@ -247,37 +266,10 @@ struct TransactionsView: View {
             }
             groupedLedger
         }
-        .searchable(text: $searchText, prompt: "Search transactions")
+        .background(.clear)
         .navigationTitle("Transactions")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                HStack {
-                    if selectionMode {
-                        Menu {
-                            Button("Mark User") { applyAssignment(.user) }
-                            Button("Mark Shared") { applyAssignment(.shared) }
-                            Button("Mark Partner") { applyAssignment(.partner) }
-                        } label: {
-                            Label("Assign", systemImage: "person.2")
-                        }
-                        .disabled(selectedIDs.isEmpty)
-                    }
-                    if !showingRecentlyDeleted {
-                        Button(selectionMode ? "Done" : "Select") {
-                            selectionMode.toggle()
-                            if !selectionMode { selectedIDs.removeAll() }
-                        }
-                    }
-                    Button {
-                        showingManualTransaction = true
-                    } label: {
-                        Label("Add Transaction", systemImage: "plus")
-                    }
-                }
-            }
-        }
         .sheet(isPresented: $showingManualTransaction) {
-            ManualTransactionSheet(defaultAccountID: accountFilterID) {
+            ManualTransactionSheet(defaultAccountID: sessionState.accountFilterID) {
                 fetchTransactions()
                 recomputeDisplay()
             }
@@ -307,20 +299,22 @@ struct TransactionsView: View {
                 }
             }
         }
-        .onChange(of: accountFilterID) { recomputeDisplay() }
-        .onChange(of: categoryFilter) { recomputeDisplay() }
-        .onChange(of: assignmentFilter) { recomputeDisplay() }
-        .onChange(of: householdInclusionFilter) { recomputeDisplay() }
-        .onChange(of: searchText) { recomputeDisplay() }
-        .onChange(of: sortMode) { recomputeDisplay() }
-        .onChange(of: showingRecentlyDeleted) {
-            if showingRecentlyDeleted {
+        .onChange(of: sessionState.accountFilterID) { recomputeDisplay() }
+        .onChange(of: sessionState.categoryFilter) { recomputeDisplay() }
+        .onChange(of: sessionState.assignmentFilter) { recomputeDisplay() }
+        .onChange(of: sessionState.householdInclusionFilter) { recomputeDisplay() }
+        .onChange(of: sessionState.presetMonth) { recomputeDisplay() }
+        .onChange(of: sessionState.searchText) { recomputeDisplay() }
+        .onChange(of: sessionState.sortMode) { recomputeDisplay() }
+        .onChange(of: sessionState.showingRecentlyDeleted) {
+            if sessionState.showingRecentlyDeleted {
                 selectionMode = false
                 selectedIDs.removeAll()
             }
             recomputeDisplay()
         }
         .onAppear {
+            resetSessionIfNeeded()
             consumePresetIfNeeded()
             fetchTransactions()
             recomputeDisplay()
@@ -335,33 +329,21 @@ struct TransactionsView: View {
             recomputeDisplay()
         }
         .onChange(of: resetSignal) {
-            accountFilterID = nil
-            categoryFilter = .all
-            assignmentFilter = .all
-            householdInclusionFilter = .all
-            presetMonth = nil
-            selectionMode = false
-            selectedIDs.removeAll()
-            editingTransaction = nil
-            pendingApplyToSimilar = nil
-            pendingApplyCandidate = nil
-            showingManualTransaction = false
-            showingRecentlyDeleted = false
-            searchText = ""
+            resetSessionIfNeeded()
             fetchTransactions()
         }
         .onChange(of: accounts.map(\.id)) {
             let activeAccountIDs = Set(accounts.map(\.id))
-            if let id = accountFilterID, !activeAccountIDs.contains(id) {
-                accountFilterID = nil
+            if let id = sessionState.accountFilterID, !activeAccountIDs.contains(id) {
+                sessionState.accountFilterID = nil
             }
         }
         .onChange(of: categories.map(\.id)) {
             let activeIDs = Set(categories.map(\.id))
-            switch categoryFilter {
+            switch sessionState.categoryFilter {
             case .parent(let id), .specific(let id):
                 if !activeIDs.contains(id) {
-                    categoryFilter = .all
+                    sessionState.categoryFilter = .all
                 }
             default:
                 break
@@ -369,13 +351,25 @@ struct TransactionsView: View {
         }
     }
 
+    private func resetSessionIfNeeded() {
+        guard appliedResetSignal != resetSignal else { return }
+        appliedResetSignal = resetSignal
+        sessionState.reset()
+        selectionMode = false
+        selectedIDs.removeAll()
+        editingTransaction = nil
+        pendingApplyToSimilar = nil
+        pendingApplyCandidate = nil
+        showingManualTransaction = false
+    }
+
     private var groupedLedger: some View {
         Group {
             if dayGroups.isEmpty {
                 EmptyStateView(
                     icon: "list.bullet.rectangle",
-                    title: showingRecentlyDeleted ? "No deleted transactions" : "No transactions",
-                    subtitle: showingRecentlyDeleted ? nil : "Import a statement to get started"
+                    title: sessionState.showingRecentlyDeleted ? "No deleted transactions" : "No transactions",
+                    subtitle: sessionState.showingRecentlyDeleted ? nil : "Import a statement to get started"
                 )
             } else {
                 ScrollView {
@@ -385,7 +379,7 @@ struct TransactionsView: View {
                                 ForEach(Array(group.transactions.enumerated()), id: \.element.id) { index, tx in
                                     TransactionLedgerRow(
                                         transaction: tx,
-                                        isDeletedMode: showingRecentlyDeleted,
+                                        isDeletedMode: sessionState.showingRecentlyDeleted,
                                         isSelectionMode: selectionMode,
                                         isSelected: selectedIDs.contains(tx.id),
                                         onToggleSelection: { toggleSelection(tx) },
@@ -409,6 +403,8 @@ struct TransactionsView: View {
                     }
                     .padding(.horizontal, 12)
                 }
+                .scrollContentBackground(.hidden)
+                .background(.clear)
             }
         }
     }

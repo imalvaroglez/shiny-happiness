@@ -1273,6 +1273,25 @@ enum CategoryPalette {
     }
 }
 
+/// Assigns evenly spaced hues within each spending chart so its visible
+/// categories remain distinguishable. Colors may shift when that set changes.
+enum CategoryChartPalette {
+    static func slots(for categoryIDs: [UUID]) -> [UUID: Int] {
+        let sortedIDs = Array(Set(categoryIDs)).sorted { $0.uuidString < $1.uuidString }
+        return Dictionary(uniqueKeysWithValues: sortedIDs.enumerated().map { ($0.element, $0.offset) })
+    }
+
+    static func colors(for categoryIDs: [UUID]) -> [UUID: Color] {
+        let slots = slots(for: categoryIDs)
+        return slots.mapValues { color(slot: $0, count: slots.count) }
+    }
+
+    private static func color(slot: Int, count: Int) -> Color {
+        let hue = Double(slot) / Double(max(count, 1))
+        return Color(hue: hue, saturation: 0.82, brightness: 0.42)
+    }
+}
+
 struct DashboardSpendingBarRow: Identifiable {
     let id: String
     let categoryID: UUID?
@@ -1329,6 +1348,10 @@ struct DashboardSpendingCategoryBars: View {
         DashboardSpendingBarBuilder.rows(from: entries, limit: limit)
     }
 
+    private var categoryColors: [UUID: Color] {
+        CategoryChartPalette.colors(for: rows.compactMap(\.categoryID))
+    }
+
     private var maxAmount: Decimal {
         rows.map(\.amount).max() ?? 0
     }
@@ -1348,7 +1371,7 @@ struct DashboardSpendingCategoryBars: View {
     }
 
     private func spendingRow(_ row: DashboardSpendingBarRow) -> some View {
-        let color = row.isOther ? Color.secondary : CategoryPalette.color(for: row.name)
+        let color = row.categoryID.flatMap { categoryColors[$0] } ?? Color.secondary
         let widthRatio = maxAmount > 0 ? ((row.amount / maxAmount) as NSDecimalNumber).doubleValue : 0
         let matchedEntry = row.categoryID.flatMap { id in entries.first { $0.category.id == id } }
 
@@ -1416,6 +1439,9 @@ struct SpendingCategoryDonut: View {
     @State private var hoveredCategoryID: UUID? = nil
 
     private var visibleEntries: [CategorySpending] { Array(entries.prefix(visibleEntryLimit)) }
+    private var categoryColors: [UUID: Color] {
+        CategoryChartPalette.colors(for: visibleEntries.map(\.id))
+    }
     private var total: Decimal {
         visibleEntries.reduce(Decimal.zero) { $0 + $1.amount }
     }
@@ -1439,19 +1465,8 @@ struct SpendingCategoryDonut: View {
                     outerRadius: .ratio(isActive ? 1.0 : (hasActive ? 0.93 : 0.97)),
                     angularInset: 1.6
                 )
-                .foregroundStyle(CategoryPalette.color(for: entry.category.name))
+                .foregroundStyle(categoryColors[entry.id] ?? CategoryPalette.color(for: entry.category.name))
                 .opacity(hasActive && !isActive ? 0.26 : 1)
-                .annotation(position: .overlay) {
-                    if isActive || (!hasActive && entry.amount > total / 5) {
-                        CategorySliceLabel(
-                            name: entry.category.name,
-                            amount: entry.amount,
-                            total: total,
-                            currencyCode: currencyCode,
-                            compact: !isActive
-                        )
-                    }
-                }
             }
             .frame(height: chartHeight)
             .chartAngleSelection(value: $selectedAngle)
@@ -1486,6 +1501,7 @@ struct SpendingCategoryDonut: View {
                         entry: entry,
                         total: total,
                         currencyCode: currencyCode,
+                        color: categoryColors[entry.id] ?? CategoryPalette.color(for: entry.category.name),
                         isActive: activeCategoryID == entry.id,
                         hasActive: activeCategoryID != nil,
                         compact: compactRows
@@ -1513,38 +1529,6 @@ struct SpendingCategoryDonut: View {
             lowerBound = upperBound
         }
         return visibleEntries.last
-    }
-}
-
-private struct CategorySliceLabel: View {
-    let name: String
-    let amount: Decimal
-    let total: Decimal
-    let currencyCode: String
-    let compact: Bool
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(name)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-            Text(MoneyFormat.string(code: currencyCode, amount))
-                .font(.caption2)
-                .monospacedDigit()
-            if !compact {
-                Text(percentText)
-                    .font(.caption2)
-                    .opacity(0.85)
-            }
-        }
-        .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.45), radius: 1, y: 1)
-    }
-
-    private var percentText: String {
-        guard total > 0 else { return "0%" }
-        let value = ((amount / total) as NSDecimalNumber).doubleValue * 100
-        return String(format: "%.1f%%", value)
     }
 }
 
@@ -1581,12 +1565,11 @@ private struct CategoryBreakdownRow: View {
     let entry: CategorySpending
     let total: Decimal
     let currencyCode: String
+    let color: Color
     let isActive: Bool
     let hasActive: Bool
     let compact: Bool
     let onSelect: () -> Void
-
-    private var color: Color { CategoryPalette.color(for: entry.category.name) }
 
     var body: some View {
         Button(action: onSelect) {
