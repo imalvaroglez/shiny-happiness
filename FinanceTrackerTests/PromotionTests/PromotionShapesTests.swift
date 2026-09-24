@@ -86,6 +86,10 @@ struct PromotionShapesTests {
         #expect(target == 5_000)
         #expect(remaining == 0)
         #expect(p.daysRemaining == 5, "10→15 sep, contra fecha de evaluación (no la última tx)")
+        #expect(p.campaignPhase == .active)
+        #expect(p.currentGoalReached)
+        #expect(p.deadlineDate == date(2026, 9, 15))
+        #expect(p.deadlineDisplayText == "15 sep (quedan 5 días)")
     }
 
     @Test("Umbral NO cruzado → en curso con restante")
@@ -113,6 +117,7 @@ struct PromotionShapesTests {
             txs: txs, asOf: date(2026, 9, 10))
         #expect(p.displayState == .estimated)
         #expect(p.displayState != .thresholdReachedPerRecords)
+        #expect(!p.currentGoalReached)
     }
 
     @Test("Suspensión v4-g: $5,100 firme + refund ambiguo $300 vs umbral $5,000")
@@ -132,6 +137,7 @@ struct PromotionShapesTests {
         #expect(p.possibleNegativeAdjustment == 300)
         #expect(p.displayState == .thresholdSuspended,
                 "La ambigüedad pendiente puede cambiar el desenlace → NO «alcanzado»")
+        #expect(!p.currentGoalReached)
     }
 
     @Test("Ventana cerrada: expirada con resultado final salvo datos tardíos")
@@ -145,6 +151,10 @@ struct PromotionShapesTests {
                     txs: txs, asOf: date(2026, 9, 20))
         #expect(p.displayState == .expired(reachedPerRecords: true))
         #expect(p.daysRemaining == nil)
+        #expect(p.campaignPhase == .finished)
+        #expect(p.campaignEndDate == date(2026, 9, 15))
+        #expect(p.deadlineDate == date(2026, 9, 15))
+        #expect(!p.currentGoalReached)
 
         // Dato tardío en periodo cerrado: se reintegra (final salvo tardíos, nunca congelado)
         let late = insertTx(context, account, day: 5, amount: -1_000)
@@ -152,6 +162,21 @@ struct PromotionShapesTests {
                      txs: txs + [late], asOf: date(2026, 9, 20))
         guard case .spendThreshold(_, let remaining) = p2.shapeSummary else { return }
         #expect(remaining == 3_000, "La tx tardía dentro de ventana reintegra al cálculo")
+    }
+
+    @Test("Una promoción aún no iniciada se separa de las activas")
+    func windowUpcoming() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = makeAccount(context)
+        let txs = [insertTx(context, account, day: 10, amount: -1_000)]
+
+        let p = run(context, def: thresholdDef(account: account, target: 5_000),
+                    txs: txs, asOf: date(2026, 8, 31))
+        #expect(p.campaignPhase == .upcoming)
+        #expect(p.campaignStartDate == date(2026, 9, 1))
+        #expect(p.daysRemaining == nil)
+        #expect(!p.currentGoalReached)
     }
 
     // MARK: Cashback con tope
@@ -183,6 +208,7 @@ struct PromotionShapesTests {
         #expect(cap == 3_000)
         #expect(capRemaining == 1_000)
         #expect(under.displayState == .enCurso)
+        #expect(!under.currentGoalReached)
 
         let capped = run(context, def: def,
                          txs: [insertTx(context, account, day: 10, amount: -4_000, descriptor: "WALMART SUPER")],
@@ -190,6 +216,7 @@ struct PromotionShapesTests {
         guard case .cashback(let devengado2, _, let capRemaining2) = capped.shapeSummary else { return }
         #expect(devengado2 == 3_000, "tope acumulado alcanzado")
         #expect(capRemaining2 == 0)
+        #expect(capped.currentGoalReached)
     }
 
     // MARK: Periodos escalonados
@@ -221,7 +248,7 @@ struct PromotionShapesTests {
             insertTx(context, account, day: 10, amount: -5_200),   // P1 (1–15) ganado
             insertTx(context, account, day: 18, amount: -3_000),   // P2 (16–30) en curso
         ]
-        let p = run(context, def: tieredDef(account: account), txs: txs, asOf: date(2026, 9, 20))
+        let p = run(context, def: tieredDef(account: account), txs: txs, asOf: date(2026, 9, 22))
         guard case .tieredPeriods(let periods, let earned, let cap) = p.shapeSummary else {
             Issue.record("summary tiered inesperado"); return }
         #expect(periods.count == 3)
@@ -234,7 +261,15 @@ struct PromotionShapesTests {
         #expect(earned == 1_000)
         #expect(cap == 4_000)
         #expect(p.displayState == .enCurso)
-        #expect(p.daysRemaining == 10, "20→30 sep (cierre del periodo actual)")
+        #expect(p.daysRemaining == 8, "22→30 sep (cierre del periodo actual)")
+        #expect(p.deadlineDate == date(2026, 9, 30))
+        #expect(p.deadlineDisplayText == "30 sep (quedan 8 días)")
+        #expect(p.campaignPhase == .active)
+
+        let reached = run(context, def: tieredDef(account: account),
+                          txs: txs + [insertTx(context, account, day: 19, amount: -2_200)],
+                          asOf: date(2026, 9, 22))
+        #expect(reached.currentGoalReached, "El objetivo del periodo actual se distingue en verde")
     }
 
     @Test("Sin arrastre: lo no ganado en P1 no se arrastra a P2")

@@ -29,6 +29,12 @@ struct PromotionDetailSheet: View {
         promo.rows.filter { if case .evidence = $0.outcome { return true }; return false }
     }
 
+    private var deadlineLabel: String {
+        if promo.campaignPhase == .finished { return "Vigencia terminó" }
+        if case .tieredPeriods = promo.shapeSummary { return "Cierre del periodo actual" }
+        return "Fecha límite"
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -69,8 +75,10 @@ struct PromotionDetailSheet: View {
                 Text("± \(MoneyFormat.string(code: currencyCode, promo.possiblePositiveAddition)) por revisar · posible ajuste −\(MoneyFormat.string(code: currencyCode, promo.possibleNegativeAdjustment))")
                     .font(.caption).foregroundStyle(.orange)
             }
-            if let days = promo.daysRemaining {
-                Text("Quedan \(days) días").font(.caption).foregroundStyle(.secondary)
+            if let deadline = promo.deadlineDisplayText {
+                Text("\(deadlineLabel): \(deadline)").font(.caption).foregroundStyle(.secondary)
+            } else if promo.campaignPhase == .upcoming, let start = promo.campaignStartDate {
+                Text("Inicia \(promotionDateLabel(start))").font(.caption).foregroundStyle(.secondary)
             }
             if !promo.overlaps.isEmpty {
                 Text("También cuenta en: \(promo.overlaps.joined(separator: ", ")) — conteo único no confirmado")

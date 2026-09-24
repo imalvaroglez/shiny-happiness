@@ -64,6 +64,8 @@ struct PromotionProgress: Equatable {
         case expiredSuspended
     }
 
+    enum CampaignPhase: Equatable { case upcoming, active, finished }
+
     struct PeriodOutcome: Equatable {
         let start: String
         let end: String
@@ -83,6 +85,11 @@ struct PromotionProgress: Equatable {
 
     var displayState: DisplayState = .enCurso
     var daysRemaining: Int?
+    var campaignPhase: CampaignPhase? = nil
+    var campaignStartDate: Date? = nil
+    var campaignEndDate: Date? = nil
+    var deadlineDate: Date? = nil
+    var currentGoalReached = false
     var shapeSummary: ShapeSummary = .spendThreshold(target: 0, remaining: 0)
 
     /// Otras promos de la cuenta que comparten transacciones candidatas (cruce de IDs en
@@ -259,6 +266,22 @@ struct PromotionEvaluator {
                                    refundLedger: refundLedger, asOf: asOf)
         summarized.knownUnknowns = def.knownUnknowns
         summarized.reconciliations = reconciliations
+        let evaluationDay = Self.calendar.startOfDay(for: asOf)
+        summarized.campaignStartDate = window.lowerBound
+        summarized.campaignEndDate = Self.calendar.date(byAdding: .day, value: -1, to: window.upperBound)
+        if evaluationDay < window.lowerBound {
+            summarized.campaignPhase = .upcoming
+            summarized.deadlineDate = nil
+            summarized.daysRemaining = nil
+            summarized.currentGoalReached = false
+        } else if evaluationDay >= window.upperBound {
+            summarized.campaignPhase = .finished
+            summarized.deadlineDate = summarized.campaignEndDate
+            summarized.daysRemaining = nil
+            summarized.currentGoalReached = false
+        } else {
+            summarized.campaignPhase = .active
+        }
         // Candidatos de recibo: créditos con descriptor de recompensa hasta asOf (post-cierre
         // incluido — v4-i), listados sin asignación.
         summarized.receiptCandidates = classified.compactMap { item in
@@ -290,6 +313,8 @@ struct PromotionEvaluator {
         case .spendThreshold(let target, _):
             let remaining = max(0, target - p.eligibleFirm)
             p.shapeSummary = .spendThreshold(target: target, remaining: remaining)
+            let inclusiveEnd = Self.calendar.date(byAdding: .day, value: -1, to: window.upperBound)!
+            p.deadlineDate = inclusiveEnd
             let negativeChanges = reached(target) && p.eligibleFirm - p.possibleNegativeAdjustment < target
             let positiveChanges = mayReach(target, p.possiblePositiveAddition)
             if expired {
@@ -313,24 +338,28 @@ struct PromotionEvaluator {
             } else {
                 p.displayState = .enCurso
             }
-            p.daysRemaining = expired ? nil : Self.days(from: evaluationDay,
-                toInclusiveEnd: Self.calendar.date(byAdding: .day, value: -1, to: window.upperBound)!)
+            p.currentGoalReached = !expired && p.displayState == .thresholdReachedPerRecords
+            p.daysRemaining = expired || evaluationDay < window.lowerBound ? nil : Self.days(from: evaluationDay, toInclusiveEnd: inclusiveEnd)
 
         case .cashbackCap(let ratePercent, let cap):
             let devengado = min(p.eligibleFirm * ratePercent / 100, cap)
             p.shapeSummary = .cashback(devengado: devengado, cap: cap, capRemaining: cap - devengado)
             let low = min(max(0, p.eligibleFirm - p.possibleNegativeAdjustment) * ratePercent / 100, cap)
             let high = min((p.eligibleFirm + p.possiblePositiveAddition) * ratePercent / 100, cap)
+            let inclusiveEnd = Self.calendar.date(byAdding: .day, value: -1, to: window.upperBound)!
+            p.deadlineDate = inclusiveEnd
             if low != high { p.displayState = .provisional }
             else if assumptions { p.displayState = .estimated }
             else { p.displayState = expired ? .expired(reachedPerRecords: devengado > 0) : .enCurso }
-            p.daysRemaining = expired ? nil : Self.days(from: evaluationDay,
-                toInclusiveEnd: Self.calendar.date(byAdding: .day, value: -1, to: window.upperBound)!)
+            p.currentGoalReached = !expired && !assumptions && low >= cap
+            p.daysRemaining = expired || evaluationDay < window.lowerBound ? nil : Self.days(from: evaluationDay, toInclusiveEnd: inclusiveEnd)
 
         case .tieredPeriods(let periodSpecs, let threshold, let reward, let annualCap, let capScope):
             var periods: [PromotionProgress.PeriodOutcome] = []
             var earned: Decimal = 0
             var earnedByYear: [Int: Decimal] = [:]
+            var currentPeriodEnd: Date?
+            var currentPeriodGoalReached = false
             for spec in periodSpecs.sorted(by: { $0.start < $1.start }) {
                 guard let range = Self.resolvePeriod(spec) else { continue }
                 let firm = firm(in: range, classified: classified, refundLedger: refundLedger)
@@ -354,6 +383,8 @@ struct PromotionEvaluator {
                     }
                 } else if range.contains(evaluationDay) {
                     phase = .current
+                    currentPeriodEnd = Self.calendar.date(byAdding: .day, value: -1, to: range.upperBound)
+                    currentPeriodGoalReached = firm >= threshold && uncertainDown == 0
                 } else {
                     phase = .future
                 }
@@ -364,11 +395,17 @@ struct PromotionEvaluator {
             if periods.contains(where: { $0.phase == .provisional }) { p.displayState = .provisional }
             else if assumptions { p.displayState = .estimated }
             else { p.displayState = expired ? .expired(reachedPerRecords: earned > 0) : .enCurso }
+            let inclusiveEnd = Self.calendar.date(byAdding: .day, value: -1, to: window.upperBound)!
+            p.deadlineDate = expired ? inclusiveEnd : (currentPeriodEnd ?? inclusiveEnd)
+            p.currentGoalReached = !expired && !assumptions && !periods.contains(where: { $0.phase == .provisional })
+                && currentPeriodGoalReached
             if expired {
                 p.daysRemaining = nil
-            } else if let currentSpec = periodSpecs.first(where: { Self.resolvePeriod($0)?.contains(evaluationDay) == true }),
-                      let currentRange = Self.resolvePeriod(currentSpec),
-                      let inclusiveEnd = Self.calendar.date(byAdding: .day, value: -1, to: currentRange.upperBound) {
+            } else if evaluationDay < window.lowerBound {
+                p.daysRemaining = nil
+            } else if let currentPeriodEnd {
+                p.daysRemaining = Self.days(from: evaluationDay, toInclusiveEnd: currentPeriodEnd)
+            } else {
                 p.daysRemaining = Self.days(from: evaluationDay, toInclusiveEnd: inclusiveEnd)
             }
         }
