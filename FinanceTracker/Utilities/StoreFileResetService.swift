@@ -15,7 +15,7 @@ struct StoreFileResetService {
         return dir.appendingPathComponent("hard_reset_requested")
     }()
 
-    private static var isRunningTests: Bool {
+    static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             || ProcessInfo.processInfo.environment["XCInjectBundleInto"] != nil
     }
