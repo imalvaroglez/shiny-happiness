@@ -6,16 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-23
+
 ### Added
 
 - **Traceable promotion reports.** Card dashboards now show assumptions and provisional outcomes, while promotion detail exposes the credit-to-charge reconciliations and capped refund adjustments behind each total. Invalid or unbound definitions and missing channel data are surfaced in Settings.
 
+### Changed
+
+- **Dashboard action access.** Transaction, balance, position, and statement actions now share the title-bar Add menu instead of a floating stack over dashboard content; spending donut labels no longer collide because names remain in the legend and the center identifies the active category.
+- **Spending chart category colors.** Donut and bar charts now use evenly spaced colors for the categories visible in each chart, making nearby categories easier to distinguish.
+- **Compact Add Account type selection.** The account-type control now uses a menu so all five choices fit in the modal.
+- **Promotion list lifecycle.** The promotion modal names its card, counts active offers only, shows the relevant deadline, and keeps upcoming and finished offers in collapsed sections with their current calculated outcome.
+- **Featured promotion choice.** The dashboard no longer picks an active offer automatically; each card can have one user-selected promotion in its summary.
+
 ### Fixed
 
 - **Promotion reconciliation and evaluation.** Duplicates, deleted rows, other accounts, and future transactions can no longer affect promotion totals or be revived by MSI policy. MSI reversals and refunds reconcile over account history with date, currency, merchant identity, uniqueness, and amount-cap checks before eligible spend is summed. Calendar-year caps, uncertain outcomes, and CDMX civil-day counts are applied consistently.
-- **Settings account-state refresh.** Classification, assignment, statement, balance-snapshot, position, and account-type changes invalidate account summaries even when transaction count is unchanged; nickname edits do not trigger the transaction probe.
+- **Settings account-state refresh.** Account summaries load after the Accounts tab appears and refresh after account, balance, or position edits; loading no longer materializes every transaction or re-runs for nickname keystrokes.
 - **Historic import integrity.** The Amex importer now requires an explicit schema-7 reference backup, account UUID, source, and new output path. It validates documents before merge, preserves the reference and unchanged model/resource bytes, and publishes only a complete self-checked backup.
 - **Settings account editing performance.** Renaming an account no longer reloads all transactions or recomputes per-account transaction and portfolio checks on every keystroke.
+- **Category picker responsiveness.** Opening the category selector no longer repeats promotion-history fetches or evaluation; category rows are indexed once per query update and created lazily.
+- **Settings responsiveness.** Inactive tabs no longer build their content; category rows are indexed after the tab appears, summary calculation runs off the main thread after the initial frame, and backup verification starts only when Backup & Data is opened.
+- **Transactions toolbar and session filters.** Filters, direct sort choices, search, selection, and Add share one compact row. Search and view criteria survive navigation until Clear or the app's data-reset flow runs.
 
 ## [0.14.0] - 2026-08-17
 

@@ -38,7 +38,8 @@ review. See `docs/LOOPS.md` for role boundaries and approval gates.
 ## Build, Test, and Development Commands
 
 - `xcodegen generate` regenerates `FinanceTracker.xcodeproj` from `project.yml`; **run after adding, moving, or deleting any Swift file**. Never edit `.xcodeproj` directly (AD-005).
-- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project FinanceTracker.xcodeproj -scheme FinanceTracker build` builds the app.
+- The canonical development app is Xcode's default DerivedData product for this checkout: `~/Library/Developer/Xcode/DerivedData/FinanceTracker-arvotgkffgafitgsepmdkzzfxhna/Build/Products/Debug/FinanceTracker Dev.app`. Build it without `-derivedDataPath`; do not hand off a `/tmp` or task-specific DerivedData copy for UI validation.
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project FinanceTracker.xcodeproj -scheme FinanceTracker -configuration Debug build` builds that app. Open it with `open "$HOME/Library/Developer/Xcode/DerivedData/FinanceTracker-arvotgkffgafitgsepmdkzzfxhna/Build/Products/Debug/FinanceTracker Dev.app"`.
 - `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests -destination 'platform=macOS' -parallel-testing-enabled NO` runs the full test suite serially. **Always pass `-parallel-testing-enabled NO`** — Swift Testing's parallel runner intermittently hangs on macOS PDFKit/Vision teardown. Serial runs finish in ~15s and are always green.
 - `xcodebuild test ... -only-testing:FinanceTrackerTests/CategorizerTests` runs one test class.
 - `open FinanceTracker.xcodeproj` opens the generated project in Xcode.
