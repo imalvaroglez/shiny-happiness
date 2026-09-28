@@ -24,11 +24,11 @@ enum AssignmentFilter: Hashable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .all: "All Assignments"
-        case .user: "User"
-        case .shared: "Shared"
+        case .all: String(localized: "All Assignments")
+        case .user: String(localized: "User")
+        case .shared: String(localized: "Shared")
         case .partner: "Fer"
-        case .custom: "Custom split"
+        case .custom: String(localized: "Custom split")
         }
     }
 
@@ -50,20 +50,30 @@ enum HouseholdInclusionFilter: Hashable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .all: "All Transactions"
-        case .included: "Included in Household"
-        case .notIncluded: "Not included in Household"
+        case .all: String(localized: "All Transactions")
+        case .included: String(localized: "Included in Household")
+        case .notIncluded: String(localized: "Not included in Household")
         }
     }
 }
 
-/// One-shot navigation intent: open Transactions with a preconfigured month +
-/// Household inclusion filter. Each preset carries a unique token so it is
-/// applied exactly once.
+/// One-shot navigation intent for account history or household review.
+/// Each preset carries a unique token so it is applied exactly once.
 struct TransactionFilterPreset: Identifiable, Equatable {
     let id = UUID()
     let month: YearMonth?
     let inclusion: HouseholdInclusionFilter
+    let accountID: UUID?
+
+    init(
+        month: YearMonth? = nil,
+        inclusion: HouseholdInclusionFilter = .all,
+        accountID: UUID? = nil
+    ) {
+        self.month = month
+        self.inclusion = inclusion
+        self.accountID = accountID
+    }
 }
 
 struct TransactionSessionState {
@@ -78,6 +88,23 @@ struct TransactionSessionState {
 
     mutating func reset() {
         self = Self()
+    }
+
+    mutating func apply(_ preset: TransactionFilterPreset) {
+        if let accountID = preset.accountID {
+            searchText = ""
+            accountFilterID = accountID
+            categoryFilter = .all
+            assignmentFilter = .all
+            householdInclusionFilter = .all
+            presetMonth = nil
+            sortMode = .dateDesc
+            showingRecentlyDeleted = false
+            return
+        }
+
+        if let month = preset.month { presetMonth = month }
+        householdInclusionFilter = preset.inclusion
     }
 }
 
@@ -130,8 +157,7 @@ struct TransactionsView: View {
     private func consumePresetIfNeeded() {
         guard let preset, preset.id != consumedPresetID else { return }
         consumedPresetID = preset.id
-        if let month = preset.month { sessionState.presetMonth = month }
-        sessionState.householdInclusionFilter = preset.inclusion
+        sessionState.apply(preset)
         onPresetConsumed?(preset)
     }
 
@@ -364,7 +390,7 @@ struct TransactionsView: View {
     }
 
     private var groupedLedger: some View {
-        Group {
+        GeometryReader { geometry in
             if dayGroups.isEmpty {
                 EmptyStateView(
                     icon: "list.bullet.rectangle",
@@ -372,39 +398,48 @@ struct TransactionsView: View {
                     subtitle: sessionState.showingRecentlyDeleted ? nil : "Import a statement to get started"
                 )
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
-                        ForEach(dayGroups) { group in
-                            Section {
-                                ForEach(Array(group.transactions.enumerated()), id: \.element.id) { index, tx in
-                                    TransactionLedgerRow(
-                                        transaction: tx,
-                                        isDeletedMode: sessionState.showingRecentlyDeleted,
-                                        isSelectionMode: selectionMode,
-                                        isSelected: selectedIDs.contains(tx.id),
-                                        onToggleSelection: { toggleSelection(tx) },
-                                        onOpenDetail: { editingTransaction = tx },
-                                        onOpenCategoryPicker: {
-                                            editingTransaction = tx
-                                        },
-                                        onDelete: { softDelete(tx) },
-                                        onRestore: { restore(tx) },
-                                        onApplyToSimilar: { beginApplyToSimilar(tx) },
-                                        onToggleHousehold: { toggleHouseholdInclusion(tx) }
-                                    )
-                                    if index < group.transactions.count - 1 {
-                                        DashboardSeparator()
+                let wideLayout = geometry.size.width >= 900
+                VStack(spacing: 0) {
+                    if wideLayout {
+                        TransactionLedgerColumnHeader(showsAccount: sessionState.accountFilterID == nil)
+                            .padding(.horizontal, 12)
+                    }
+                    ScrollView {
+                        LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
+                            ForEach(dayGroups) { group in
+                                Section {
+                                    ForEach(Array(group.transactions.enumerated()), id: \.element.id) { index, tx in
+                                        TransactionLedgerRow(
+                                            transaction: tx,
+                                            isDeletedMode: sessionState.showingRecentlyDeleted,
+                                            isSelectionMode: selectionMode,
+                                            isSelected: selectedIDs.contains(tx.id),
+                                            onToggleSelection: { toggleSelection(tx) },
+                                            wideLayout: wideLayout,
+                                            showsAccount: sessionState.accountFilterID == nil,
+                                            onOpenDetail: { editingTransaction = tx },
+                                            onOpenCategoryPicker: {
+                                                editingTransaction = tx
+                                            },
+                                            onDelete: { softDelete(tx) },
+                                            onRestore: { restore(tx) },
+                                            onApplyToSimilar: { beginApplyToSimilar(tx) },
+                                            onToggleHousehold: { toggleHouseholdInclusion(tx) }
+                                        )
+                                        if index < group.transactions.count - 1 {
+                                            DashboardSeparator()
+                                        }
                                     }
+                                } header: {
+                                    TransactionDateGroupHeader(group: group)
                                 }
-                            } header: {
-                                TransactionDateGroupHeader(group: group)
                             }
                         }
+                        .padding(.horizontal, 12)
                     }
-                    .padding(.horizontal, 12)
+                    .scrollContentBackground(.hidden)
+                    .background(.clear)
                 }
-                .scrollContentBackground(.hidden)
-                .background(.clear)
             }
         }
     }

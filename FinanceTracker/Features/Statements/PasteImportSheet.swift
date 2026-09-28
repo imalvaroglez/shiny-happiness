@@ -60,7 +60,7 @@ struct PasteImportSheet: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .accessibilityHint("Shows an example of the HSBC 2Now header needed for paste import.")
+                .accessibilityHint("Muestra un ejemplo del encabezado de HSBC 2Now necesario para importar texto.")
 
                 if showingHSBCExample {
                     VStack(alignment: .leading, spacing: 4) {

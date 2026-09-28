@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-28
+
+### Added
+
+- **Category recovery from a verified backup.** Settings can preview missing categories and duplicate assignments, create a fresh safety backup, and then restore the original category tree without replacing later transactions or custom categories.
+- **Promotion management.** Settings now has a Promotions tab to add, edit, or remove offers by card; local changes are versioned, included in schema 9 backups, and cleared by a full data reset.
+- **Gasto mínimo por ciclo.** Configura el objetivo y el corte por tarjeta; el Dashboard calcula compras, mensualidades y devoluciones dentro del ciclo, y marca los abonos sin identificar para revisión. Los requisitos se incluyen en respaldos schema 9.
+
+### Changed
+
+- **Credit card monthly dashboard.** Monthly charts now focus on charges and omit days without charges; payments and credits remain visible as totals. Account dashboards can open the full transaction history filtered to that account.
+- **Dashboard and transaction layout.** Paired account charts now align with compact summaries and a separate category breakdown; Transactions uses aligned columns and compact rows, with consistent Spanish labels and filter controls.
+- **Spanish (Mexico) interface.** Navigation, forms, category names, and visible date formatting use es-MX while stored category identifiers and movement data remain unchanged.
+- **Credit-card insights layout.** Utilization, payment due, and minimum spend use equal-height cards in a wide row; reviewable credits sit below the cards, and the spend cycle keeps its nominal and adjusted close visible in a compact line.
+- **Household report layout.** Monthly setup uses a centered reading width and aligned controls; the recovery card explains the shared and Fer-only amounts that compose its total.
+
+### Fixed
+
+- **Promotion editor presentation.** Add and Edit now present from a stable Settings-level sheet using the selected definition, preventing an empty form during tab updates.
+- **Backup merge relationships.** Restoring an older snapshot no longer applies its stale category, account, statement, or transaction links to rows whose newer local version wins.
+
 ## [0.15.0] - 2026-09-23
 
 ### Added
@@ -28,6 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Settings account editing performance.** Renaming an account no longer reloads all transactions or recomputes per-account transaction and portfolio checks on every keystroke.
 - **Category picker responsiveness.** Opening the category selector no longer repeats promotion-history fetches or evaluation; category rows are indexed once per query update and created lazily.
 - **Settings responsiveness.** Inactive tabs no longer build their content; category rows are indexed after the tab appears, summary calculation runs off the main thread after the initial frame, and backup verification starts only when Backup & Data is opened.
+- **Promotion management responsiveness.** Add and Edit presentation is owned by the Settings tab, and the validated catalog is cached instead of being reloaded during view redraws.
 - **Transactions toolbar and session filters.** Filters, direct sort choices, search, selection, and Add share one compact row. Search and view criteria survive navigation until Clear or the app's data-reset flow runs.
 
 ## [0.14.0] - 2026-08-17

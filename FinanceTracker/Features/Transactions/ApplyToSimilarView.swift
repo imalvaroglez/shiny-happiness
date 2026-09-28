@@ -27,7 +27,7 @@ struct ApplyToSimilarView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            Text("Apply \"\(category.name)\" to similar transactions?")
+            Text("¿Aplicar «\(category.localizedName)» a movimientos similares?")
                 .font(.headline)
 
             if let keyword {
@@ -125,7 +125,7 @@ struct ApplyToSimilarView: View {
             Spacer()
 
             if keyword != nil && !matchingTransactions.isEmpty {
-                Button("Apply to Selected (\(selectedCount))") {
+                Button("Aplicar a seleccionados (\(selectedCount))") {
                     applySelected()
                     dismiss()
                 }

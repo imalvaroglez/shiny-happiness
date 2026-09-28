@@ -1,9 +1,9 @@
 import Foundation
 
 /// Fail-soft por promoción: una definición defectuosa no bloquea las entradas válidas.
-struct PromotionCatalog: Equatable {
-    struct Warning: Equatable {
-        enum Kind: Equatable { case decodeFailed, invalidDefinition, invalidChannelTable, missingResource }
+struct PromotionCatalog: Equatable, Sendable {
+    struct Warning: Equatable, Sendable {
+        enum Kind: Equatable, Sendable { case decodeFailed, invalidDefinition, invalidChannelTable, missingResource, storageFailed }
         let kind: Kind
         let definitionID: String?
         let message: String
@@ -57,7 +57,7 @@ struct PromotionCatalog: Equatable {
             let id = (entry as? [String: Any])?["id"] as? String
             do {
                 let definition = try JSONDecoder().decode(PromotionDefinition.self, from: raw)
-                var issues = validate(definition)
+                var issues = validationIssues(definition)
                 if (entry as? [String: Any])?["knownUnknowns"] == nil {
                     issues.append("falta knownUnknowns")
                 }
@@ -81,9 +81,30 @@ struct PromotionCatalog: Equatable {
         return table
     }
 
-    private static func validate(_ def: PromotionDefinition) -> [String] {
+    func applying(_ overrides: PromotionOverrides) -> PromotionCatalog {
+        var effective = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0) })
+        let deleted = Set(overrides.deletedIDs)
+        for id in deleted { effective.removeValue(forKey: id) }
+        var warnings = self.warnings
+        for definition in overrides.definitions where !deleted.contains(definition.id) {
+            let issues = Self.validationIssues(definition)
+            guard issues.isEmpty else {
+                warnings.append(.init(kind: .invalidDefinition, definitionID: definition.id,
+                                      message: "\(definition.id): \(issues.joined(separator: "; "))"))
+                continue
+            }
+            effective[definition.id] = definition
+        }
+        return PromotionCatalog(definitions: effective.values.sorted {
+            $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+        }, warnings: warnings, channelTable: channelTable,
+        channelTableAvailable: channelTableAvailable)
+    }
+
+    static func validationIssues(_ def: PromotionDefinition) -> [String] {
         var errors: [String] = []
         if def.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("id vacío") }
+        if def.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("nombre vacío") }
         if !Locale.isoCurrencyCodes.contains(def.scope.currency) { errors.append("currency no es un código ISO válido") }
         if !valid(def.window) { errors.append("ventana con fechas inválidas o duración no positiva") }
 

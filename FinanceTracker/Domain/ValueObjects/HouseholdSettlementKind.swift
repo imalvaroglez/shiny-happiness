@@ -12,10 +12,10 @@ enum ExpenseAssignment: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .user: "User"
-        case .shared: "Shared"
+        case .user: String(localized: "User")
+        case .shared: String(localized: "Shared")
         case .partner: "Fer"
-        case .custom: "Custom split"
+        case .custom: String(localized: "Custom split")
         }
     }
 }
@@ -51,9 +51,9 @@ enum SettlementPaidBy: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .user: "User"
-        case .partner: "Partner"
-        case .unknown: "Unknown"
+        case .user: String(localized: "User")
+        case .partner: String(localized: "Partner")
+        case .unknown: String(localized: "Unknown")
         }
     }
 }
@@ -67,9 +67,9 @@ enum HouseholdSplitMethod: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .monthlyDefault: "Proportional by income"
+        case .monthlyDefault: String(localized: "Proportional by income")
         case .fiftyFifty: "50/50"
-        case .customPercent: "Custom"
+        case .customPercent: String(localized: "Custom")
         }
     }
 }

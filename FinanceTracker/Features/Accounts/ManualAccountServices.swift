@@ -22,11 +22,11 @@ enum ManualAccountKind: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .debit: "Debit"
-        case .investment: "Investment"
-        case .retirement: "Retirement"
-        case .creditCard: "Credit Card"
-        case .loan: "Loan"
+        case .debit: String(localized: "Debit")
+        case .investment: String(localized: "Investment")
+        case .retirement: String(localized: "Retirement")
+        case .creditCard: String(localized: "Credit Card")
+        case .loan: String(localized: "Loan")
         }
     }
 
@@ -141,8 +141,8 @@ extension RetirementKind {
         switch self {
         case .ppr: "PPR"
         case .afore: "AFORE"
-        case .employerRetirementPlan: "Employer Plan"
-        case .other: "Other Retirement"
+        case .employerRetirementPlan: String(localized: "Employer Plan")
+        case .other: String(localized: "Other Retirement")
         }
     }
 }
@@ -150,9 +150,9 @@ extension RetirementKind {
 extension AccountLiquidity {
     var displayName: String {
         switch self {
-        case .liquid: "Liquid"
-        case .restricted: "Restricted"
-        case .lockedUntilRetirement: "Locked"
+        case .liquid: String(localized: "Liquid")
+        case .restricted: String(localized: "Restricted")
+        case .lockedUntilRetirement: String(localized: "Locked")
         }
     }
 }
@@ -451,14 +451,14 @@ extension AccountType {
 
     var displayName: String {
         switch self {
-        case .checking: "Debit"
-        case .savings: "Savings"
-        case .creditCard: "Credit Card"
-        case .investment: "Investment"
-        case .loan: "Loan"
-        case .wallet: "Wallet"
-        case .retirement: "Retirement"
-        case .other: "Other"
+        case .checking: String(localized: "Debit")
+        case .savings: String(localized: "Savings")
+        case .creditCard: String(localized: "Credit Card")
+        case .investment: String(localized: "Investment")
+        case .loan: String(localized: "Loan")
+        case .wallet: String(localized: "Wallet")
+        case .retirement: String(localized: "Retirement")
+        case .other: String(localized: "Other")
         }
     }
 }

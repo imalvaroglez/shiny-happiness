@@ -17,10 +17,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# v7 adds SettlementDueDateOverride as a backup sidecar. Its records are useful
-# to callers that need the full backup shape, but do not change transaction
-# analysis by themselves.
-SUPPORTED_SCHEMA = {4, 5, 6, 7}
+# v7 adds settlement overrides; v8 adds promotion configuration. Both sidecars
+# are exposed to callers without changing transaction analysis by themselves.
+SUPPORTED_SCHEMA = {4, 5, 6, 7, 8}
 
 # Mismas ubicaciones que StoreFileResetService / BackupScheduler.
 DEFAULT_BACKUP_DIRS = [
@@ -140,6 +139,7 @@ def load_dataset(bundle: Optional[Path] = None) -> Dict[str, Any]:
         "HouseholdPartnerIncomeEstimate", "InstallmentPlan", "PendingImport",
         "SettlementDueDateOverride", "SignRecoveryHint", "Statement", "StockPosition", "Transaction",
     )}
+    models["PromotionOverrides"] = _load_model(bundle, "PromotionOverrides")
 
     accounts = {a["id"]: a for a in models["Account"]}
     categories = {c["id"]: c for c in models["Category"]}
@@ -158,6 +158,7 @@ def load_dataset(bundle: Optional[Path] = None) -> Dict[str, Any]:
         "positions": models["StockPosition"],
         "rules": models["CategoryRule"],
         "settlement_due_date_overrides": models["SettlementDueDateOverride"],
+        "promotion_overrides": models["PromotionOverrides"],
     }
 
 

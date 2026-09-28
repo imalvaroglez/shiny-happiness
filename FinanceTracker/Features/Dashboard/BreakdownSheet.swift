@@ -10,6 +10,7 @@ enum BreakdownRequest: Identifiable {
     case interest(transactions: [Transaction], total: Decimal)
     case cashFlowPeriod(start: Date, bucket: DashboardBucket, transactions: [Transaction])
     case categorySpending(category: Category, amount: Decimal, transactions: [Transaction])
+    case categoryList(entries: [CategorySpending], currencyCode: String, transactions: [Transaction])
 
     var id: String {
         switch self {
@@ -19,6 +20,7 @@ enum BreakdownRequest: Identifiable {
         case .interest: return "interest"
         case .cashFlowPeriod(let start, _, _): return "cash-flow-\(start)"
         case .categorySpending(let cat, _, _): return "category-\(cat.id)"
+        case .categoryList: return "category-list"
         }
     }
 
@@ -31,7 +33,8 @@ enum BreakdownRequest: Identifiable {
         case .interest: return "Interest Earned"
         case .cashFlowPeriod(let start, let bucket, _):
             return dashboardBucketLabel(for: start, bucket: bucket)
-        case .categorySpending(let cat, _, _): return cat.name
+        case .categorySpending(let cat, _, _): return cat.localizedName
+        case .categoryList: return String(localized: "Category Breakdown")
         }
     }
 }
@@ -141,6 +144,7 @@ enum AccountSummarySection: Int, CaseIterable {
 struct BreakdownSheet: View {
     let request: BreakdownRequest
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedCategory: BreakdownRequest?
 
     var body: some View {
         NavigationStack {
@@ -151,6 +155,9 @@ struct BreakdownSheet: View {
                         Button("Done") { dismiss() }
                     }
                 }
+        }
+        .sheet(item: $selectedCategory) { request in
+            BreakdownSheet(request: request)
         }
         .frame(minWidth: 540, idealWidth: 640, minHeight: 420, idealHeight: 540)
     }
@@ -173,6 +180,44 @@ struct BreakdownSheet: View {
             )
         case .categorySpending(let cat, let total, let txs):
             transactionsBreakdown(transactions: txs.filter { Self.includesInCategorySpendingBreakdown($0, category: cat) }, total: total, signed: true)
+        case .categoryList(let entries, let currencyCode, let transactions):
+            categoryList(entries: entries, currencyCode: currencyCode, transactions: transactions)
+        }
+    }
+
+    private func categoryList(entries: [CategorySpending], currencyCode: String, transactions: [Transaction]) -> some View {
+        let sorted = entries.sorted { $0.amount > $1.amount }
+        let total = sorted.reduce(Decimal.zero) { $0 + $1.amount }
+        let colors = CategoryChartPalette.colors(for: sorted.map(\.id))
+        return List {
+            Section {
+                HStack {
+                    Text("Total spending")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(MoneyFormat.string(code: currencyCode, total))
+                        .monospacedDigit()
+                }
+            }
+            Section {
+                ForEach(sorted) { entry in
+                    CategoryBreakdownRow(
+                        entry: entry,
+                        total: total,
+                        currencyCode: currencyCode,
+                        color: colors[entry.id] ?? .secondary,
+                        isActive: false,
+                        hasActive: false,
+                        compact: false
+                    ) {
+                        selectedCategory = .categorySpending(
+                            category: entry.category,
+                            amount: entry.amount,
+                            transactions: transactions
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -277,7 +322,7 @@ struct BreakdownSheet: View {
                                 Text(tx.postedAt, format: .dateTime.day().month(.abbreviated).year())
                                     .font(.caption2).foregroundStyle(.secondary)
                                 if let cat = tx.category {
-                                    Text(cat.name).font(.caption2).foregroundStyle(.tertiary)
+                                    Text(cat.localizedName).font(.caption2).foregroundStyle(.tertiary)
                                 }
                                 if let card = tx.cardLast4 {
                                     Text("••••\(card)").font(.caption2).foregroundStyle(.tertiary)

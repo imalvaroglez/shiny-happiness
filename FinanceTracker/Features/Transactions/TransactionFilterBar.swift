@@ -33,7 +33,7 @@ struct TransactionFilterBar: View {
             }
             .popover(isPresented: $showingFilters, arrowEdge: .bottom) {
                 filterPopover
-                    .frame(width: 360)
+                    .frame(width: 390)
                     .padding(14)
             }
 
@@ -43,12 +43,6 @@ struct TransactionFilterBar: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 90, maxWidth: 260)
                 .layoutPriority(1)
-
-            Text("\(visibleCount) transactions")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize()
 
             Spacer(minLength: 4)
 
@@ -72,6 +66,22 @@ struct TransactionFilterBar: View {
             }
             .accessibilityLabel("Add Transaction")
             .help("Add Transaction")
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 5) {
+                Text(visibleCount == 1 ? "1 movimiento" : "\(visibleCount) movimientos")
+                    .foregroundStyle(.secondary)
+                if let filteredAccountName {
+                    Text("· \(filteredAccountName)")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .font(.caption)
+            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 190, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -84,14 +94,14 @@ struct TransactionFilterBar: View {
                     sortMode = mode
                 } label: {
                     if sortMode == mode {
-                        Label(mode.rawValue, systemImage: "checkmark")
+                        Label(mode.displayName, systemImage: "checkmark")
                     } else {
-                        Text(mode.rawValue)
+                        Text(mode.displayName)
                     }
                 }
             }
         } label: {
-            Label(sortMode.rawValue, systemImage: "arrow.up.arrow.down")
+            Label(sortMode.displayName, systemImage: "arrow.up.arrow.down")
                 .labelStyle(.titleAndIcon)
         }
         .menuStyle(.button)
@@ -104,7 +114,7 @@ struct TransactionFilterBar: View {
                     .font(.headline)
                 Spacer()
                 if hasClearableCriteria {
-                    Button("Clear", action: clearFilters)
+                    Button("Clear Filters", action: clearFilters)
                         .font(.caption)
                 }
             }
@@ -124,11 +134,11 @@ struct TransactionFilterBar: View {
                     Text("Uncategorized").tag(CategoryFilter.uncategorized)
                     Divider()
                     ForEach(parentCategories, id: \.id) { parent in
-                        Section(parent.name) {
-                            Text("All \(parent.name)")
+                        Section(parent.localizedName) {
+                            Text("Todas las de \(parent.localizedName)")
                                 .tag(CategoryFilter.parent(parent.id))
                             ForEach(childrenOf(parent), id: \.id) { subcategory in
-                                Text(subcategory.name).tag(CategoryFilter.specific(subcategory.id))
+                                Text(subcategory.localizedName).tag(CategoryFilter.specific(subcategory.id))
                             }
                         }
                     }
@@ -154,26 +164,29 @@ struct TransactionFilterBar: View {
             }
 
             if deletedCount > 0 {
-                Toggle(isOn: $showingRecentlyDeleted) {
-                    Label("Recently Deleted (\(deletedCount))", systemImage: "trash")
+                filterRow("Recently deleted (\(deletedCount))") {
+                    Toggle("Recently deleted", isOn: $showingRecentlyDeleted)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
-                .toggleStyle(.switch)
             }
         }
     }
 
     private func filterRow<Content: View>(
-        _ title: String,
+        _ title: LocalizedStringKey,
         @ViewBuilder content: () -> Content
     ) -> some View {
         HStack(spacing: 12) {
             Text(title)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .frame(width: 82, alignment: .leading)
+                .frame(width: 124, alignment: .leading)
+                .lineLimit(2)
             content()
                 .labelsHidden()
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .pickerStyle(.menu)
+                .frame(width: 254, alignment: .leading)
         }
     }
 
@@ -189,7 +202,12 @@ struct TransactionFilterBar: View {
     }
 
     private var filterButtonTitle: String {
-        activeFilterCount == 0 ? "Filters" : "Filters (\(activeFilterCount))"
+        activeFilterCount == 0 ? String(localized: "Filters") : String(localized: "Filters (\(activeFilterCount))")
+    }
+
+    private var filteredAccountName: String? {
+        guard let accountFilterID else { return nil }
+        return accounts.first { $0.id == accountFilterID }?.displayName
     }
 
     private var hasClearableCriteria: Bool {

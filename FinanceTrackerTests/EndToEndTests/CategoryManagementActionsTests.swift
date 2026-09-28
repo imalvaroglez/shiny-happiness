@@ -254,7 +254,7 @@ struct CategoryManagementActionsTests {
 
         let categoriesByName: [String: FinanceCategory] = ["DeletedCat": cat]
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let rules = try context.fetch(FetchDescriptor<CategoryRule>())
         let rulesForDeleted = rules.filter { $0.category?.id == cat.id }
@@ -271,7 +271,7 @@ struct CategoryManagementActionsTests {
         context.insert(food)
         try context.save()
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let allCats = try context.fetch(FetchDescriptor<FinanceCategory>())
         let foodCats = allCats.filter { $0.name == "Food & Drink" }

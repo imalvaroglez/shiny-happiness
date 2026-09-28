@@ -72,6 +72,23 @@ struct CategoryManagementViewStateTests {
         #expect(visible.map(\.name) == ["Food"])
     }
 
+    @Test("Seed category names are translated for display and search without changing stored classification")
+    func localizedCategoryNamesPreserveStoredValues() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let food = try insertCategory("Food & Drink", context: context)
+        let groceries = try insertCategory("Groceries", parent: food, context: context)
+        let uncategorized = try insertCategory("Uncategorized", context: context)
+
+        let tree = CategoryManagementTree(categories: [food, groceries, uncategorized])
+        #expect(food.localizedName == "Comida y bebidas")
+        #expect(groceries.localizedName == "Supermercado")
+        #expect(uncategorized.localizedName == "Sin categoría")
+        #expect(groceries.name == "Groceries")
+        #expect(groceries.kind == .expense)
+        #expect(tree.visibleParents(searchText: "supermercado", kindFilter: .all).map(\.id) == [food.id])
+    }
+
     @Test("Display guard hides duplicate active category rows")
     func displayGuardHidesDuplicateActiveRows() async throws {
         let container = try makeContainer()

@@ -7,6 +7,16 @@ enum TransactionSortMode: String, CaseIterable {
     case amountAsc = "Amount ↑"
     case name = "Name A-Z"
 
+    var displayName: String {
+        switch self {
+        case .dateDesc: String(localized: "Newest First")
+        case .dateAsc: String(localized: "Oldest First")
+        case .amountDesc: String(localized: "Amount ↓")
+        case .amountAsc: String(localized: "Amount ↑")
+        case .name: String(localized: "Name A-Z")
+        }
+    }
+
     var groupsReversed: Bool {
         switch self {
         case .dateAsc: return true

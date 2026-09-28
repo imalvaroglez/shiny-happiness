@@ -7,6 +7,12 @@ private struct AccountDeletionTarget {
     let preview: AccountDeletionService.DeletionPreview
 }
 
+private struct PromotionEditorRequest: Identifiable {
+    let id = UUID()
+    let definition: PromotionDefinition
+    let isNew: Bool
+}
+
 private enum CategoryDeletionTarget {
     case parent(Category)
     case subcategory(Category, parent: Category)
@@ -19,6 +25,7 @@ private enum SettingsFocusField: Hashable {
 private enum SettingsPane: String, Hashable {
     case accounts
     case categories
+    case promotions
     case backupData
     case integrations
     case about
@@ -29,6 +36,8 @@ private enum SettingsPane: String, Hashable {
             "Accounts"
         case .categories:
             "Categories"
+        case .promotions:
+            "Promotions"
         case .backupData:
             "Backup & Data"
         case .integrations:
@@ -44,6 +53,8 @@ private enum SettingsPane: String, Hashable {
             "creditcard"
         case .categories:
             "tag"
+        case .promotions:
+            "tag.circle"
         case .backupData:
             "externaldrive"
         case .integrations:
@@ -58,6 +69,7 @@ struct SettingsView: View {
     var onAccountDeleted: (UUID) -> Void = { _ in }
     var onAccountCreated: (Account) -> Void = { _ in }
     var onDataReset: () -> Void = {}
+    var onSpendRequirementChanged: () -> Void = {}
 
     @Environment(\.modelContext) private var modelContext
     @Query private var accounts: [Account]
@@ -76,6 +88,8 @@ struct SettingsView: View {
     @State private var resetErrorMessage: String?
     @State private var tokenDraft = ""
     @State private var tokenStatusMessage: String?
+    @State private var promotionCatalog: PromotionCatalog?
+    @State private var promotionEditorRequest: PromotionEditorRequest?
 
     @State private var accountDeletionTarget: AccountDeletionTarget?
     @State private var showingAddAccount = false
@@ -93,6 +107,13 @@ struct SettingsView: View {
     @State private var subcategoryFocusRequest = 0
     @State private var categoryErrorMessage: String?
     @State private var categoryDeletionTarget: CategoryDeletionTarget?
+    @State private var categoryRecoveryBackupURL: URL?
+    @State private var categoryRecoveryPreview: CategoryRecoveryService.Preview?
+    @State private var categoryRecoveryStatus = ""
+    @State private var categoryRecoveryIsBusy = false
+    @State private var categoryRecoveryAccessActive = false
+    @State private var showingCategoryRecoveryConfirmation = false
+    @State private var includeAmbiguousCategoryDeletions = false
 
     @FocusState private var focusedField: SettingsFocusField?
     @SceneStorage("SettingsView.selectedPane") private var selectedPaneRawValue = SettingsPane.backupData.rawValue
@@ -128,6 +149,9 @@ struct SettingsView: View {
 
             settingsPane(.categories, isSelected: currentPane == .categories) {
                 categoriesSection
+            }
+
+            settingsPane(.promotions, isSelected: currentPane == .promotions) {
                 promotionsSection
             }
 
@@ -139,8 +163,27 @@ struct SettingsView: View {
                 aboutSection
             }
         }
+        .background {
+            Color.clear.sheet(item: $promotionEditorRequest) { request in
+                PromotionEditorSheet(
+                    definition: request.definition,
+                    accounts: accounts,
+                    isNew: request.isNew,
+                    onSave: refreshPromotionCatalog
+                )
+            }
+        }
         .navigationTitle("Settings")
         .task(id: currentPane) {
+            if currentPane == .promotions, promotionCatalog == nil {
+                await Task.yield()
+                let catalog = await Task.detached(priority: .utility) {
+                    PromotionStore.load()
+                }.value
+                guard !Task.isCancelled else { return }
+                promotionCatalog = catalog
+                return
+            }
             guard currentPane == .backupData, !didLoadLatestBackup else { return }
             await Task.yield()
             let directory = backupsDirectory
@@ -163,7 +206,20 @@ struct SettingsView: View {
                    let account = fetchAccount(id: target.id) {
                     do {
                         balanceSnapshotAccount = nil
-                        try AccountDeletionService.delete(account: account, context: modelContext)
+                        let spendURL = try SpendRequirementStore.defaultURL()
+                        let oldSpendSettings = try SpendRequirementStore.read(fileURL: spendURL)
+                        let hadSpendSettings = FileManager.default.fileExists(atPath: spendURL.path)
+                        try SpendRequirementStore.disable(accountID: target.id, at: spendURL)
+                        do {
+                            try AccountDeletionService.delete(account: account, context: modelContext)
+                        } catch {
+                            if hadSpendSettings {
+                                try? SpendRequirementStore.replace(with: oldSpendSettings, at: spendURL)
+                            } else {
+                                try? SpendRequirementStore.reset(fileURL: spendURL)
+                            }
+                            throw error
+                        }
                         onAccountDeleted(target.id)
                     } catch {
                         NSLog("Failed to delete account: %@", error.localizedDescription)
@@ -173,7 +229,7 @@ struct SettingsView: View {
             }
         } message: {
             if let target = accountDeletionTarget {
-                Text("Permanently delete \"\(target.displayName)\"? This will remove \(target.preview.statementCount) statement(s), \(target.preview.transactionCount) transaction(s), \(target.preview.balanceSnapshotCount) balance snapshot(s), \(target.preview.stockPositionCount) stock position(s), \(target.preview.pendingImportCount) pending import(s), and \(target.preview.installmentPlanCount) installment plan(s). This cannot be undone.")
+                Text("¿Eliminar permanentemente «\(target.displayName)»? Se quitarán \(target.preview.statementCount) estados de cuenta, \(target.preview.transactionCount) movimientos, \(target.preview.balanceSnapshotCount) registros de saldo, \(target.preview.stockPositionCount) posiciones, \(target.preview.pendingImportCount) importaciones pendientes y \(target.preview.installmentPlanCount) planes de mensualidades. No se puede deshacer.")
             } else {
                 Text("Are you sure?")
             }
@@ -196,8 +252,8 @@ struct SettingsView: View {
             }
         } message: {
             if let pendingRestore {
-                let strategy = hasFinancialRows ? "merge with your existing data" : "replace the empty store"
-                Text("Load \(pendingRestore.url.path), created \(pendingRestore.createdAt.formatted(date: .abbreviated, time: .shortened)), and \(strategy)?")
+                let strategy = hasFinancialRows ? "combinarlo con tus datos actuales" : "reemplazar el almacenamiento vacío"
+                Text("¿Cargar el respaldo \(pendingRestore.url.path), creado el \(pendingRestore.createdAt.formattedMX(date: .abbreviated, time: .shortened)), y \(strategy)?")
             } else {
                 Text("Choose a valid FinanceTracker backup.")
             }
@@ -289,6 +345,7 @@ struct SettingsView: View {
                     AccountRowsView(
                         accounts: accounts,
                         refreshToken: accountSettingsRefreshToken,
+                        onSpendRequirementChanged: onSpendRequirementChanged,
                         onEditPositions: { positionsAccount = $0 },
                         onAddBalanceSnapshot: { balanceSnapshotAccount = $0 },
                         onDelete: requestAccountDeletion
@@ -307,23 +364,151 @@ struct SettingsView: View {
     }
 
     private var promotionsSection: some View {
-        PromotionHealthSection(accountIDs: Set(accounts.map(\.id)))
+        PromotionHealthSection(
+            accounts: accounts,
+            catalog: promotionCatalog,
+            onEdit: presentPromotionEditor,
+            onCatalogChanged: refreshPromotionCatalog
+        )
+    }
+
+    private func presentPromotionEditor(_ definition: PromotionDefinition, _ isNew: Bool) {
+        promotionEditorRequest = PromotionEditorRequest(definition: definition, isNew: isNew)
+    }
+
+    private func refreshPromotionCatalog() {
+        Task {
+            let catalog = await Task.detached(priority: .utility) {
+                PromotionStore.load()
+            }.value
+            promotionCatalog = catalog
+        }
     }
 
     private var categoriesSection: some View {
-        SectionCard(title: "Categories") {
-            CategoryManagementPanel(
-                categories: categories,
-                selectedCategoryID: $selectedCategoryID,
-                searchText: $categorySearchText,
-                kindFilter: $categoryKindFilter,
-                newSubcategoryName: $newSubcategoryName,
-                focusRequest: subcategoryFocusRequest,
-                onNewCategory: prepareNewCategory,
-                onCreateSubcategory: createSubcategoryIfValid,
-                onDeleteParent: requestDeleteParent,
-                onDeleteSubcategory: requestDeleteSubcategory
-            )
+        VStack(spacing: 16) {
+            SectionCard(title: "Categories") {
+                CategoryManagementPanel(
+                    categories: categories,
+                    selectedCategoryID: $selectedCategoryID,
+                    searchText: $categorySearchText,
+                    kindFilter: $categoryKindFilter,
+                    newSubcategoryName: $newSubcategoryName,
+                    focusRequest: subcategoryFocusRequest,
+                    onNewCategory: prepareNewCategory,
+                    onCreateSubcategory: createSubcategoryIfValid,
+                    onDeleteParent: requestDeleteParent,
+                    onDeleteSubcategory: requestDeleteSubcategory
+                )
+            }
+            SectionCard(title: "Recover categories") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Restore the category tree from an earlier verified backup and reconnect transactions that point to duplicate categories.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let preview = categoryRecoveryPreview {
+                        Text("Respaldo del \(preview.backupDate.formattedMX(date: .abbreviated, time: .shortened)): se recuperarán \(preview.categoriesToRestore) categorías, se recrearán \(preview.missingCategories), se unirán \(preview.duplicateCategoriesToMerge) duplicados y se volverán a vincular \(preview.transactionsToRelink) movimientos.")
+                            .font(.callout)
+                        if !preview.ambiguousDeletedCategories.isEmpty {
+                            Text("Estas categorías del respaldo están eliminadas y no tienen movimientos, reglas ni duplicados activos que indiquen que deban recuperarse: \(preview.ambiguousDeletedCategories.joined(separator: ", ")).")
+                                .font(.caption).foregroundStyle(.orange)
+                            Toggle("Reactivar también estas categorías", isOn: $includeAmbiguousCategoryDeletions)
+                        }
+                        HStack {
+                            Button("Choose another backup…", action: chooseCategoryRecoveryBackup)
+                            Button("Apply recovery", role: .destructive) {
+                                showingCategoryRecoveryConfirmation = true
+                            }
+                            .disabled(categoryRecoveryIsBusy)
+                        }
+                    } else {
+                        Button("Choose an earlier backup…", action: chooseCategoryRecoveryBackup)
+                            .disabled(categoryRecoveryIsBusy)
+                    }
+                    if categoryRecoveryIsBusy { ProgressView() }
+                    if !categoryRecoveryStatus.isEmpty {
+                        Text(categoryRecoveryStatus).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .confirmationDialog("Apply category recovery?", isPresented: $showingCategoryRecoveryConfirmation) {
+            Button("Create backup and recover", role: .destructive, action: applyCategoryRecovery)
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            if let preview = categoryRecoveryPreview {
+                Text("Primero se creará un respaldo de seguridad. Después se recuperarán o recrearán \(preview.categoriesToRestore + preview.missingCategories + (includeAmbiguousCategoryDeletions ? preview.ambiguousDeletedCategories.count : 0)) categorías y se volverán a vincular \(preview.transactionsToRelink) movimientos.")
+            }
+        }
+    }
+
+    private func chooseCategoryRecoveryBackup() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowedContentTypes = []
+        panel.directoryURL = backupsDirectory
+        guard panel.runModal() == .OK, let url = panel.url else {
+            categoryRecoveryStatus = "Selecciona un paquete .ftbackup válido."
+            return
+        }
+        endCategoryRecoveryAccess()
+        let accessActive = url.startAccessingSecurityScopedResource()
+        guard let summary = BackupArchive.summary(at: url) else {
+            if accessActive { url.stopAccessingSecurityScopedResource() }
+            categoryRecoveryStatus = "Selecciona un paquete .ftbackup válido."
+            return
+        }
+        let backupURL = summary.url
+        categoryRecoveryAccessActive = accessActive
+        categoryRecoveryBackupURL = backupURL
+        includeAmbiguousCategoryDeletions = false
+        do {
+            categoryRecoveryPreview = try CategoryRecoveryService.preview(backupURL: backupURL, context: modelContext)
+            categoryRecoveryStatus = ""
+        } catch {
+            endCategoryRecoveryAccess()
+            categoryRecoveryBackupURL = nil
+            categoryRecoveryPreview = nil
+            categoryRecoveryStatus = "No se pudo revisar el respaldo: \(error.localizedDescription)"
+        }
+    }
+
+    private func endCategoryRecoveryAccess() {
+        if categoryRecoveryAccessActive, let url = categoryRecoveryBackupURL {
+            url.stopAccessingSecurityScopedResource()
+        }
+        categoryRecoveryAccessActive = false
+    }
+
+    private func applyCategoryRecovery() {
+        guard let backupURL = categoryRecoveryBackupURL else { return }
+        categoryRecoveryIsBusy = true
+        Task {
+            var partialSafetyCopy: URL?
+            do {
+                try FileManager.default.createDirectory(at: backupsDirectory, withIntermediateDirectories: true)
+                let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
+                let safetyCopy = backupsDirectory.appendingPathComponent("FinanceTracker-before-category-recovery-\(stamp)-\(UUID().uuidString.prefix(8)).ftbackup")
+                partialSafetyCopy = safetyCopy
+                try await BackupArchive.export(to: safetyCopy, from: modelContext)
+                guard BackupArchive.summary(at: safetyCopy) != nil else {
+                    throw NSError(domain: "CategoryRecovery", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: "El respaldo de seguridad no pasó la verificación de integridad."])
+                }
+                partialSafetyCopy = nil
+                let result = try CategoryRecoveryService.recover(backupURL: backupURL, context: modelContext,
+                    includeAmbiguousDeletions: includeAmbiguousCategoryDeletions)
+                categoryRecoveryStatus = "Recuperación lista: \(result.categoriesRestored) categorías reactivadas, \(result.categoriesAdded) recreadas, \(result.duplicateCategoriesMerged) duplicados unidos y \(result.transactionsRelinked) movimientos revinculados. Respaldo previo: \(safetyCopy.lastPathComponent)."
+                dataHealthRefreshToken += 1
+                categoryRecoveryPreview = nil
+                endCategoryRecoveryAccess()
+                categoryRecoveryBackupURL = nil
+            } catch {
+                if let partialSafetyCopy { try? FileManager.default.removeItem(at: partialSafetyCopy) }
+                categoryRecoveryStatus = "Falló la recuperación: \(error.localizedDescription)"
+            }
+            categoryRecoveryIsBusy = false
         }
     }
 
@@ -485,10 +670,10 @@ struct SettingsView: View {
         switch categoryDeletionTarget {
         case .parent(let parent):
             let usage = categoryUsageSummary(for: parent)
-            return "Delete \"\(parent.name)\"? Existing transactions and rules assigned to this category will become uncategorized.\(usage) This cannot be undone."
+            return "¿Eliminar «\(parent.localizedName)»? Los movimientos y reglas asignados quedarán sin categoría.\(usage) Esta acción no se puede deshacer."
         case .subcategory(let subcategory, let parent):
             let usage = categoryUsageSummary(for: subcategory)
-            return "Delete \"\(subcategory.name)\"? Existing transactions and rules assigned to it will move to \"\(parent.name)\".\(usage) This cannot be undone."
+            return "¿Eliminar «\(subcategory.localizedName)»? Los movimientos y reglas asignados pasarán a «\(parent.localizedName)».\(usage) Esta acción no se puede deshacer."
         }
     }
 
@@ -551,7 +736,7 @@ struct SettingsView: View {
                        let createdAt = presentation.createdAt,
                        let latestPath = presentation.latestPath {
                         LabeledContent("Last verified snapshot") {
-                            Text(createdAt.formatted(date: .abbreviated, time: .shortened))
+                            Text(createdAt.formattedMX(date: .abbreviated, time: .shortened))
                                 .font(.callout.weight(.semibold).monospacedDigit())
                         }
 
@@ -718,10 +903,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Track active, upcoming, and finished card promotions with clear deadlines and reconciled results.",
-        "Keep transaction filters and sorting while moving between screens during your session.",
-        "Settings and category selection respond sooner, and spending charts use easier-to-distinguish colors.",
-        "Add account and dashboard actions are easier to reach in compact menus.",
+        "Recupera categorías y administra promociones desde Configuración.",
+        "Consulta el gasto mínimo de cada tarjeta por ciclo de facturación.",
+        "Explora gastos y movimientos con gráficas y filtros más claros.",
+        "Revisa tus cuentas del hogar con información mejor organizada.",
     ]
 
     private var backupsDirectory: URL {
@@ -807,10 +992,11 @@ struct SettingsView: View {
             do {
                 let strategy: RestoreStrategy = hasFinancialRows ? .mergeKeepingNewer : .replaceAll
                 try await BackupArchive.restore(from: summary.url, into: modelContext, strategy: strategy)
-                backupStatus = "Restore complete: \(summary.createdAt.formatted(date: .abbreviated, time: .shortened))"
+                backupStatus = "Respaldo restaurado: \(summary.createdAt.formattedMX(date: .abbreviated, time: .shortened))"
                 dataHealthRefreshToken += 1
+                onSpendRequirementChanged()
             } catch {
-                backupStatus = "Restore failed: \(error.localizedDescription)"
+                backupStatus = "No se pudo restaurar el respaldo: \(error.localizedDescription)"
             }
             isRestoring = false
         }
@@ -891,6 +1077,7 @@ private struct AccountRowsView: View {
 
     let accounts: [Account]
     let refreshToken: Int
+    let onSpendRequirementChanged: () -> Void
     let onEditPositions: (Account) -> Void
     let onAddBalanceSnapshot: (Account) -> Void
     let onDelete: (Account) -> Void
@@ -902,9 +1089,11 @@ private struct AccountRowsView: View {
         VStack(spacing: 0) {
             ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
                 AccountEditorRow(
+                    accounts: accounts,
                     account: account,
                     state: accountStates[account.id],
                     isLoading: isLoading,
+                    onSpendRequirementChanged: onSpendRequirementChanged,
                     onEditPositions: { onEditPositions(account) },
                     onAddBalanceSnapshot: { onAddBalanceSnapshot(account) },
                     onDelete: { onDelete(account) }
@@ -934,12 +1123,16 @@ private struct AccountRowsView: View {
 }
 
 private struct AccountEditorRow: View {
+    let accounts: [Account]
     let account: Account
     let state: SettingsAccountState?
     let isLoading: Bool
+    let onSpendRequirementChanged: () -> Void
     let onEditPositions: () -> Void
     let onAddBalanceSnapshot: () -> Void
     let onDelete: () -> Void
+
+    @State private var showingSpendRequirementEditor = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 20) {
@@ -950,7 +1143,7 @@ private struct AccountEditorRow: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 if let state {
-                    Text("\(state.transactionCount) transactions")
+                    Text("\(state.transactionCount) movimientos")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 } else if isLoading {
@@ -981,6 +1174,13 @@ private struct AccountEditorRow: View {
                         set: { account.creditLimit = $0 }
                     ), format: .currency(code: account.currency))
                     .textFieldStyle(.roundedBorder)
+
+                    Button {
+                        showingSpendRequirementEditor = true
+                    } label: {
+                        Label("Configurar gasto mínimo", systemImage: "target")
+                    }
+                    .buttonStyle(.bordered)
                 }
 
                 if account.type == .investment || account.type == .retirement {
@@ -1070,6 +1270,10 @@ private struct AccountEditorRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .sheet(isPresented: $showingSpendRequirementEditor) {
+            SpendRequirementEditorSheet(account: account, accounts: accounts,
+                                        onSave: onSpendRequirementChanged)
+        }
     }
 }
 
@@ -1125,7 +1329,7 @@ private struct DataHealthLoadedSection: View {
                 DataHealthSummaryPanel(summary: summary)
             } else if let loadError {
                 SectionCard(title: "Your data") {
-                    Label("Data summary unavailable: \(loadError)", systemImage: "exclamationmark.triangle")
+                    Label("Resumen de datos no disponible: \(loadError)", systemImage: "exclamationmark.triangle")
                         .font(.callout)
                         .foregroundStyle(.orange)
                         .frame(maxWidth: .infinity, minHeight: 100)
@@ -1177,12 +1381,12 @@ private struct DataHealthSummaryPanel: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                     DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed accounts excluded")
                     DataHealthCard(label: "History", value: historyValue, detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet")
-                    DataHealthCard(label: "Last activity", value: summary.lastActivity?.formatted(date: .abbreviated, time: .omitted) ?? "—", detail: summary.lastActivity == nil ? "No activity yet" : "latest active transaction")
+                    DataHealthCard(label: "Último movimiento", value: summary.lastActivity?.formattedMX() ?? "—", detail: summary.lastActivity == nil ? "Aún no hay actividad" : "movimiento activo más reciente")
                     DataHealthCard(label: "Needs attention", value: "\(summary.unresolvedPendingCount)", detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports", tint: summary.unresolvedPendingCount == 0 ? .green : .orange)
                 }
 
                 let currencySummary = summary.currenciesInUse.isEmpty ? "none" : summary.currenciesInUse.joined(separator: ", ")
-                Text("\(summary.importedStatementCount) statements imported · \(summary.activeCategoryCount) active categories · Currencies in use: \(currencySummary)")
+                Text("\(summary.importedStatementCount) estados de cuenta importados · \(summary.activeCategoryCount) categorías activas · Monedas: \(currencySummary)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1194,9 +1398,9 @@ private struct DataHealthSummaryPanel: View {
         guard let start = summary.historyStart, let end = summary.historyEnd else { return "—" }
         let calendar = Calendar.current
         if calendar.isDate(start, inSameDayAs: end) {
-            return start.formatted(date: .abbreviated, time: .omitted)
+            return start.formattedMX()
         }
-        return "\(start.formatted(date: .abbreviated, time: .omitted)) – \(end.formatted(date: .abbreviated, time: .omitted))"
+        return "\(start.formattedMX()) – \(end.formattedMX())"
     }
 }
 
@@ -1338,7 +1542,7 @@ private struct CategoryManagementPanel: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Category Families")
                         .font(.callout.weight(.semibold))
-                    Text("\(visibleParents.count) shown")
+                    Text("\(visibleParents.count) visibles")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1440,7 +1644,7 @@ private struct CategoryManagementPanel: View {
                     .frame(width: 13, height: 13)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(parent.name)
+                    Text(parent.localizedName)
                         .font(.title3.weight(.semibold))
                         .lineLimit(1)
                     HStack(spacing: 8) {
@@ -1449,7 +1653,7 @@ private struct CategoryManagementPanel: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .background(.quaternary, in: Capsule())
-                        Text("\(subcategories.count) subcategories")
+                        Text("\(subcategories.count) subcategorías")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1538,7 +1742,7 @@ private struct CategoryManagementPanel: View {
                 .fill(CategoryPalette.color(for: subcategory.name))
                 .frame(width: 5, height: 22)
 
-            Text(subcategory.name)
+            Text(subcategory.localizedName)
                 .font(.body)
                 .lineLimit(1)
 
@@ -1585,7 +1789,7 @@ private struct CategoryParentBrowserRow: View {
                     .frame(width: 10, height: 10)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(category.name)
+                    Text(category.localizedName)
                         .font(.body.weight(.medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
@@ -1619,7 +1823,7 @@ private struct CategoryParentBrowserRow: View {
             )
         }
         .buttonStyle(.plain)
-        .help("\(category.name), \(subcategoryCount) subcategories")
+        .help("\(category.localizedName), \(subcategoryCount) subcategorías")
     }
 }
 
@@ -1726,7 +1930,7 @@ private struct BackupStatusPreviewCard: View {
                 Label("Automatic backups", systemImage: "checkmark.shield")
                     .font(.subheadline.weight(.semibold))
                 if let createdAt = presentation.createdAt, let latestPath = presentation.latestPath {
-                    Text("Last verified snapshot · \(createdAt.formatted(date: .abbreviated, time: .shortened))")
+                    Text("Último respaldo verificado · \(createdAt.formattedMX(date: .abbreviated, time: .shortened))")
                         .font(.callout.weight(.medium))
                     Text(latestPath)
                         .font(.caption2.monospaced())
@@ -1736,7 +1940,7 @@ private struct BackupStatusPreviewCard: View {
                     Text("No verified automatic backup found yet.")
                         .foregroundStyle(.secondary)
                 }
-                Text("Managed folder (FinanceTracker): \(presentation.managedDirectoryPath)")
+                Text("Carpeta administrada (FinanceTracker): \(presentation.managedDirectoryPath)")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1756,7 +1960,7 @@ private struct DataHealthPreviewPanel: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                 DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed accounts excluded")
                 DataHealthCard(label: "History", value: historyValue, detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet")
-                DataHealthCard(label: "Last activity", value: summary.lastActivity?.formatted(date: .abbreviated, time: .omitted) ?? "—", detail: summary.lastActivity == nil ? "No activity yet" : "latest active transaction")
+                DataHealthCard(label: "Último movimiento", value: summary.lastActivity?.formattedMX() ?? "—", detail: summary.lastActivity == nil ? "Aún no hay actividad" : "movimiento activo más reciente")
                 DataHealthCard(label: "Needs attention", value: "\(summary.unresolvedPendingCount)", detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports", tint: summary.unresolvedPendingCount == 0 ? .green : .orange)
             }
             .padding(16)
@@ -1767,7 +1971,7 @@ private struct DataHealthPreviewPanel: View {
 
     private var historyValue: String {
         guard let start = summary.historyStart, let end = summary.historyEnd else { return "—" }
-        return "\(start.formatted(date: .abbreviated, time: .omitted)) – \(end.formatted(date: .abbreviated, time: .omitted))"
+        return "\(start.formattedMX()) – \(end.formattedMX())"
     }
 }
 

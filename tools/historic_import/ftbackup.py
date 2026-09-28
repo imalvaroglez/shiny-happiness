@@ -1,4 +1,4 @@
-"""Build a complete schema-7 backup atomically, preserving every reference resource."""
+"""Build a complete schema-7/8 backup atomically, preserving reference resources."""
 
 import hashlib
 import json
@@ -16,6 +16,16 @@ REQUIRED_MODELS = [
     "HouseholdPartnerIncomeEstimate", "SettlementDueDateOverride",
     "Transaction", "AccountBalanceSnapshot",
 ]
+REQUIRED_MODELS_BY_SCHEMA = {7: REQUIRED_MODELS, 8: [*REQUIRED_MODELS, "PromotionOverrides"]}
+
+
+def required_models(schema: int) -> list[str]:
+    if not isinstance(schema, int) or isinstance(schema, bool):
+        raise ValueError(f"only schemas 7 and 8 are supported (got {schema})")
+    try:
+        return REQUIRED_MODELS_BY_SCHEMA[schema]
+    except KeyError as exc:
+        raise ValueError(f"only schemas 7 and 8 are supported (got {schema})") from exc
 
 INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -33,8 +43,10 @@ def _manifest(bundle: Path) -> dict:
         raise ValueError(f"reference has no readable manifest: {exc}") from exc
     if not isinstance(manifest, dict):
         raise ValueError("reference manifest must be a JSON object")
-    if manifest.get("schemaVersion") != 7:
-        raise ValueError(f"only schema 7 is supported (got {manifest.get('schemaVersion')})")
+    schema = manifest.get("schemaVersion")
+    names = required_models(schema) if isinstance(schema, int) and not isinstance(schema, bool) else []
+    if not names:
+        raise ValueError(f"only schemas 7 and 8 are supported (got {schema})")
     if not isinstance(manifest.get("appVersion"), str) or not manifest["appVersion"]:
         raise ValueError("reference manifest appVersion is missing or invalid")
     created_at = manifest.get("createdAt")
@@ -48,7 +60,7 @@ def _manifest(bundle: Path) -> dict:
     hashes = manifest.get("contentHashes")
     if not isinstance(counts, dict) or not isinstance(hashes, dict):
         raise ValueError("reference manifest must contain modelCounts and contentHashes objects")
-    for name in REQUIRED_MODELS:
+    for name in names:
         path = bundle / "models" / f"{name}.json"
         try:
             payload = path.read_bytes()
@@ -120,10 +132,20 @@ def write_bundle(out_dir: Path, models_bytes: dict[str, bytes], created_at: str,
     out_dir = out_dir.absolute()
     if out_dir.exists() or out_dir.is_symlink():
         raise FileExistsError(f"refusing to overwrite existing output: {out_dir}")
-    if set(models_bytes) != set(REQUIRED_MODELS):
-        missing = sorted(set(REQUIRED_MODELS) - set(models_bytes))
-        extra = sorted(set(models_bytes) - set(REQUIRED_MODELS))
-        raise ValueError(f"all schema-7 models are required (missing={missing}, extra={extra})")
+    if source_bundle is not None:
+        try:
+            source_manifest = json.loads((source_bundle / "manifest.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"reference has no readable manifest: {exc}") from exc
+        schema = source_manifest.get("schemaVersion") if isinstance(source_manifest, dict) else None
+    else:
+        schema = 8 if "PromotionOverrides" in models_bytes else 7
+    names = required_models(schema)
+    if set(models_bytes) != set(names):
+        missing = sorted(set(names) - set(models_bytes))
+        extra = sorted(set(models_bytes) - set(names))
+        version = "schema-7" if schema == 7 else f"schema-{schema}"
+        raise ValueError(f"all {version} models are required (missing={missing}, extra={extra})")
     if source_bundle is not None:
         source = source_bundle.resolve()
         dest = out_dir.resolve()
@@ -141,7 +163,7 @@ def write_bundle(out_dir: Path, models_bytes: dict[str, bytes], created_at: str,
         models_dir.mkdir(parents=True, exist_ok=True)
         counts: dict[str, int] = {}
         hashes: dict[str, str] = {}
-        for name in REQUIRED_MODELS:
+        for name in names:
             payload = models_bytes[name]
             rows = json.loads(payload)
             if not isinstance(rows, list):
@@ -149,7 +171,7 @@ def write_bundle(out_dir: Path, models_bytes: dict[str, bytes], created_at: str,
             (models_dir / f"{name}.json").write_bytes(payload)
             counts[name] = len(rows)
             hashes[name] = hashlib.sha256(payload).hexdigest()
-        manifest = {"schemaVersion": 7, "createdAt": created_at, "appVersion": app_version,
+        manifest = {"schemaVersion": schema, "createdAt": created_at, "appVersion": app_version,
                     "modelCounts": counts, "contentHashes": hashes}
         (staging / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

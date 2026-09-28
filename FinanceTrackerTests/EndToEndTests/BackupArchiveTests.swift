@@ -17,7 +17,7 @@ struct BackupArchiveTests {
     private func makePopulatedContainer() throws -> ModelContainer {
         let container = try makeContainer()
         let context = container.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let account = Account(institution: "Test Bank", type: .checking, currency: "MXN", nickname: "Test Checking")
         context.insert(account)
@@ -120,6 +120,19 @@ struct BackupArchiveTests {
             modelCounts: [:],
             contentHashes: [:]
         )).write(to: bundle.appendingPathComponent("manifest.json"))
+    }
+
+    private func promotionOverridesURL(for bundle: URL) -> URL {
+        bundle.appendingPathComponent("test-app-support/PromotionOverrides.json")
+    }
+
+    private func exportBackup(to bundle: URL, from context: ModelContext) async throws {
+        try await BackupArchive.export(to: bundle, from: context, promotionOverridesURL: promotionOverridesURL(for: bundle))
+    }
+
+    private func restoreBackup(from bundle: URL, into context: ModelContext, strategy: RestoreStrategy) async throws {
+        try await BackupArchive.restore(from: bundle, into: context, strategy: strategy,
+                                        promotionOverridesURL: promotionOverridesURL(for: bundle))
     }
 
     private func updateManifestHash(for modelName: String, in bundle: URL) throws {
@@ -247,7 +260,7 @@ struct BackupArchiveTests {
         try FileManager.default.removeItem(at: bundle.appendingPathComponent("models/Transaction.json"))
 
         do {
-            try await BackupArchive.restore(from: bundle, into: source.mainContext, strategy: .replaceAll)
+            try await restoreBackup(from: bundle, into: source.mainContext, strategy: .replaceAll)
             Issue.record("Expected incomplete backup to be rejected")
         } catch {
             // Expected: validation happens before replaceAll deletes any rows.
@@ -265,10 +278,10 @@ struct BackupArchiveTests {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-backup-\(UUID()).ftbackup", isDirectory: true)
 
-        try await BackupArchive.export(to: tmp, from: sourceContext)
+        try await exportBackup(to: tmp, from: sourceContext)
 
         let target = try makeContainer()
-        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
 
         let accounts = try target.mainContext.fetch(FetchDescriptor<Account>())
         let txns = try target.mainContext.fetch(FetchDescriptor<Transaction>())
@@ -285,18 +298,18 @@ struct BackupArchiveTests {
 
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-backup-merge-\(UUID()).ftbackup", isDirectory: true)
-        try await BackupArchive.export(to: tmp, from: sourceContext)
+        try await exportBackup(to: tmp, from: sourceContext)
 
         let target = try makeContainer()
         let targetContext = target.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: targetContext)
+        try SeedDataLoader.bootstrapIfNeeded(context: targetContext)
 
         let existingAccount = Account(institution: "Test Bank", type: .checking, currency: "MXN", nickname: "Old Nickname")
         existingAccount.lastModifiedAt = .now.addingTimeInterval(-86400)
         targetContext.insert(existingAccount)
         try targetContext.save()
 
-        try await BackupArchive.restore(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
+        try await restoreBackup(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
 
         let restored = try targetContext.fetch(FetchDescriptor<Account>())
         let testAccount = restored.first { $0.institution == "Test Bank" }
@@ -307,6 +320,60 @@ struct BackupArchiveTests {
         try? FileManager.default.removeItem(at: tmp)
     }
 
+    @Test("mergeKeepingNewer preserves relationships from the winning live rows")
+    func mergeKeepsWinningRelationships() async throws {
+        let target = try makeContainer()
+        let targetContext = target.mainContext
+        let account = Account(institution: "Test Bank", type: .checking, currency: "MXN", nickname: "Checking")
+        let currentParent = FinanceTracker.Category(name: "Current Parent")
+        let backupParent = FinanceTracker.Category(name: "Old Parent")
+        let category = FinanceTracker.Category(name: "Food", parent: currentParent)
+        let transaction = Transaction(account: account, postedAt: .now, amount: -100,
+                                      descriptionRaw: "Groceries", category: category)
+        let later = Date.now
+        let earlier = later.addingTimeInterval(-86_400)
+        category.lastModifiedAt = later
+        transaction.lastModifiedAt = later
+        targetContext.insert(account)
+        targetContext.insert(currentParent)
+        targetContext.insert(backupParent)
+        targetContext.insert(category)
+        targetContext.insert(transaction)
+        try targetContext.save()
+
+        let source = try makeContainer()
+        let sourceContext = source.mainContext
+        let sourceAccount = Account(id: account.id, institution: "Test Bank", type: .checking,
+                                    currency: "MXN", nickname: "Checking")
+        let sourceParent = FinanceTracker.Category(id: backupParent.id, name: "Old Parent")
+        let sourceCategory = FinanceTracker.Category(id: category.id, name: "Old Food", parent: sourceParent)
+        let sourceTransaction = Transaction(id: transaction.id, account: sourceAccount, postedAt: .now,
+                                           amount: -100, descriptionRaw: "Old description", category: sourceCategory)
+        sourceCategory.lastModifiedAt = earlier
+        sourceTransaction.lastModifiedAt = earlier
+        sourceContext.insert(sourceAccount)
+        sourceContext.insert(sourceParent)
+        sourceContext.insert(sourceCategory)
+        sourceContext.insert(sourceTransaction)
+        try sourceContext.save()
+
+        let backup = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-backup-old-relations-\(UUID()).ftbackup", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: backup) }
+        try await exportBackup(to: backup, from: sourceContext)
+
+        try await restoreBackup(from: backup, into: targetContext, strategy: .mergeKeepingNewer)
+
+        let mergedCategory = try #require(targetContext.fetch(FetchDescriptor<FinanceTracker.Category>())
+            .first { $0.id == category.id })
+        let mergedTransaction = try #require(targetContext.fetch(FetchDescriptor<Transaction>())
+            .first { $0.id == transaction.id })
+        #expect(mergedCategory.parent?.id == currentParent.id)
+        #expect(mergedCategory.name == "Food")
+        #expect(mergedTransaction.category?.id == category.id)
+        #expect(mergedTransaction.descriptionRaw == "Groceries")
+    }
+
     @Test("mergeKeepingNewer preserves an explicit live scope against a legacy nil-scope snapshot")
     func mergePreservesExplicitScope() async throws {
         // Live row is explicitly EXCLUDED by the user but retains a latent .shared
@@ -314,7 +381,7 @@ struct BackupArchiveTests {
         // newer must NOT re-include it: already-explicit scope always wins.
         let target = try makeContainer()
         let targetContext = target.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: targetContext)
+        try SeedDataLoader.bootstrapIfNeeded(context: targetContext)
         let account = Account(institution: "Test Bank", type: .checking, currency: "MXN", nickname: "Checking")
         targetContext.insert(account)
         let food = FinanceTracker.Category(name: "Rent", kind: .expense)
@@ -356,7 +423,7 @@ struct BackupArchiveTests {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-backup-scope-merge-\(UUID()).ftbackup", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        try await BackupArchive.export(to: tmp, from: sourceContext)
+        try await exportBackup(to: tmp, from: sourceContext)
 
         // Strip the scope-carrying columns from the exported snapshot to simulate
         // a legacy (pre-scope) backup. Scope is persisted in settlementPaidByRaw
@@ -371,7 +438,7 @@ struct BackupArchiveTests {
         try stripped.write(to: txURL)
         try updateManifestHash(for: "Transaction", in: tmp)
 
-        try await BackupArchive.restore(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
+        try await restoreBackup(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
 
         let restored = try #require(targetContext.fetch(FetchDescriptor<Transaction>()).first { $0.id == tx.id })
         #expect(restored.householdScopeRaw == "excluded",
@@ -384,7 +451,7 @@ struct BackupArchiveTests {
         let source = try makePopulatedContainer()
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-backup-hash-\(UUID()).ftbackup", isDirectory: true)
-        try await BackupArchive.export(to: tmp, from: source.mainContext)
+        try await exportBackup(to: tmp, from: source.mainContext)
 
         let manifestURL = tmp.appendingPathComponent("manifest.json")
         let manifestData = try Data(contentsOf: manifestURL)
@@ -392,7 +459,7 @@ struct BackupArchiveTests {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
 
-        #expect(manifest.schemaVersion == 7)
+        #expect(manifest.schemaVersion == 9)
         #expect(!manifest.contentHashes.isEmpty, "Manifest should have content hashes")
 
         for (name, _) in manifest.contentHashes {
@@ -402,6 +469,133 @@ struct BackupArchiveTests {
         }
 
         try? FileManager.default.removeItem(at: tmp)
+    }
+
+    @Test("Promotion overrides round-trip on replace and preserve newer state on merge")
+    func promotionOverridesRoundTrip() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("promo-backup-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        let sourceStore = root.appendingPathComponent("source/PromotionOverrides.json")
+        let targetStore = root.appendingPathComponent("target/PromotionOverrides.json")
+        var backupOverrides = PromotionOverrides()
+        backupOverrides.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        backupOverrides.definitions = [try #require(PromotionCatalog.load().definitions.first)]
+        backupOverrides.deletedIDs = ["deleted-promo"]
+        try PromotionStore.replace(with: backupOverrides, at: sourceStore)
+
+        let source = try makeContainer()
+        try await BackupArchive.export(to: bundle, from: source.mainContext, promotionOverridesURL: sourceStore)
+
+        var newerOverrides = PromotionOverrides()
+        newerOverrides.updatedAt = backupOverrides.updatedAt.addingTimeInterval(60)
+        newerOverrides.deletedIDs = ["newer-local-change"]
+        try PromotionStore.replace(with: newerOverrides, at: targetStore)
+        let target = try makeContainer()
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+                                        promotionOverridesURL: targetStore)
+        #expect(try PromotionStore.read(fileURL: targetStore) == backupOverrides)
+
+        newerOverrides.updatedAt = backupOverrides.updatedAt.addingTimeInterval(120)
+        try PromotionStore.replace(with: newerOverrides, at: targetStore)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+                                        promotionOverridesURL: targetStore)
+        #expect(try PromotionStore.read(fileURL: targetStore) == newerOverrides)
+    }
+
+    @Test("Restoring a legacy backup without promotion data preserves local promotion edits")
+    func legacyRestorePreservesPromotionOverrides() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-promo-backup-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        let storeURL = promotionOverridesURL(for: bundle)
+        var local = PromotionOverrides()
+        local.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        local.deletedIDs = ["locally-deleted"]
+        try PromotionStore.replace(with: local, at: storeURL)
+
+        let source = try makeContainer()
+        try await BackupArchive.export(to: bundle, from: source.mainContext, promotionOverridesURL: storeURL)
+        try FileManager.default.removeItem(at: bundle.appendingPathComponent("models/PromotionOverrides.json"))
+        let manifestURL = bundle.appendingPathComponent("manifest.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.schemaVersion = 7
+        manifest.modelCounts.removeValue(forKey: "PromotionOverrides")
+        manifest.contentHashes.removeValue(forKey: "PromotionOverrides")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: manifestURL)
+
+        let target = try makeContainer()
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+                                        promotionOverridesURL: storeURL)
+        #expect(try PromotionStore.read(fileURL: storeURL) == local)
+    }
+
+    @Test("Spend requirements restore exactly, merge by account timestamp, and old backups follow strategy")
+    func spendRequirementBackupRoundTrip() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("spend-backup-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        let sourceStore = root.appendingPathComponent("source/SpendRequirements.json")
+        let targetStore = root.appendingPathComponent("target/SpendRequirements.json")
+        let source = try makeContainer()
+        let account = Account(institution: "HSBC", type: .creditCard, nickname: "2Now de Mar")
+        source.mainContext.insert(account)
+        try source.mainContext.save()
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        var requirement = SpendRequirement(accountID: account.id, name: "Gasto mínimo", amount: 3_500,
+                                           currency: "MXN", statementClosingDay: 11,
+                                           adjustToPreviousBusinessDay: true)
+        requirement.lastModifiedAt = timestamp
+        let sourceSettings = SpendRequirementSettings(updatedAt: timestamp, requirements: [requirement])
+        try SpendRequirementStore.replace(with: sourceSettings, at: sourceStore, accountIDs: [account.id])
+        try await BackupArchive.export(to: bundle, from: source.mainContext,
+                                       promotionOverridesURL: root.appendingPathComponent("source/PromotionOverrides.json"),
+                                       spendRequirementsURL: sourceStore)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 9)
+
+        let target = try makeContainer()
+        var newer = requirement
+        newer.enabled = false
+        newer.lastModifiedAt = timestamp.addingTimeInterval(300)
+        let newerSettings = SpendRequirementSettings(updatedAt: newer.lastModifiedAt, requirements: [newer])
+        try SpendRequirementStore.replace(with: newerSettings, at: targetStore)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+                                       promotionOverridesURL: root.appendingPathComponent("target/PromotionOverrides.json"),
+                                       spendRequirementsURL: targetStore)
+        #expect(try SpendRequirementStore.read(fileURL: targetStore) == sourceSettings)
+
+        try SpendRequirementStore.replace(with: newerSettings, at: targetStore)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+                                       promotionOverridesURL: root.appendingPathComponent("target/PromotionOverrides.json"),
+                                       spendRequirementsURL: targetStore)
+        #expect(try SpendRequirementStore.read(fileURL: targetStore) == newerSettings)
+
+        let manifestURL = bundle.appendingPathComponent("manifest.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
+        try FileManager.default.removeItem(at: bundle.appendingPathComponent("models/SpendRequirement.json"))
+        manifest.schemaVersion = 8
+        manifest.modelCounts.removeValue(forKey: "SpendRequirement")
+        manifest.contentHashes.removeValue(forKey: "SpendRequirement")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: manifestURL)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 8)
+
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+                                       promotionOverridesURL: root.appendingPathComponent("target/PromotionOverrides.json"),
+                                       spendRequirementsURL: targetStore)
+        #expect(!FileManager.default.fileExists(atPath: targetStore.path))
+        try SpendRequirementStore.replace(with: newerSettings, at: targetStore)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+                                       promotionOverridesURL: root.appendingPathComponent("target/PromotionOverrides.json"),
+                                       spendRequirementsURL: targetStore)
+        #expect(try SpendRequirementStore.read(fileURL: targetStore) == newerSettings)
     }
 
     @Test("Schema 1 backup restores with retirement metadata defaults")
@@ -516,7 +710,7 @@ struct BackupArchiveTests {
         )).write(to: tmp.appendingPathComponent("manifest.json"))
 
         let target = try makeContainer()
-        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
         let account = try #require(try target.mainContext.fetch(FetchDescriptor<Account>()).first)
         let transaction = try #require(try target.mainContext.fetch(FetchDescriptor<Transaction>()).first)
 
@@ -549,10 +743,10 @@ struct BackupArchiveTests {
             .appendingPathComponent("test-backup-sp-\(UUID()).ftbackup", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        try await BackupArchive.export(to: tmp, from: context)
+        try await exportBackup(to: tmp, from: context)
 
         let target = try makeContainer()
-        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
         let restored = try target.mainContext.fetch(FetchDescriptor<StockPosition>())
         let restoredPosition = try #require(restored.first)
         #expect(restored.count == 1)
@@ -572,10 +766,10 @@ struct BackupArchiveTests {
             .appendingPathComponent("test-backup-household-\(UUID()).ftbackup", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        try await BackupArchive.export(to: tmp, from: source.mainContext)
+        try await exportBackup(to: tmp, from: source.mainContext)
 
         let target = try makeContainer()
-        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
 
         let transactions = try target.mainContext.fetch(FetchDescriptor<Transaction>())
         let custom = try #require(transactions.first { $0.expenseAssignment == .custom })
@@ -608,7 +802,7 @@ struct BackupArchiveTests {
     func scopeValuesRoundTrip() async throws {
         let source = try makeContainer()
         let context = source.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         let account = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Checking")
         context.insert(account)
         let food = FinanceTracker.Category(name: "Rent", kind: .expense)
@@ -625,10 +819,10 @@ struct BackupArchiveTests {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-backup-scope-rt-\(UUID()).ftbackup", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        try await BackupArchive.export(to: tmp, from: context)
+        try await exportBackup(to: tmp, from: context)
 
         let target = try makeContainer()
-        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
 
         let restored = try target.mainContext.fetch(FetchDescriptor<Transaction>())
         #expect(restored.first { $0.descriptionRaw == "Rent" }?.householdScopeRaw == "included")
@@ -648,7 +842,7 @@ struct BackupArchiveTests {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-backup-legacy-spb-\(UUID()).ftbackup", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        try await BackupArchive.export(to: tmp, from: source.mainContext)
+        try await exportBackup(to: tmp, from: source.mainContext)
 
         // Inject legacy SettlementPaidBy raws into the exported snapshot.
         let txURL = tmp.appendingPathComponent("models/Transaction.json")
@@ -666,7 +860,7 @@ struct BackupArchiveTests {
         try updateManifestHash(for: "Transaction", in: tmp)
 
         let target = try makeContainer()
-        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
 
         let restored = try target.mainContext.fetch(FetchDescriptor<Transaction>())
         // "partner" is not a valid HouseholdScope → decodes to .excluded (never .included).
@@ -692,7 +886,7 @@ struct BackupArchiveTests {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-backup-household-v4-\(UUID()).ftbackup", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        try await BackupArchive.export(to: tmp, from: source.mainContext)
+        try await exportBackup(to: tmp, from: source.mainContext)
 
         let manifestURL = tmp.appendingPathComponent("manifest.json")
         let decoder = JSONDecoder()
@@ -704,7 +898,7 @@ struct BackupArchiveTests {
         try encoder.encode(manifest).write(to: manifestURL)
 
         let target = try makeContainer()
-        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
         let restored = try target.mainContext.fetch(FetchDescriptor<Transaction>())
         let custom = try #require(restored.first { $0.expenseAssignment == .custom })
 
@@ -737,7 +931,7 @@ struct BackupArchiveTests {
             .appendingPathComponent("test-backup-spm-\(UUID()).ftbackup", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        try await BackupArchive.export(to: tmp, from: sourceContext)
+        try await exportBackup(to: tmp, from: sourceContext)
 
         let target = try makeContainer()
         let targetContext = target.mainContext
@@ -756,7 +950,7 @@ struct BackupArchiveTests {
         targetContext.insert(targetPosition)
         try targetContext.save()
 
-        try await BackupArchive.restore(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
+        try await restoreBackup(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
 
         let restored = try #require(try targetContext.fetch(FetchDescriptor<StockPosition>())
             .first { $0.id == position.id })
@@ -777,7 +971,7 @@ struct BackupArchiveTests {
         try writeEmptyBackup(schemaVersion: 2, includeStockPosition: false, to: tmp)
 
         let target = try makeContainer()
-        try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+        try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
         #expect(try target.mainContext.fetchCount(FetchDescriptor<StockPosition>()) == 0)
     }
 
@@ -791,7 +985,7 @@ struct BackupArchiveTests {
 
         let target = try makeContainer()
         do {
-            try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+            try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
             Issue.record("Expected schema 3 restore to require StockPosition.json")
         } catch {
             #expect(true)
@@ -808,7 +1002,7 @@ struct BackupArchiveTests {
 
         let target = try makeContainer()
         do {
-            try await BackupArchive.restore(from: tmp, into: target.mainContext, strategy: .replaceAll)
+            try await restoreBackup(from: tmp, into: target.mainContext, strategy: .replaceAll)
             Issue.record("Expected schema 4 restore to require HouseholdPartnerIncomeEstimate.json")
         } catch {
             #expect(true)
@@ -819,15 +1013,15 @@ struct BackupArchiveTests {
     func mergeRemovesOrphanDueDateOverrides() async throws {
         let source = try makeContainer()
         let sourceContext = source.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: sourceContext)
+        try SeedDataLoader.bootstrapIfNeeded(context: sourceContext)
 
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-backup-orphan-\(UUID()).ftbackup", isDirectory: true)
-        try await BackupArchive.export(to: tmp, from: sourceContext)
+        try await exportBackup(to: tmp, from: sourceContext)
 
         let target = try makeContainer()
         let targetContext = target.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: targetContext)
+        try SeedDataLoader.bootstrapIfNeeded(context: targetContext)
 
         // A due-date override whose transaction does NOT exist in the target store.
         let orphan = SettlementDueDateOverride(transactionID: UUID(), dueDate: Date())
@@ -835,7 +1029,7 @@ struct BackupArchiveTests {
         try targetContext.save()
         #expect(try targetContext.fetchCount(FetchDescriptor<SettlementDueDateOverride>()) == 1)
 
-        try await BackupArchive.restore(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
+        try await restoreBackup(from: tmp, into: targetContext, strategy: .mergeKeepingNewer)
 
         #expect(try targetContext.fetchCount(FetchDescriptor<SettlementDueDateOverride>()) == 0,
                 "Orphan override (no matching transaction) must be removed on merge")

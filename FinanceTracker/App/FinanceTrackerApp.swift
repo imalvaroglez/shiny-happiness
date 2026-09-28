@@ -17,14 +17,17 @@ struct FinanceTrackerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if StoreFileResetService.isRunningTests {
-                Color.clear
-            } else {
-                ZStack {
-                    AppBackdrop()
-                    DashboardView()
+            Group {
+                if StoreFileResetService.isRunningTests {
+                    Color.clear
+                } else {
+                    ZStack {
+                        AppBackdrop()
+                        DashboardView()
+                    }
                 }
             }
+            .environment(\.locale, Locale(identifier: "es-MX"))
         }
         .modelContainer(modelContainer)
     }

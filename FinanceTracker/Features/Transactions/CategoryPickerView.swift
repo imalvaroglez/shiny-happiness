@@ -43,7 +43,7 @@ struct CategoryPickerView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
                     ForEach(groupedCategories) { group in
-                        Text(group.kind.rawValue.capitalized)
+                        Text(group.kind.displayName)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.horizontal)
@@ -88,7 +88,7 @@ struct CategoryPickerView: View {
                 if depth > 0 {
                     Spacer().frame(width: CGFloat(depth) * 20)
                 }
-                Text(category.name)
+                Text(category.localizedName)
                     .foregroundStyle(.primary)
                 Spacer()
                 if selectedCategoryID == category.id {
@@ -147,12 +147,12 @@ enum CategoryPickerIndex {
         }
 
         for parentID in Array(childrenByParentID.keys) {
-            childrenByParentID[parentID]?.sort { $0.name < $1.name }
+            childrenByParentID[parentID]?.sort { $0.localizedName.localizedStandardCompare($1.localizedName) == .orderedAscending }
         }
 
         return kindOrder.compactMap { kind in
             guard let parents = parentsByKind[kind], !parents.isEmpty else { return nil }
-            let sortedParents = parents.sorted { $0.name < $1.name }
+            let sortedParents = parents.sorted { $0.localizedName.localizedStandardCompare($1.localizedName) == .orderedAscending }
             let rows = sortedParents.flatMap { parent in
                 [CategoryPickerRow(category: parent, depth: 0)]
                     + (childrenByParentID[parent.id] ?? []).map { CategoryPickerRow(category: $0, depth: 1) }
@@ -175,8 +175,8 @@ enum CategoryPickerIndex {
     }
 
     private static func displaySort(_ lhs: Category, _ rhs: Category) -> Bool {
-        let lhsName = lhs.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let rhsName = rhs.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let lhsName = lhs.localizedName.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
+        let rhsName = rhs.localizedName.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
         if lhsName != rhsName { return lhsName < rhsName }
         if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
         return lhs.id.uuidString < rhs.id.uuidString

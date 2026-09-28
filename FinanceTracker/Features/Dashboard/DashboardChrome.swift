@@ -19,6 +19,7 @@ enum MoneyFormat {
     private static let _formatter: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .currency
+        f.locale = Locale(identifier: "es-MX")
         return f
     }()
 
@@ -64,27 +65,27 @@ func dashboardCompactAmount(_ value: Double, code: String) -> String {
 func dashboardAxisLabel(for date: Date, bucket: DashboardBucket) -> String {
     switch bucket {
     case .day:
-        return date.formatted(.dateTime.day().month(.abbreviated))
+        return date.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "es-MX")))
     case .week:
         let week = Calendar(identifier: .gregorian).component(.weekOfYear, from: date)
         return "W\(week)"
     case .month:
-        return date.formatted(.dateTime.month(.abbreviated))
+        return date.formatted(.dateTime.month(.abbreviated).locale(Locale(identifier: "es-MX")))
     case .year:
-        return date.formatted(.dateTime.year())
+        return date.formatted(.dateTime.year().locale(Locale(identifier: "es-MX")))
     }
 }
 
 func dashboardBucketLabel(for date: Date, bucket: DashboardBucket) -> String {
     switch bucket {
     case .day:
-        return date.formatted(.dateTime.weekday(.abbreviated).day().month(.wide).year())
+        return date.formatted(.dateTime.weekday(.abbreviated).day().month(.wide).year().locale(Locale(identifier: "es-MX")))
     case .week:
-        return "Week of \(date.formatted(.dateTime.day().month(.wide).year()))"
+        return "Semana del \(date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "es-MX"))))"
     case .month:
-        return date.formatted(.dateTime.month(.wide).year())
+        return date.formatted(.dateTime.month(.wide).year().locale(Locale(identifier: "es-MX")))
     case .year:
-        return date.formatted(.dateTime.year())
+        return date.formatted(.dateTime.year().locale(Locale(identifier: "es-MX")))
     }
 }
 
@@ -413,11 +414,12 @@ enum DashboardPeriodBarGroupBuilder {
     static func groups(
         period: DashboardPeriodContext,
         buckets: [DashboardPeriodBucketDisplayValue],
+        onlyFirstSeries: Bool = false,
         calendar: Calendar = Calendar(identifier: .gregorian)
     ) -> [DashboardPeriodBarGroup] {
         let sorted = buckets.sorted { $0.bucketStart < $1.bucketStart }
         let activeIndexes = sorted.indices.filter { index in
-            sorted[index].firstMagnitude != 0 || sorted[index].secondMagnitude != 0
+            sorted[index].firstMagnitude != 0 || (!onlyFirstSeries && sorted[index].secondMagnitude != 0)
         }
         guard let firstActive = activeIndexes.first,
               let lastActive = activeIndexes.last else {
@@ -425,7 +427,7 @@ enum DashboardPeriodBarGroupBuilder {
         }
 
         let visibleBuckets: [DashboardPeriodBucketDisplayValue]
-        if period.kind == .all {
+        if period.kind == .all || onlyFirstSeries {
             visibleBuckets = activeIndexes.map { sorted[$0] }
         } else {
             visibleBuckets = Array(sorted[firstActive...lastActive])
@@ -698,12 +700,16 @@ struct DashboardGroupedPeriodBarChart: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(group.label)
                 .font(.caption.bold())
-            Text("\(firstSeriesName): \(MoneyFormat.string(code: currencyCode, group.firstMagnitude))")
-                .font(.caption2)
-                .foregroundStyle(firstColor)
-            Text("\(secondSeriesName): \(MoneyFormat.string(code: currencyCode, group.secondMagnitude))")
-                .font(.caption2)
-                .foregroundStyle(secondColor)
+            if showsFirstSeries {
+                Text("\(firstSeriesName): \(MoneyFormat.string(code: currencyCode, group.firstMagnitude))")
+                    .font(.caption2)
+                    .foregroundStyle(firstColor)
+            }
+            if showsSecondSeries {
+                Text("\(secondSeriesName): \(MoneyFormat.string(code: currencyCode, group.secondMagnitude))")
+                    .font(.caption2)
+                    .foregroundStyle(secondColor)
+            }
             if let footer = footerText?(group) {
                 Text(footer)
                     .font(.caption2)
@@ -1121,7 +1127,7 @@ struct DashboardTransactionRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text(transaction.postedAt.formatted(date: .abbreviated, time: .omitted))
+                    Text(transaction.postedAt.formattedMX())
                     if showsTransferCounterparty {
                         Text(".")
                         Text(TransferCounterpartyLabel.text(for: transaction, peers: transferPeers) ?? "Transfer")
@@ -1134,7 +1140,7 @@ struct DashboardTransactionRow: View {
                         }
                         if let category = transaction.category {
                             Text(".")
-                            Text(category.name)
+                            Text(category.localizedName)
                                 .lineLimit(1)
                         }
                         if let card = transaction.cardLast4 {
@@ -1308,7 +1314,12 @@ struct DashboardSpendingBarRow: Identifiable {
 
 enum DashboardSpendingBarBuilder {
     static func rows(from entries: [CategorySpending], limit: Int = 5) -> [DashboardSpendingBarRow] {
-        let sorted = entries.sorted { $0.amount > $1.amount }
+        let sorted = entries.sorted {
+            if $0.amount != $1.amount { return $0.amount > $1.amount }
+            let nameOrder = $0.category.localizedName.localizedCaseInsensitiveCompare($1.category.localizedName)
+            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+            return $0.id.uuidString < $1.id.uuidString
+        }
         let total = sorted.reduce(Decimal.zero) { $0 + $1.amount }
         guard total > 0 else { return [] }
 
@@ -1316,7 +1327,7 @@ enum DashboardSpendingBarBuilder {
             DashboardSpendingBarRow(
                 id: entry.category.id.uuidString,
                 categoryID: entry.category.id,
-                name: entry.category.name,
+                name: entry.category.localizedName,
                 amount: entry.amount,
                 total: total,
                 isOther: false
@@ -1328,7 +1339,7 @@ enum DashboardSpendingBarBuilder {
             rows.append(DashboardSpendingBarRow(
                 id: "other",
                 categoryID: nil,
-                name: "Other",
+                name: String(localized: "Other"),
                 amount: otherAmount,
                 total: total,
                 isOther: true
@@ -1433,54 +1444,70 @@ struct SpendingCategoryDonut: View {
     var chartHeight: CGFloat = 240
     var visibleEntryLimit: Int = 8
     var compactRows: Bool = false
+    var showsLegend: Bool = true
+    var aggregatesOther = false
     let onSelect: (CategorySpending) -> Void
+    var onSelectOther: () -> Void = {}
 
     @State private var selectedAngle: Decimal? = nil
     @State private var hoveredCategoryID: UUID? = nil
 
     private var visibleEntries: [CategorySpending] { Array(entries.prefix(visibleEntryLimit)) }
+    private var chartRows: [DashboardSpendingBarRow] {
+        if aggregatesOther {
+            return DashboardSpendingBarBuilder.rows(from: entries, limit: visibleEntryLimit)
+        }
+        return visibleEntries.map {
+            DashboardSpendingBarRow(
+                id: $0.id.uuidString,
+                categoryID: $0.id,
+                name: $0.category.localizedName,
+                amount: $0.amount,
+                total: total,
+                isOther: false
+            )
+        }
+    }
     private var categoryColors: [UUID: Color] {
-        CategoryChartPalette.colors(for: visibleEntries.map(\.id))
+        CategoryChartPalette.colors(for: chartRows.compactMap(\.categoryID))
     }
     private var total: Decimal {
-        visibleEntries.reduce(Decimal.zero) { $0 + $1.amount }
+        entries.reduce(Decimal.zero) { $0 + $1.amount }
     }
-    private var activeEntry: CategorySpending? {
+    private var activeRow: DashboardSpendingBarRow? {
         if let hoveredCategoryID {
-            return visibleEntries.first { $0.id == hoveredCategoryID }
+            return chartRows.first { $0.categoryID == hoveredCategoryID }
         }
         return entry(for: selectedAngle)
     }
-    private var activeCategoryID: UUID? { activeEntry?.id }
+    private var activeCategoryID: UUID? { activeRow?.categoryID }
 
     var body: some View {
-        VStack(spacing: 10) {
-            Chart(visibleEntries) { entry in
-                let isActive = activeCategoryID == entry.id
+        VStack(spacing: showsLegend ? 10 : 0) {
+            Chart(chartRows) { row in
+                let isActive = activeRow?.id == row.id
                 let hasActive = activeCategoryID != nil
 
                 SectorMark(
-                    angle: .value("Amount", entry.amount),
+                    angle: .value("Amount", row.amount),
                     innerRadius: .ratio(0.56),
                     outerRadius: .ratio(isActive ? 1.0 : (hasActive ? 0.93 : 0.97)),
                     angularInset: 1.6
                 )
-                .foregroundStyle(categoryColors[entry.id] ?? CategoryPalette.color(for: entry.category.name))
+                .foregroundStyle(color(for: row))
                 .opacity(hasActive && !isActive ? 0.26 : 1)
             }
             .frame(height: chartHeight)
             .chartAngleSelection(value: $selectedAngle)
             .chartBackground { _ in Color.clear }
             .overlay {
-                if let activeEntry {
-                    DonutCenterLabel(
-                        name: activeEntry.category.name,
-                        amount: activeEntry.amount,
-                        total: total,
-                        currencyCode: currencyCode
-                    )
-                    .allowsHitTesting(false)
-                }
+                DonutCenterLabel(
+                    name: activeRow?.name ?? String(localized: "Total spending"),
+                    amount: activeRow?.amount ?? total,
+                    total: total,
+                    currencyCode: currencyCode
+                )
+                .allowsHitTesting(false)
             }
             .contentShape(Rectangle())
             .onHover { hovering in
@@ -1489,27 +1516,27 @@ struct SpendingCategoryDonut: View {
                 }
             }
             .onTapGesture {
-                if let activeEntry {
-                    onSelect(activeEntry)
-                }
+                select(activeRow)
             }
             .animation(.easeInOut(duration: 0.16), value: activeCategoryID)
 
-            VStack(spacing: compactRows ? 4 : 6) {
-                ForEach(visibleEntries) { entry in
-                    CategoryBreakdownRow(
-                        entry: entry,
-                        total: total,
-                        currencyCode: currencyCode,
-                        color: categoryColors[entry.id] ?? CategoryPalette.color(for: entry.category.name),
-                        isActive: activeCategoryID == entry.id,
-                        hasActive: activeCategoryID != nil,
-                        compact: compactRows
-                    ) {
-                        onSelect(entry)
-                    }
-                    .onHover { hovering in
-                        hoveredCategoryID = hovering ? entry.id : nil
+            if showsLegend {
+                VStack(spacing: compactRows ? 4 : 6) {
+                    ForEach(visibleEntries) { entry in
+                        CategoryBreakdownRow(
+                            entry: entry,
+                            total: total,
+                            currencyCode: currencyCode,
+                            color: categoryColors[entry.id] ?? CategoryPalette.color(for: entry.category.name),
+                            isActive: activeCategoryID == entry.id,
+                            hasActive: activeCategoryID != nil,
+                            compact: compactRows
+                        ) {
+                            onSelect(entry)
+                        }
+                        .onHover { hovering in
+                            hoveredCategoryID = hovering ? entry.id : nil
+                        }
                     }
                 }
             }
@@ -1517,18 +1544,34 @@ struct SpendingCategoryDonut: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func entry(for selectedAngle: Decimal?) -> CategorySpending? {
-        guard let selectedAngle, !visibleEntries.isEmpty else { return nil }
+    private func entry(for selectedAngle: Decimal?) -> DashboardSpendingBarRow? {
+        guard let selectedAngle, !chartRows.isEmpty else { return nil }
 
         var lowerBound = Decimal.zero
-        for entry in visibleEntries {
-            let upperBound = lowerBound + entry.amount
+        for row in chartRows {
+            let upperBound = lowerBound + row.amount
             if selectedAngle >= lowerBound && selectedAngle <= upperBound {
-                return entry
+                return row
             }
             lowerBound = upperBound
         }
-        return visibleEntries.last
+        return chartRows.last
+    }
+
+    private func color(for row: DashboardSpendingBarRow) -> Color {
+        guard let id = row.categoryID else { return .secondary }
+        return categoryColors[id] ?? .secondary
+    }
+
+    private func select(_ row: DashboardSpendingBarRow?) {
+        guard let row else { return }
+        guard let id = row.categoryID else {
+            onSelectOther()
+            return
+        }
+        if let entry = entries.first(where: { $0.id == id }) {
+            onSelect(entry)
+        }
     }
 }
 
@@ -1555,13 +1598,13 @@ private struct DonutCenterLabel: View {
     }
 
     private var percentText: String {
-        guard total > 0 else { return "0% of total" }
+        guard total > 0 else { return "0% \(String(localized: "of total"))" }
         let value = ((amount / total) as NSDecimalNumber).doubleValue * 100
-        return String(format: "%.1f%% of total", value)
+        return "\(String(format: "%.1f%%", value)) \(String(localized: "of total"))"
     }
 }
 
-private struct CategoryBreakdownRow: View {
+struct CategoryBreakdownRow: View {
     let entry: CategorySpending
     let total: Decimal
     let currencyCode: String
@@ -1578,7 +1621,7 @@ private struct CategoryBreakdownRow: View {
                     .fill(color)
                     .frame(width: 8, height: 8)
 
-                Text(entry.category.name)
+                Text(entry.category.localizedName)
                     .font(.caption.weight(isActive ? .semibold : .regular))
                     .lineLimit(1)
 
@@ -1606,7 +1649,7 @@ private struct CategoryBreakdownRow: View {
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help("\(entry.category.name): \(MoneyFormat.string(code: currencyCode, entry.amount)), \(percentText) of total")
+        .help("\(entry.category.localizedName): \(MoneyFormat.string(code: currencyCode, entry.amount)), \(percentText) del total")
     }
 
     private var percentText: String {
@@ -1620,7 +1663,7 @@ private struct CategoryBreakdownRow: View {
 /// around the plot area. The stroke uses `scopedTint` at low opacity, which
 /// makes the chart feel layered onto the glass instead of painted underneath.
 struct ChartCard<Content: View>: View {
-    let title: String
+    let title: LocalizedStringKey
     var subtitle: String? = nil
     @ViewBuilder var content: () -> Content
     @Environment(\.scopedTint) private var scopedTint
@@ -1646,6 +1689,32 @@ struct ChartCard<Content: View>: View {
             }
             .padding()
         }
+    }
+}
+
+struct BalancedChartCard<Plot: View, Footer: View>: View {
+    let title: LocalizedStringKey
+    @ViewBuilder var plot: () -> Plot
+    @ViewBuilder var footer: () -> Footer
+
+    var body: some View {
+        GlassCard(role: .card, interactive: false) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(title)
+                    .font(.headline)
+                    .frame(height: 22, alignment: .leading)
+
+                plot()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 240)
+
+                footer()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
+            }
+            .padding()
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

@@ -41,10 +41,16 @@ def make_backup(tmp_path: Path, schema: int, *, include_due_date_override: bool 
             ),
             encoding="utf-8",
         )
+    if schema >= 8:
+        (models / "PromotionOverrides.json").write_text(
+            json.dumps([{"schemaVersion": 1, "updatedAt": "2026-08-04T00:00:00Z",
+                         "definitions": [], "deletedIDs": []}]),
+            encoding="utf-8",
+        )
     return bundle
 
 
-@pytest.mark.parametrize("schema", [4, 5, 6, 7])
+@pytest.mark.parametrize("schema", [4, 5, 6, 7, 8])
 def test_load_dataset_accepts_supported_schemas(tmp_path: Path, schema: int) -> None:
     dataset = load.load_dataset(make_backup(tmp_path, schema, include_due_date_override=schema == 7))
 
@@ -67,8 +73,15 @@ def test_load_dataset_exposes_synthetic_due_date_sidecar(tmp_path: Path) -> None
 
 
 def test_load_dataset_rejects_newer_schema_clearly(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="más reciente.*\\[4, 5, 6, 7\\]"):
-        load.load_dataset(make_backup(tmp_path, 8))
+    with pytest.raises(ValueError, match="más reciente.*\\[4, 5, 6, 7, 8\\]"):
+        load.load_dataset(make_backup(tmp_path, 9))
+
+
+def test_load_dataset_exposes_promotion_overrides_for_schema_eight(tmp_path: Path) -> None:
+    dataset = load.load_dataset(make_backup(tmp_path, 8))
+    assert dataset["promotion_overrides"] == [{
+        "schemaVersion": 1, "updatedAt": "2026-08-04T00:00:00Z", "definitions": [], "deletedIDs": [],
+    }]
 
 
 def test_writeback_preserves_schema_seven_and_due_date_sidecar(tmp_path: Path) -> None:

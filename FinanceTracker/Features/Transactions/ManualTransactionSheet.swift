@@ -226,7 +226,7 @@ struct ManualTransactionSheet: View {
         }
 
         if promotionHistoryAccountID != key.accountID {
-            let catalog = PromotionCatalog.load()
+            let catalog = PromotionStore.load()
             promotionCatalog = catalog
             promotionHistoryAccountID = key.accountID
             let bound = catalog.definitions.filter { $0.accountUUID == key.accountID }
@@ -405,7 +405,7 @@ struct ManualTransactionSheet: View {
                 showingCategoryPicker = true
             } label: {
                 HStack(spacing: 8) {
-                    Text(selectedCategory?.name ?? "Uncategorized")
+                    Text(selectedCategory?.localizedName ?? "Sin categoría")
                         .foregroundStyle(selectedCategory == nil ? .secondary : .primary)
                         .lineLimit(1)
                     Image(systemName: "chevron.right")

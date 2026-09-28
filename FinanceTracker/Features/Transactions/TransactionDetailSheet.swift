@@ -290,7 +290,7 @@ struct TransactionDetailSheet: View {
             editRow("Assignment") {
                 Picker("Assignment", selection: $draftExpenseAssignment) {
                     ForEach(ExpenseAssignment.allCases) { assignment in
-                        Text(assignment == .user ? "Mine" : assignment.displayName)
+                        Text(assignment == .user ? String(localized: "Mine") : assignment.displayName)
                             .accessibilityIdentifier("transaction.assignment.\(assignment.rawValue)")
                             .tag(assignment)
                     }
@@ -325,13 +325,13 @@ struct TransactionDetailSheet: View {
             if let userAmount = customUserAmount,
                let ferAmount = draftCustomFerAmount,
                abs(displayAmount) > 0 {
-                Text("You \(HouseholdSettlementReport.percent(userAmount / abs(displayAmount))) / Fer \(HouseholdSettlementReport.percent(ferAmount / abs(displayAmount)))")
+                Text("Tú \(HouseholdSettlementReport.percent(userAmount / abs(displayAmount))) / Fer \(HouseholdSettlementReport.percent(ferAmount / abs(displayAmount)))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
-                    .accessibilityLabel("You \(HouseholdSettlementReport.percent(userAmount / abs(displayAmount))), Fer \(HouseholdSettlementReport.percent(ferAmount / abs(displayAmount)))")
+                    .accessibilityLabel("Tú \(HouseholdSettlementReport.percent(userAmount / abs(displayAmount))), Fer \(HouseholdSettlementReport.percent(ferAmount / abs(displayAmount)))")
             }
             if let customSplitError {
                 Text(customSplitError)
@@ -420,7 +420,7 @@ struct TransactionDetailSheet: View {
                 Circle()
                     .fill(CategoryPalette.color(for: category.name))
                     .frame(width: 8, height: 8)
-                Text(category.name)
+                Text(category.localizedName)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

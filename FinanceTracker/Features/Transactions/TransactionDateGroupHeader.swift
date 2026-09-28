@@ -8,7 +8,7 @@ struct TransactionDateGroupHeader: View {
             Text(group.date, format: .dateTime.weekday(.wide).day().month(.wide))
                 .font(.subheadline.weight(.semibold))
             Spacer()
-            Text("\(group.count) transaction\(group.count == 1 ? "" : "s")")
+            Text(group.count == 1 ? "1 movimiento" : "\(group.count) movimientos")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Text(MoneyFormat.string(group.netTotal))

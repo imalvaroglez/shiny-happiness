@@ -80,6 +80,11 @@ final class DashboardViewModel {
     private var balanceSamplerCache: [UUID: DashboardBalanceSampler] = [:]
     private var consolidatedTransactionCache: (range: DateRange, transactions: [Transaction])?
     private var reuseBalanceSamplerCacheOnNextRefresh = false
+    private var reuseSpendRequirementCacheOnNextRefresh = false
+    private var spendRequirements: [UUID: SpendRequirement] = [:]
+    private var spendRequirementConfigurationError: String?
+    private var spendRequirementCache: [UUID: (start: Date, closing: Date, evaluatedOn: Date,
+                                               modified: Date, value: SpendRequirementCardData)] = [:]
     private var periodNow: Date = .now
     private let promotionCatalogOverride: PromotionCatalog?
     private let promotionEvaluationDate: Date?
@@ -94,12 +99,26 @@ final class DashboardViewModel {
         periodNow = now
         dateRange = kind.resolvedRange(now: now, customRange: customRange)
         reuseBalanceSamplerCacheOnNextRefresh = true
+        reuseSpendRequirementCacheOnNextRefresh = true
     }
 
     func configure(context: ModelContext) {
         self.context = context
         balanceSamplerCache.removeAll()
         consolidatedTransactionCache = nil
+        loadSpendRequirements(context: context)
+        refresh()
+    }
+
+    func reloadSpendRequirements(context: ModelContext) {
+        loadSpendRequirements(context: context)
+        spendRequirementCache.removeAll()
+        refresh()
+    }
+
+    func refreshForCalendarChange(now: Date = .now) {
+        periodNow = now
+        if periodKind != .custom { dateRange = periodKind.resolvedRange(now: now) }
         refresh()
     }
 
@@ -114,6 +133,8 @@ final class DashboardViewModel {
             consolidatedTransactionCache = nil
         }
         reuseBalanceSamplerCacheOnNextRefresh = false
+        if !reuseSpendRequirementCacheOnNextRefresh { spendRequirementCache.removeAll() }
+        reuseSpendRequirementCacheOnNextRefresh = false
 
         switch scope {
         case .consolidated:
@@ -168,10 +189,7 @@ final class DashboardViewModel {
     }
 
     private func isSynthesizedMSIPurchase(_ tx: Transaction) -> Bool {
-        if let plan = tx.installmentPlan, abs(tx.amount) == abs(plan.originalAmount) {
-            return true
-        }
-        return false
+        TransactionClassifier.isSynthesizedMSIPurchase(tx)
     }
 
     // MARK: - Consolidated
@@ -438,6 +456,9 @@ final class DashboardViewModel {
         let plans = fetchActiveInstallmentPlans(context: context, accountId: account.id)
         let sourceStatements = fetchSourceStatements(context: context, accountId: account.id)
         let promotions = evaluatePromotions(context: context, account: account)
+        let spendRequirementCard = account.type == .creditCard
+            ? evaluateSpendRequirement(context: context, account: account, asOf: promotionEvaluationDate ?? .now)
+            : nil
 
         return LiabilityAccountSnapshot(
             period: period,
@@ -456,8 +477,82 @@ final class DashboardViewModel {
             sourceStatements: sourceStatements,
             recentTransactions: transactions,
             totalTransactions: transactions.count,
-            promotions: promotions
+            promotions: promotions,
+            spendRequirementCard: spendRequirementCard
         )
+    }
+
+    private func loadSpendRequirements(context: ModelContext) {
+        do {
+            let accounts = try context.fetch(FetchDescriptor<Account>())
+            let settings = try SpendRequirementStore.bootstrapSuggestions(accounts: accounts)
+            let currencies = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0.currency) })
+            let issues = settings.validate(accountIDs: Set(currencies.keys), accountCurrencies: currencies)
+            guard issues.isEmpty else {
+                spendRequirements = [:]
+                spendRequirementConfigurationError = "La configuración no coincide con las cuentas: \(issues.joined(separator: " "))"
+                return
+            }
+            spendRequirements = Dictionary(uniqueKeysWithValues: settings.requirements.map { ($0.accountID, $0) })
+            spendRequirementConfigurationError = nil
+        } catch {
+            spendRequirements = [:]
+            spendRequirementConfigurationError = "No se pudo leer la configuración de gasto mínimo."
+        }
+    }
+
+    private func evaluateSpendRequirement(context: ModelContext, account: Account, asOf: Date) -> SpendRequirementCardData? {
+        if let error = spendRequirementConfigurationError {
+            return SpendRequirementCardData(requirement: nil, calculation: .unavailable(error), reviewTransactions: [])
+        }
+        guard let requirement = spendRequirements[account.id], requirement.enabled else { return nil }
+        guard let cycle = SpendRequirementCalculator.cycle(for: requirement, asOf: asOf,
+                                                            bankingCalendar: MexicoBankingCalendar(additionalDates: requirement.additionalNonBusinessDates)) else {
+            return SpendRequirementCardData(requirement: requirement,
+                calculation: .unavailable("Calendario pendiente de actualizar."), reviewTransactions: [])
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = MexicoBankingCalendar.timeZone
+        let evaluatedOn = calendar.startOfDay(for: asOf)
+        if let cached = spendRequirementCache[account.id], cached.start == cycle.start,
+           cached.closing == cycle.closingDate, cached.evaluatedOn == evaluatedOn,
+           cached.modified == requirement.lastModifiedAt { return cached.value }
+
+        guard let cycleEndExclusive = calendar.date(byAdding: .day, value: 1, to: cycle.closingDate) else {
+            return SpendRequirementCardData(requirement: requirement,
+                calculation: .unavailable("No se pudo determinar el cierre del ciclo."), reviewTransactions: [])
+        }
+        let accountID = account.id
+        let start = cycle.start
+        let evaluationDate = asOf
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { tx in
+                tx.postedAt >= start && tx.postedAt <= evaluationDate
+                    && tx.postedAt < cycleEndExclusive && tx.account?.id == accountID
+            }, sortBy: [SortDescriptor(\.postedAt)]
+        )
+        do {
+            let transactions = try context.fetch(descriptor)
+            let movements = transactions.map { tx in
+                SpendRequirementMovement(id: tx.id, date: tx.postedAt, amount: tx.amount, currency: tx.currency,
+                    kind: SpendRequirementMovementClassifier.classify(tx),
+                    isDeleted: tx.deletedAt != nil, isDuplicate: tx.isDuplicate)
+            }
+            let calculation = SpendRequirementCalculator.evaluate(requirement: requirement, movements: movements,
+                                                                    asOf: asOf,
+                                                                    bankingCalendar: MexicoBankingCalendar(additionalDates: requirement.additionalNonBusinessDates))
+            let reviewIDs: Set<UUID>
+            if case .available(let progress) = calculation { reviewIDs = Set(progress.reviewMovementIDs) }
+            else { reviewIDs = [] }
+            let value = SpendRequirementCardData(requirement: requirement, calculation: calculation,
+                                                  reviewTransactions: transactions.filter { reviewIDs.contains($0.id) })
+            spendRequirementCache[account.id] = (cycle.start, cycle.closingDate, evaluatedOn,
+                                                 requirement.lastModifiedAt, value)
+            return value
+        } catch {
+            return SpendRequirementCardData(requirement: requirement,
+                calculation: .unavailable("Datos no disponibles; no se pudo leer el historial."), reviewTransactions: [])
+        }
     }
 
     /// Promociones: capa de reporte (AD-022) evaluada on-demand sobre el historial COMPLETO
@@ -465,7 +560,7 @@ final class DashboardViewModel {
     /// dashboard y reembolsos tardíos (spec G). Solo se evalúan las definiciones vinculadas
     /// por UUID a ESTA cuenta (las desvinculadas viven en la salud de configuración).
     private func evaluatePromotions(context: ModelContext, account: Account) -> [PromotionProgress] {
-        let catalog = promotionCatalogOverride ?? PromotionCatalog.load()
+        let catalog = promotionCatalogOverride ?? PromotionStore.load()
         let bound = catalog.definitions.filter { $0.accountUUID == account.id }
         guard !bound.isEmpty else { return [] }
         // ponytail: fetch de todas las vivas + filtro en Swift (906 tx) en lugar de

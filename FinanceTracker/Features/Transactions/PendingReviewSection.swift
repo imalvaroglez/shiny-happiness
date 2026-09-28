@@ -33,7 +33,7 @@ struct PendingReviewSection: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
-            Text("\(pendings.count) row\(pendings.count == 1 ? "" : "s") need review")
+            Text(pendings.count == 1 ? "1 movimiento requiere revisión" : "\(pendings.count) movimientos requieren revisión")
                 .font(.subheadline.weight(.semibold))
             Spacer()
             Button {

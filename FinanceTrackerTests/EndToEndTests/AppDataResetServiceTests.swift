@@ -84,7 +84,7 @@ struct AppDataResetServiceTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         try seedFullDataset(context: context)
 
         let userCategory = Category(name: "My Category", kind: .expense)
@@ -114,7 +114,7 @@ struct AppDataResetServiceTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         try seedFullDataset(context: context)
 
         try AppDataResetService.resetAllData(context: context)
@@ -141,7 +141,7 @@ struct AppDataResetServiceTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         try seedFullDataset(context: context)
 
         try AppDataResetService.resetAllData(context: context)
@@ -158,6 +158,36 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()) == 0)
+    }
+
+    @Test("resetAllData clears local promotion overrides")
+    func resetClearsPromotionOverrides() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("reset-promos-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("PromotionOverrides.json")
+        try PromotionStore.replace(with: PromotionOverrides(), at: url)
+
+        try AppDataResetService.resetAllData(context: context, promotionOverridesURL: url)
+
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @Test("resetAllData clears spend requirement settings")
+    func resetClearsSpendRequirements() throws {
+        let container = try makeContainer()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("reset-spend-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("SpendRequirements.json")
+        let requirement = SpendRequirement(accountID: UUID(), name: "Gasto mínimo", amount: 3_500,
+                                           currency: "MXN", statementClosingDay: 11,
+                                           adjustToPreviousBusinessDay: true)
+        try SpendRequirementStore.replace(with: SpendRequirementSettings(requirements: [requirement]), at: url)
+
+        try AppDataResetService.resetAllData(context: container.mainContext, spendRequirementsURL: url)
+
+        #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
     @Test("Repair removes all financial orphans when accounts are zero")
@@ -193,7 +223,7 @@ struct AppDataResetServiceTests {
 
         try context.save()
 
-        let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        let outcome = try AppDataResetService.repairIncompleteResetIfNeeded(context: context)
         #expect(outcome == .repaired)
 
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
@@ -215,9 +245,9 @@ struct AppDataResetServiceTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
-        let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        let outcome = try AppDataResetService.repairIncompleteResetIfNeeded(context: context)
         #expect(outcome == .noRepairNeeded)
 
         let categories = try context.fetchCount(FetchDescriptor<FinanceTracker.Category>())
@@ -244,7 +274,7 @@ struct AppDataResetServiceTests {
         context.insert(pending)
         try context.save()
 
-        let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        let outcome = try AppDataResetService.repairIncompleteResetIfNeeded(context: context)
         #expect(outcome == .noRepairNeeded)
 
         #expect(try context.fetchCount(FetchDescriptor<Account>()) == 1)
@@ -272,7 +302,7 @@ struct AppDataResetServiceTests {
 
         try context.save()
 
-        let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: context)
+        let outcome = try AppDataResetService.repairIncompleteResetIfNeeded(context: context)
         #expect(outcome == .repaired)
 
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)

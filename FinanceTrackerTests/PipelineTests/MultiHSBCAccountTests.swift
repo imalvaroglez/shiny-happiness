@@ -26,7 +26,7 @@ struct MultiHSBCAccountTests {
     func twoAccountsRemainDistinct() async throws {
         let container = try makeContainer()
         let context = container.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         let pipeline = IngestPipeline(context: context)
 
         guard
@@ -50,7 +50,7 @@ struct MultiHSBCAccountTests {
     func transactionsDoNotCrossAccounts() async throws {
         let container = try makeContainer()
         let context = container.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         let pipeline = IngestPipeline(context: context)
 
         guard

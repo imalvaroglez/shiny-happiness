@@ -71,7 +71,7 @@ private struct CopyBalanceAffordance: ViewModifier {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Balance")
             .accessibilityValue(displayedAmount)
-            .accessibilityHint("Copies the raw balance value to the clipboard")
+            .accessibilityHint("Copia el saldo sin formato al portapapeles")
             .accessibilityAddTraits(.isButton)
     }
 

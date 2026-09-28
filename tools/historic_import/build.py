@@ -1,4 +1,4 @@
-"""Merge Amex historical statements into a complete schema-7 reference backup."""
+"""Merge Amex statements into a complete schema-7/8 reference backup."""
 
 import argparse
 import json
@@ -56,7 +56,8 @@ def load_reference(backup_dir: Path, account_id: str, pilot: dict) -> dict:
     if errors:
         raise ValueError("reference backup selfcheck failed: " + "; ".join(errors[:12]))
     models_dir = backup_dir / "models"
-    model_bytes = {name: (models_dir / f"{name}.json").read_bytes() for name in ftbackup.REQUIRED_MODELS}
+    model_bytes = {name: (models_dir / f"{name}.json").read_bytes()
+                   for name in ftbackup.required_models(manifest["schemaVersion"])}
     data = {name: json.loads(payload) for name, payload in model_bytes.items()}
     try:
         requested = str(uuid.UUID(account_id)).casefold()
@@ -106,7 +107,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True, help="directory containing the Amex source tree")
     parser.add_argument("--out", type=Path, required=True, help="new .ftbackup path; must not already exist")
-    parser.add_argument("--backup", type=Path, required=True, help="complete schema-7 reference .ftbackup")
+    parser.add_argument("--backup", type=Path, required=True, help="complete schema-7/8 reference .ftbackup")
     parser.add_argument("--account-id", required=True, help="UUID of the exact Amex credit-card account")
     parser.add_argument("--pilot", choices=sorted(PILOTS), default="amex")
     parser.add_argument("--run-ts", default=None)

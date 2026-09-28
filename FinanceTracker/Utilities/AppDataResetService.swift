@@ -53,44 +53,47 @@ struct AppDataResetService {
         try deleteAllObjects(of: Account.self, from: context)
     }
 
-    static func resetAllData(context: ModelContext) throws {
+    static func resetAllData(context: ModelContext, promotionOverridesURL: URL? = nil,
+                             spendRequirementsURL: URL? = nil) throws {
         try deletePersistentModels(from: context)
         try context.save()
         try verifyCleanSlate(context: context)
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
+        try PromotionStore.reset(fileURL: promotionOverridesURL)
+        try SpendRequirementStore.reset(fileURL: spendRequirementsURL)
     }
 
-    static func repairIncompleteResetIfNeeded(context: ModelContext) -> ResetRepairOutcome {
-        let accountCount = (try? context.fetchCount(FetchDescriptor<Account>())) ?? 0
+    static func repairIncompleteResetIfNeeded(context: ModelContext) throws -> ResetRepairOutcome {
+        let accountCount = try context.fetchCount(FetchDescriptor<Account>())
         guard accountCount == 0 else { return .noRepairNeeded }
 
-        let txCount = (try? context.fetchCount(FetchDescriptor<Transaction>())) ?? 0
-        let stmtCount = (try? context.fetchCount(FetchDescriptor<Statement>())) ?? 0
-        let snapCount = (try? context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>())) ?? 0
-        let pendingCount = (try? context.fetchCount(FetchDescriptor<PendingImport>())) ?? 0
-        let planCount = (try? context.fetchCount(FetchDescriptor<InstallmentPlan>())) ?? 0
-        let hintCount = (try? context.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
-        let stockPositionCount = (try? context.fetchCount(FetchDescriptor<StockPosition>())) ?? 0
-        let partnerEstimateCount = (try? context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())) ?? 0
-        let dueDateOverrideCount = (try? context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())) ?? 0
+        let txCount = try context.fetchCount(FetchDescriptor<Transaction>())
+        let stmtCount = try context.fetchCount(FetchDescriptor<Statement>())
+        let snapCount = try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>())
+        let pendingCount = try context.fetchCount(FetchDescriptor<PendingImport>())
+        let planCount = try context.fetchCount(FetchDescriptor<InstallmentPlan>())
+        let hintCount = try context.fetchCount(FetchDescriptor<SignRecoveryHint>())
+        let stockPositionCount = try context.fetchCount(FetchDescriptor<StockPosition>())
+        let partnerEstimateCount = try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())
+        let dueDateOverrideCount = try context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())
 
         let totalOrphans = txCount + stmtCount + snapCount + pendingCount + planCount + hintCount + stockPositionCount + partnerEstimateCount + dueDateOverrideCount
         guard totalOrphans > 0 else { return .noRepairNeeded }
 
         logger.info("Repairing incomplete reset: \(totalOrphans) orphan rows (tx=\(txCount), stmt=\(stmtCount), snap=\(snapCount), pending=\(pendingCount), plan=\(planCount), hint=\(hintCount), stock=\(stockPositionCount), partnerEstimate=\(partnerEstimateCount))")
 
-        repairDeleteAll(from: context)
-        try? context.save()
+        try repairDeleteAll(from: context)
+        try context.save()
 
-        let remainingTx = (try? context.fetchCount(FetchDescriptor<Transaction>())) ?? 0
-        let remainingStmt = (try? context.fetchCount(FetchDescriptor<Statement>())) ?? 0
-        let remainingSnap = (try? context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>())) ?? 0
-        let remainingPending = (try? context.fetchCount(FetchDescriptor<PendingImport>())) ?? 0
-        let remainingPlan = (try? context.fetchCount(FetchDescriptor<InstallmentPlan>())) ?? 0
-        let remainingHint = (try? context.fetchCount(FetchDescriptor<SignRecoveryHint>())) ?? 0
-        let remainingStockPosition = (try? context.fetchCount(FetchDescriptor<StockPosition>())) ?? 0
-        let remainingPartnerEstimate = (try? context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())) ?? 0
-        let remainingDueDateOverride = (try? context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())) ?? 0
+        let remainingTx = try context.fetchCount(FetchDescriptor<Transaction>())
+        let remainingStmt = try context.fetchCount(FetchDescriptor<Statement>())
+        let remainingSnap = try context.fetchCount(FetchDescriptor<AccountBalanceSnapshot>())
+        let remainingPending = try context.fetchCount(FetchDescriptor<PendingImport>())
+        let remainingPlan = try context.fetchCount(FetchDescriptor<InstallmentPlan>())
+        let remainingHint = try context.fetchCount(FetchDescriptor<SignRecoveryHint>())
+        let remainingStockPosition = try context.fetchCount(FetchDescriptor<StockPosition>())
+        let remainingPartnerEstimate = try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())
+        let remainingDueDateOverride = try context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())
         let remainingTotal = remainingTx + remainingStmt + remainingSnap + remainingPending + remainingPlan + remainingHint + remainingStockPosition + remainingPartnerEstimate + remainingDueDateOverride
 
         if remainingTotal > 0 {
@@ -99,14 +102,14 @@ struct AppDataResetService {
             return .hardResetRequested
         }
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         logger.info("Repair complete")
         return .repaired
     }
 
-    private static func repairDeleteAll(from context: ModelContext) {
+    private static func repairDeleteAll(from context: ModelContext) throws {
         for type in allModelTypesInDeleteOrder {
-            try? context.delete(model: type)
+            try context.delete(model: type)
         }
     }
 

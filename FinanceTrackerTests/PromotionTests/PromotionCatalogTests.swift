@@ -171,4 +171,44 @@ struct PromotionCatalogTests {
         #expect(table.entries[0].channel == .aggregator)
         #expect(table.entries[1].merchantID == "fresko")
     }
+
+    @Test("Local promotion overrides update and tombstone bundled definitions")
+    func localPromotionOverridesSupportCRUD() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("promotion-store-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("PromotionOverrides.json")
+        let original = try #require(PromotionCatalog.load().definitions.first)
+        let edited = PromotionDefinition(
+            id: original.id, displayName: "Nombre actualizado", accountUUID: original.accountUUID,
+            authoringNickname: original.authoringNickname, window: original.window, shape: original.shape,
+            scope: original.scope, refundPolicy: original.refundPolicy, msiPolicy: original.msiPolicy,
+            reward: original.reward, knownUnknowns: original.knownUnknowns
+        )
+
+        try PromotionStore.save(edited, to: file)
+        #expect(PromotionStore.load(fileURL: file).definitions.first { $0.id == original.id }?.displayName == "Nombre actualizado")
+        try PromotionStore.delete(id: original.id, to: file)
+        #expect(PromotionStore.load(fileURL: file).definitions.contains { $0.id == original.id } == false)
+        #expect(try PromotionStore.read(fileURL: file).deletedIDs.contains(original.id))
+    }
+
+    @Test("Promotion editor requires a card and preserves an existing definition")
+    func editorDraftRequiresAccountAndPreservesDefinition() throws {
+        let original = try #require(PromotionCatalog.load().definitions.first { $0.accountUUID != nil })
+        var draft = PromotionEditorDraft(original)
+        draft.accountID = nil
+        #expect(throws: PromotionEditorError.accountRequired) { try draft.definition() }
+
+        draft.accountID = original.accountUUID
+        let edited = try draft.definition()
+        #expect(edited.id == original.id)
+        #expect(edited.displayName == original.displayName)
+        #expect(edited.window == original.window)
+        #expect(edited.shape == original.shape)
+        #expect(edited.scope == original.scope)
+        #expect(edited.refundPolicy == original.refundPolicy)
+        #expect(edited.msiPolicy == original.msiPolicy)
+        #expect(edited.reward == original.reward)
+        #expect(edited.knownUnknowns == original.knownUnknowns)
+    }
 }

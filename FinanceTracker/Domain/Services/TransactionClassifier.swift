@@ -68,7 +68,7 @@ struct TransactionClassifier {
             || isTransfer
             || (account?.type.isLiability == true && tx.amount > 0)
             || isOwnAccountMovement(tx)
-            || isSynthesizedMSIPurchase(tx)
+            || Self.isSynthesizedMSIPurchase(tx)
 
         let semanticExcluded = retirementContribution || investmentReturn || valuationAdjustment || fee
         let accountAllowsCashFlow = account?.effectiveIncludeInCashFlow ?? true
@@ -97,7 +97,7 @@ struct TransactionClassifier {
         )
     }
 
-    private func isSynthesizedMSIPurchase(_ tx: Transaction) -> Bool {
+    static func isSynthesizedMSIPurchase(_ tx: Transaction) -> Bool {
         if let plan = tx.installmentPlan, abs(tx.amount) == abs(plan.originalAmount) {
             return true
         }
