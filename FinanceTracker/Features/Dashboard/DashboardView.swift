@@ -1,9 +1,11 @@
 import SwiftUI
 import SwiftData
 import Charts
+import os
 
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = DashboardViewModel()
     @State private var selectedRange: DashboardPeriodKind = .all
     @State private var customStart = Date().addingTimeInterval(-90 * 86400)
@@ -70,9 +72,14 @@ struct DashboardView: View {
         }
         .environment(\.scopedTint, scopedTint)
         .task {
-            let outcome = AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
-            guard outcome != .hardResetRequested else { return }
-            SeedDataLoader.bootstrapIfNeeded(context: modelContext)
+            do {
+                let outcome = try AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
+                guard outcome != .hardResetRequested else { return }
+                try SeedDataLoader.bootstrapIfNeeded(context: modelContext)
+            } catch {
+                Logger.app.error("Category bootstrap failed; dashboard refresh skipped: \(error.localizedDescription)")
+                return
+            }
             HouseholdAllocationRepairService.repairIfNeeded(context: modelContext)
             viewModel.setPeriod(selectedRange)
             viewModel.configure(context: modelContext)
@@ -100,6 +107,12 @@ struct DashboardView: View {
         }
         .onChange(of: accounts.map(\.id)) {
             validateAccountSelection()
+        }
+        .onChange(of: scenePhase) {
+            if scenePhase == .active { viewModel.refreshForCalendarChange() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            if scenePhase == .active { viewModel.refreshForCalendarChange() }
         }
         .popover(isPresented: $showingCustomRange) {
             customDatePopover
@@ -249,8 +262,9 @@ struct DashboardView: View {
                     sidebarSelection = .overview
                     viewModel.scope = .consolidated
                 }
-                viewModel.refresh()
+                viewModel.reloadSpendRequirements(context: modelContext)
             }, onAccountCreated: { account in
+                viewModel.reloadSpendRequirements(context: modelContext)
                 viewModel.refresh()
             }, onDataReset: {
                 dataResetGeneration += 1
@@ -261,7 +275,9 @@ struct DashboardView: View {
                 showingImport = false
                 showingAddAccount = false
                 showingPositionsSheet = false
-                viewModel.refresh()
+                viewModel.reloadSpendRequirements(context: modelContext)
+            }, onSpendRequirementChanged: {
+                viewModel.reloadSpendRequirements(context: modelContext)
             })
         }
     }
@@ -392,6 +408,7 @@ struct DashboardView: View {
                 onTransactionTap: { tx in
                     editingTransaction = tx
                 },
+                onViewAllTransactions: { openTransactions(for: snap.account.id) },
                 onRefreshPrices: {
                     await refreshPortfolioPrices()
                 },
@@ -405,6 +422,7 @@ struct DashboardView: View {
                 onTransactionTap: { tx in
                     editingTransaction = tx
                 },
+                onViewAllTransactions: { openTransactions(for: snap.account.id) },
                 onEditPaymentDetails: {
                     if selectedAccount?.type == .creditCard {
                         showingPaymentDetails = true
@@ -421,6 +439,11 @@ struct DashboardView: View {
         let outcome = await PortfolioPriceRefresher.refresh(account: account, context: modelContext)
         viewModel.refresh()
         return PortfolioDashboardCopy.refreshMessage(for: outcome)
+    }
+
+    private func openTransactions(for accountID: UUID) {
+        pendingTransactionPreset = TransactionFilterPreset(accountID: accountID)
+        sidebarSelection = .transactions
     }
 
     private func emptyState(reason: String) -> some View {

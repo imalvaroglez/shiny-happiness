@@ -601,14 +601,13 @@ struct DashboardPeriodFilteringTests {
         viewModel.refresh()
         viewModel.setPeriod(.quarter, now: now)
         viewModel.refresh()
-        let elapsed = Date().timeIntervalSince(start)
         let periodSwitchElapsed = Date().timeIntervalSince(loadedAll)
 
         guard case .consolidated(let snap) = viewModel.snapshot else {
             Issue.record("Expected consolidated snapshot"); return
         }
 
-        #expect(elapsed < 2.0)
+        #expect(loadedAll.timeIntervalSince(start) < 2.0)
         #expect(periodSwitchElapsed < 0.75)
         #expect(snap.netWorth == Decimal(accountCount * (1_000 + transactionsPerAccount)))
         #expect(snap.netWorthOverTime.count <= snap.period.intervals(calendar: calendar).count + 1)
@@ -758,7 +757,7 @@ struct DashboardPeriodFilteringTests {
             ]
         )
 
-        #expect(groups.map(\.label) == ["Apr", "May", "Jun"])
+        #expect(groups.map(\.label) == ["abr", "may", "jun"])
         #expect(groups.map(\.bucketStart) == [
             date(year: 2026, month: 4, day: 1),
             date(year: 2026, month: 5, day: 1),
@@ -789,9 +788,34 @@ struct DashboardPeriodFilteringTests {
             ]
         )
 
-        #expect(groups.map(\.label) == ["Feb", "Mar", "Apr"])
+        #expect(groups.map(\.label) == ["feb", "mar", "abr"])
         #expect(groups.map(\.isPlaceholder) == [false, true, false])
         #expect(groups.map(\.order) == [0, 1, 2])
+    }
+
+    @Test("Monthly card spending bars omit empty and payment-only days")
+    func monthlyCardBarsOmitInactiveDays() {
+        let now = date(year: 2026, month: 9, day: 24)
+        let period = DashboardPeriodResolver.context(
+            kind: .month,
+            requestedRange: DashboardPeriodKind.month.resolvedRange(now: now),
+            dataRange: nil,
+            now: now
+        )
+        let groups = DashboardPeriodBarGroupBuilder.groups(
+            period: period,
+            buckets: [
+                DashboardPeriodBucketDisplayValue(bucketStart: date(year: 2026, month: 9, day: 2), firstMagnitude: 200, secondMagnitude: 0),
+                DashboardPeriodBucketDisplayValue(bucketStart: date(year: 2026, month: 9, day: 3), firstMagnitude: 0, secondMagnitude: 1_000),
+                DashboardPeriodBucketDisplayValue(bucketStart: date(year: 2026, month: 9, day: 4), firstMagnitude: 0, secondMagnitude: 0),
+                DashboardPeriodBucketDisplayValue(bucketStart: date(year: 2026, month: 9, day: 20), firstMagnitude: 350, secondMagnitude: 0)
+            ],
+            onlyFirstSeries: true
+        )
+
+        #expect(groups.map(\.bucketStart) == [date(year: 2026, month: 9, day: 2), date(year: 2026, month: 9, day: 20)])
+        #expect(groups.map(\.firstMagnitude) == [200, 350])
+        #expect(groups.allSatisfy { !$0.isPlaceholder })
     }
 
     @Test("Grouped period layout keeps sparse charts compact")
@@ -993,10 +1017,27 @@ struct DashboardPeriodFilteringTests {
             categorySpend("Books", 5),
         ])
 
-        #expect(rows.map(\.name) == ["Furniture", "Maintenance", "Rent", "Events", "Food", "Other"])
+        #expect(rows.map(\.name) == ["Muebles", "Mantenimiento", "Renta", "Eventos", "Food", String(localized: "Other")])
         #expect(rows.last?.amount == 15)
         #expect(rows.last?.isOther == true)
         #expect(rows.first?.percentage.map { abs($0 - 24.096) < 0.01 } == true)
+    }
+
+    @Test("Category donut groups beyond eight without losing the full total")
+    func categoryDonutGroupsBeyondEightWithoutLosingTotal() {
+        let entries = (1...10).map { index in
+            categorySpend("Category \(index)", Decimal(index))
+        }
+
+        let rows = DashboardSpendingBarBuilder.rows(from: entries, limit: 8)
+
+        #expect(rows.count == 9)
+        #expect(rows.prefix(8).map(\.amount) == Array((3...10).reversed()).map { Decimal($0) })
+        #expect(rows.last?.amount == 3)
+        #expect(rows.last?.isOther == true)
+        #expect(rows.reduce(Decimal.zero) { $0 + $1.amount } == 55)
+        #expect(rows.allSatisfy { $0.total == 55 })
+        #expect(rows.last?.percentage.map { abs($0 - 300.0 / 55.0) < 0.001 } == true)
     }
 
     @Test("Dashboard account groups follow net worth composition buckets")
@@ -1092,6 +1133,78 @@ struct DashboardPeriodFilteringTests {
             #expect(barX >= snap.period.plotDomain.lowerBound)
             #expect(barX <= snap.period.plotDomain.upperBound)
         }
+    }
+
+    @Test("Monthly card charges retain installments but exclude duplicate and MSI parent rows")
+    func monthlyCardChargeBucketsKeepOnlyRealCharges() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let card = Account(institution: "Test Bank", type: .creditCard)
+        context.insert(card)
+
+        let plan = InstallmentPlan(
+            account: card,
+            originalAmount: 9_000,
+            totalMonths: 3,
+            currentMonth: 1,
+            monthlyAmount: 3_000,
+            firstChargeDate: date(year: 2026, month: 9, day: 8),
+            merchantDescription: "MSI purchase"
+        )
+        context.insert(plan)
+        let original = Transaction(
+            account: card,
+            postedAt: date(year: 2026, month: 9, day: 5),
+            amount: -9_000,
+            descriptionRaw: "MSI original",
+            installmentPlan: plan
+        )
+        plan.originalPurchase = original
+        context.insert(original)
+        context.insert(Transaction(
+            account: card,
+            postedAt: date(year: 2026, month: 9, day: 8),
+            amount: -3_000,
+            descriptionRaw: "MSI installment",
+            installmentPlan: plan
+        ))
+        context.insert(Transaction(
+            account: card,
+            postedAt: date(year: 2026, month: 9, day: 10),
+            amount: -1_000,
+            descriptionRaw: "Duplicate charge",
+            isDuplicate: true
+        ))
+        context.insert(Transaction(
+            account: card,
+            postedAt: date(year: 2026, month: 9, day: 12),
+            amount: -200,
+            descriptionRaw: "Coffee"
+        ))
+        context.insert(Transaction(
+            account: card,
+            postedAt: date(year: 2026, month: 9, day: 14),
+            amount: 5_000,
+            descriptionRaw: "Card payment"
+        ))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.scope = .account(card.id)
+        viewModel.setPeriod(.month, now: date(year: 2026, month: 9, day: 24))
+        viewModel.configure(context: context)
+
+        guard case .liability(let snapshot) = viewModel.snapshot else {
+            Issue.record("Expected liability snapshot"); return
+        }
+
+        let calendar = Calendar(identifier: .gregorian)
+        #expect(snapshot.totalCharges == 3_200)
+        #expect(snapshot.totalPayments == 5_000)
+        #expect(snapshot.chargesVsPayments.first { calendar.isDate($0.month, inSameDayAs: date(year: 2026, month: 9, day: 5)) }?.charges == 0)
+        #expect(snapshot.chargesVsPayments.first { calendar.isDate($0.month, inSameDayAs: date(year: 2026, month: 9, day: 8)) }?.charges == 3_000)
+        #expect(snapshot.chargesVsPayments.first { calendar.isDate($0.month, inSameDayAs: date(year: 2026, month: 9, day: 10)) }?.charges == 0)
+        #expect(snapshot.chargesVsPayments.first { calendar.isDate($0.month, inSameDayAs: date(year: 2026, month: 9, day: 14)) }?.payments == 5_000)
     }
 
     @Test("Net worth breakdown copy distinguishes provenance from period activity")

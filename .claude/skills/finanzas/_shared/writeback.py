@@ -38,6 +38,8 @@ from typing import Any
 
 from load import SUPPORTED_SCHEMA
 
+WRITEBACK_SCHEMA = {4, 5, 6, 7}
+
 ALLOWED_FIELDS = {"categoryId", "flowKindRaw", "treatmentKindRaw", "movementKindRaw"}
 VALID_FLOW = {"income", "expense", "transfer", "charge", "cardCredit", "payment"}
 VALID_TREATMENT = {
@@ -67,10 +69,10 @@ def _iso(now: datetime) -> str:
 
 def _validate_dataset_schema(ds: dict[str, Any]) -> None:
     schema = ds.get("manifest", {}).get("schemaVersion")
-    if schema not in SUPPORTED_SCHEMA:
+    if schema not in WRITEBACK_SCHEMA:
         raise WritebackError(
             f"schemaVersion={schema} no soportado para write-back. "
-            f"El skill acepta {sorted(SUPPORTED_SCHEMA)} y preserva el manifest original."
+            f"El write-back acepta {sorted(WRITEBACK_SCHEMA)} y preserva el manifest original."
         )
 
 

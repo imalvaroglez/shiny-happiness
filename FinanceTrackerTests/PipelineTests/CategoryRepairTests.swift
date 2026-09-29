@@ -32,7 +32,7 @@ struct CategoryRepairTests {
         context.insert(oldCCPay)
         try context.save()
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let allCategories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
         let repaired = allCategories.first {
@@ -72,7 +72,7 @@ struct CategoryRepairTests {
         context.insert(tx)
         try context.save()
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         #expect(tx.category?.kind == .creditCardPayment,
                 "Transaction should see repaired kind .creditCardPayment, got \(tx.category?.kind.rawValue ?? "nil")")
@@ -111,7 +111,7 @@ struct CategoryRepairTests {
         context.insert(ruleOnOld)
         try context.save()
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let allCategories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
         let activeCCPay = allCategories.filter {
@@ -146,7 +146,7 @@ struct CategoryRepairTests {
         context.insert(oldCCPay)
         try context.save()
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let allCategories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
         let canonical = allCategories.first {
@@ -187,8 +187,8 @@ struct CategoryRepairTests {
         context.insert(oldCCPay)
         try context.save()
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let allCategories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
         let activeCCPay = allCategories.filter {
@@ -237,6 +237,13 @@ struct CategoryRepairTests {
             kind: .income
         )
         context.insert(duplicateBonus)
+        let deletedChild = FinanceTracker.Category(
+            name: "Archived Bonus",
+            parent: duplicateIncome,
+            kind: .income
+        )
+        deletedChild.deletedAt = .now
+        context.insert(deletedChild)
 
         let account = Account(institution: "Test", type: .savings, currency: "MXN")
         context.insert(account)
@@ -271,7 +278,7 @@ struct CategoryRepairTests {
         context.insert(interestRule)
         try context.save()
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let allCategories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
         let activeIncome = allCategories.filter {
@@ -297,6 +304,8 @@ struct CategoryRepairTests {
             $0.name == "Bonus" && $0.kind == .income && $0.deletedAt == nil
         }
         #expect(movedBonus?.parent?.id == canonicalIncome.id)
+        #expect(deletedChild.deletedAt != nil)
+        #expect(deletedChild.parent?.id == canonicalIncome.id)
     }
 
     @Test("Duplicate repair preserves same names in different kinds and parent scopes")
@@ -319,7 +328,7 @@ struct CategoryRepairTests {
         context.insert(secondScoped)
         try context.save()
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         #expect(incomeShared.deletedAt == nil)
         #expect(expenseShared.deletedAt == nil)
@@ -358,9 +367,9 @@ struct CategoryRepairTests {
         context.insert(duplicateIncome)
         try context.save()
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         let deletedAt = duplicateIncome.deletedAt
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let allCategories = try context.fetch(FetchDescriptor<FinanceTracker.Category>())
         let activeIncome = allCategories.filter {

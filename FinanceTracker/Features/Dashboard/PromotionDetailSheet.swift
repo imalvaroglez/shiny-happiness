@@ -224,7 +224,7 @@ struct PromotionDetailSheet: View {
         Section(title: "Posible recompensa recibida (sin asignar)") {
             ForEach(promo.receiptCandidates, id: \.transactionID) { c in
                 HStack {
-                    Text(c.postedAt.formatted(date: .abbreviated, time: .omitted)).font(.caption.monospacedDigit())
+                    Text(c.postedAt.formattedMX()).font(.caption.monospacedDigit())
                     Spacer()
                     Text(MoneyFormat.string(code: currencyCode, c.amount)).font(.caption.monospacedDigit())
                 }
@@ -283,7 +283,7 @@ struct PromotionDetailSheet: View {
             }
             Spacer()
             if let badge { badge }
-            Text(row.postedAt.formatted(date: .abbreviated, time: .omitted)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            Text(row.postedAt.formattedMX()).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
             Text(MoneyFormat.string(code: currencyCode, abs(row.amount)))
                 .font(.caption.monospacedDigit())
         }

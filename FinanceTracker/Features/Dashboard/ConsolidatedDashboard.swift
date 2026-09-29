@@ -406,7 +406,7 @@ struct ConsolidatedDashboard: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(showAllCategories ? "Collapse spending categories" : other)
-                    .accessibilityHint("Shows the smaller categories grouped into Other")
+                    .accessibilityHint("Muestra las categorías pequeñas agrupadas en Otras")
                 }
             }
         }
@@ -597,7 +597,7 @@ struct ConsolidatedDashboard: View {
     }
 
     private func shortDate(_ date: Date) -> String {
-        date.formatted(.dateTime.month(.abbreviated).day().year())
+        date.formatted(.dateTime.month(.abbreviated).day().year().locale(Locale(identifier: "es-MX")))
     }
 
     private func accountIcon(for summary: AccountSummary) -> some View {

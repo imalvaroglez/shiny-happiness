@@ -49,6 +49,31 @@ struct HouseholdInclusionTests {
         #expect(!state.showingRecentlyDeleted)
     }
 
+    @Test("Opening account transactions clears other session filters")
+    func accountPresetReplacesSessionFilters() {
+        var state = TransactionSessionState()
+        state.searchText = "supermercado"
+        state.accountFilterID = UUID()
+        state.categoryFilter = .uncategorized
+        state.assignmentFilter = .shared
+        state.householdInclusionFilter = .included
+        state.presetMonth = YearMonth(year: 2026, month: 7)
+        state.sortMode = .amountAsc
+        state.showingRecentlyDeleted = true
+        let accountID = UUID()
+
+        state.apply(TransactionFilterPreset(accountID: accountID))
+
+        #expect(state.searchText.isEmpty)
+        #expect(state.accountFilterID == accountID)
+        #expect(state.categoryFilter == .all)
+        #expect(state.assignmentFilter == .all)
+        #expect(state.householdInclusionFilter == .all)
+        #expect(state.presetMonth == nil)
+        #expect(state.sortMode == .dateDesc)
+        #expect(!state.showingRecentlyDeleted)
+    }
+
     @Test("HouseholdScopeResolver maps legacy assignments deterministically")
     func resolverMapping() {
         #expect(HouseholdScopeResolver.resolveScope(assignmentRaw: nil) == .excluded)

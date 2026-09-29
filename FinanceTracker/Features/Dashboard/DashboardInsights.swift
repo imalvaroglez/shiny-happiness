@@ -201,7 +201,7 @@ enum SpendingAnomalyBuilder {
             guard abs(pct) >= changeThresholdPercent else { return nil }
             return CategoryAnomaly(
                 id: entry.id,
-                categoryName: entry.category.name,
+                categoryName: entry.category.localizedName,
                 current: entry.amount,
                 previous: prevByID[entry.id] ?? 0,
                 percentChange: pct

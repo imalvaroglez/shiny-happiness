@@ -33,7 +33,7 @@ struct OpenbankMultiAccountTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         guard let report = await ingestOpenbankPDF(context: context) else { return }
         #expect(report.newTransactions > 0)
@@ -52,7 +52,7 @@ struct OpenbankMultiAccountTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         guard await ingestOpenbankPDF(context: context) != nil else { return }
 
         let transactions = try context.fetch(FetchDescriptor<Transaction>())
@@ -80,7 +80,7 @@ struct OpenbankMultiAccountTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         guard await ingestOpenbankPDF(context: context) != nil else { return }
 
         let transactions = try context.fetch(FetchDescriptor<Transaction>())
@@ -100,7 +100,7 @@ struct OpenbankMultiAccountTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
         guard await ingestOpenbankPDF(context: context) != nil else { return }
 
         let transactions = try context.fetch(FetchDescriptor<Transaction>())
@@ -137,7 +137,7 @@ struct OpenbankMultiAccountTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let pipeline = IngestPipeline(context: context)
         guard
@@ -160,7 +160,7 @@ struct OpenbankMultiAccountTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let pipeline = IngestPipeline(context: context)
         guard let url = FixtureLoader.optionalURL("01.pdf") else { return }

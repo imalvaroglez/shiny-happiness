@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import os
 import SwiftData
 
 #if os(macOS)
@@ -12,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    nonisolated private static let schemaVersion = 7
+    nonisolated private static let schemaVersion = 9
     nonisolated private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -66,6 +65,20 @@ enum BackupArchive {
             let actualHash = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
             guard actualHash == expectedHash else { return false }
         }
+        if manifest.schemaVersion >= 9 {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let accountData = arrayData(for: "Account", in: modelsDir),
+                  let accounts = try? decoder.decode([AccountSnapshot].self, from: accountData),
+                  let requirementData = arrayData(for: "SpendRequirement", in: modelsDir),
+                  let snapshots = try? decoder.decode([SpendRequirementSettings].self, from: requirementData),
+                  snapshots.count == 1 else { return false }
+            var currencies: [UUID: String] = [:]
+            for account in accounts {
+                guard currencies.updateValue(account.currency, forKey: account.id) == nil else { return false }
+            }
+            guard snapshots[0].validate(accountIDs: Set(currencies.keys), accountCurrencies: currencies).isEmpty else { return false }
+        }
         return true
     }
 
@@ -91,10 +104,13 @@ enum BackupArchive {
         if schemaVersion >= 3 { names.append("StockPosition") }
         if schemaVersion >= 4 { names.append("HouseholdPartnerIncomeEstimate") }
         if schemaVersion >= 7 { names.append("SettlementDueDateOverride") }
+        if schemaVersion >= 8 { names.append("PromotionOverrides") }
+        if schemaVersion >= 9 { names.append("SpendRequirement") }
         return names
     }
 
-    static func export(to bundleURL: URL, from context: ModelContext) async throws {
+    static func export(to bundleURL: URL, from context: ModelContext, promotionOverridesURL: URL? = nil,
+                       spendRequirementsURL: URL? = nil) async throws {
         let fm = FileManager.default
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
         let statementsDir = bundleURL.appendingPathComponent(statementsSubdirectory)
@@ -176,6 +192,11 @@ enum BackupArchive {
         }
         try writeJSON("SettlementDueDateOverride", newestByTx.values.map { SettlementDueDateOverrideSnapshot($0) })
 
+        let promotionStoreURL = try promotionOverridesURL ?? PromotionStore.defaultURL()
+        try writeJSON("PromotionOverrides", [try PromotionStore.read(fileURL: promotionStoreURL)])
+        let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
+        try writeJSON("SpendRequirement", [try SpendRequirementStore.read(fileURL: spendStoreURL)])
+
         let appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
         let sourceStatements = appSupport.appendingPathComponent("FinanceTracker/Statements")
         if fm.fileExists(atPath: sourceStatements.path) {
@@ -184,13 +205,7 @@ enum BackupArchive {
                 let relative = file.path.replacingOccurrences(of: sourceStatements.path + "/", with: "")
                 let dest = statementsDir.appendingPathComponent(relative)
                 try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-                do {
-                    try fm.copyItem(at: file, to: dest)
-                } catch {
-                    // Un statement que no se pueda copiar no debe abortar todo el backup;
-                    // se loguea y se continúa con el resto.
-                    Logger.app.error("BackupArchive: no se pudo copiar statement \(file.lastPathComponent): \(error.localizedDescription)")
-                }
+                try fm.copyItem(at: file, to: dest)
             }
         }
 
@@ -205,14 +220,15 @@ enum BackupArchive {
         try manifestData.write(to: bundleURL.appendingPathComponent("manifest.json"))
     }
 
-    static func restore(from bundleURL: URL, into context: ModelContext, strategy: RestoreStrategy) async throws {
+    static func restore(from bundleURL: URL, into context: ModelContext, strategy: RestoreStrategy,
+                        promotionOverridesURL: URL? = nil, spendRequirementsURL: URL? = nil) async throws {
         let fm = FileManager.default
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard [1, 2, 3, 4, 5, 6, 7].contains(manifest.schemaVersion) else {
+        guard (1...9).contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
         guard isValidBundle(manifest, at: bundleURL) else {
@@ -262,6 +278,26 @@ enum BackupArchive {
         } else {
             dueDateOverridesSnap = try loadOptionalJSON(SettlementDueDateOverrideSnapshot.self, "SettlementDueDateOverride")
         }
+        let promotionOverridesSnap: PromotionOverrides?
+        if manifest.schemaVersion >= 8 {
+            let snapshots = try loadJSON(PromotionOverrides.self, "PromotionOverrides")
+            guard snapshots.count == 1 else { throw RestoreError.invalidBundle }
+            promotionOverridesSnap = snapshots.first
+        } else {
+            promotionOverridesSnap = nil
+        }
+        let spendRequirementsSnap: SpendRequirementSettings?
+        if manifest.schemaVersion >= 9 {
+            let snapshots = try loadJSON(SpendRequirementSettings.self, "SpendRequirement")
+            guard snapshots.count == 1,
+                  snapshots[0].validate(accountIDs: Set(accountsSnap.map(\.id)),
+                                        accountCurrencies: Dictionary(uniqueKeysWithValues: accountsSnap.map { ($0.id, $0.currency) })).isEmpty else {
+                throw RestoreError.invalidBundle
+            }
+            spendRequirementsSnap = snapshots.first
+        } else {
+            spendRequirementsSnap = nil
+        }
 
         switch strategy {
         case .replaceAll:
@@ -293,6 +329,46 @@ enum BackupArchive {
         var signRecoveryHintMap = indexByID(existingSignRecoveryHints, keyPath: \SignRecoveryHint.id)
         var stockPositionMap = indexByID(existingStockPositions, keyPath: \StockPosition.id)
         var partnerEstimateMap = indexByID(existingPartnerEstimates, keyPath: \HouseholdPartnerIncomeEstimate.id)
+
+        func winningIDs<S, M>(
+            _ snapshots: [S],
+            existing: [UUID: M],
+            id: KeyPath<S, UUID>,
+            modifiedAt: KeyPath<S, Date>,
+            existingModifiedAt: KeyPath<M, Date>
+        ) -> Set<UUID> {
+            Set(snapshots.compactMap { snapshot in
+                let id = snapshot[keyPath: id]
+                guard let current = existing[id] else { return id }
+                if case .replaceAll = strategy { return id }
+                return snapshot[keyPath: modifiedAt] > current[keyPath: existingModifiedAt] ? id : nil
+            })
+        }
+
+        let winningBalanceSnapshotIDs = winningIDs(balanceSnapshotsSnap, existing: balanceSnapshotMap,
+            id: \AccountBalanceSnapshotSnapshot.id, modifiedAt: \AccountBalanceSnapshotSnapshot.lastModifiedAt,
+            existingModifiedAt: \AccountBalanceSnapshot.lastModifiedAt)
+        let winningStatementIDs = winningIDs(statementsSnap, existing: statementMap,
+            id: \StatementSnapshot.id, modifiedAt: \StatementSnapshot.lastModifiedAt,
+            existingModifiedAt: \Statement.lastModifiedAt)
+        let winningCategoryIDs = winningIDs(categoriesSnap, existing: categoryMap,
+            id: \CategorySnapshot.id, modifiedAt: \CategorySnapshot.lastModifiedAt,
+            existingModifiedAt: \Category.lastModifiedAt)
+        let winningCategoryRuleIDs = winningIDs(categoryRulesSnap, existing: categoryRuleMap,
+            id: \CategoryRuleSnapshot.id, modifiedAt: \CategoryRuleSnapshot.lastModifiedAt,
+            existingModifiedAt: \CategoryRule.lastModifiedAt)
+        let winningInstallmentPlanIDs = winningIDs(installmentPlansSnap, existing: installmentPlanMap,
+            id: \InstallmentPlanSnapshot.id, modifiedAt: \InstallmentPlanSnapshot.lastModifiedAt,
+            existingModifiedAt: \InstallmentPlan.lastModifiedAt)
+        let winningTransactionIDs = winningIDs(transactionsSnap, existing: transactionMap,
+            id: \TransactionSnapshot.id, modifiedAt: \TransactionSnapshot.lastModifiedAt,
+            existingModifiedAt: \Transaction.lastModifiedAt)
+        let winningPendingImportIDs = winningIDs(pendingImportsSnap, existing: pendingImportMap,
+            id: \PendingImportSnapshot.id, modifiedAt: \PendingImportSnapshot.lastModifiedAt,
+            existingModifiedAt: \PendingImport.lastModifiedAt)
+        let winningStockPositionIDs = winningIDs(stockPositionsSnap, existing: stockPositionMap,
+            id: \StockPositionSnapshot.id, modifiedAt: \StockPositionSnapshot.lastModifiedAt,
+            existingModifiedAt: \StockPosition.lastModifiedAt)
 
         func resolveOrInsertAccount(_ id: UUID, _ snap: AccountSnapshot) -> Account {
             if let existing = accountMap[id] {
@@ -475,26 +551,31 @@ enum BackupArchive {
         }
         for snap in balanceSnapshotsSnap {
             guard let obj = balanceSnapshotMap[snap.id] else { continue }
+            guard winningBalanceSnapshotIDs.contains(snap.id) else { continue }
             obj.account = snap.accountId.flatMap { accountMap[$0] }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
         for snap in categoriesSnap {
             guard let obj = categoryMap[snap.id] else { continue }
+            guard winningCategoryIDs.contains(snap.id) else { continue }
             obj.parent = snap.parentId.flatMap { categoryMap[$0] }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
         for snap in statementsSnap {
             guard let obj = statementMap[snap.id] else { continue }
+            guard winningStatementIDs.contains(snap.id) else { continue }
             obj.account = snap.accountId.flatMap { accountMap[$0] }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
         for snap in categoryRulesSnap {
             guard let obj = categoryRuleMap[snap.id] else { continue }
+            guard winningCategoryRuleIDs.contains(snap.id) else { continue }
             obj.category = snap.categoryId.flatMap { categoryMap[$0] }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
         for snap in installmentPlansSnap {
             guard let obj = installmentPlanMap[snap.id] else { continue }
+            guard winningInstallmentPlanIDs.contains(snap.id) else { continue }
             obj.account = snap.accountId.flatMap { accountMap[$0] }
             obj.originalPurchase = snap.originalPurchaseId.flatMap { transactionMap[$0] }
             obj.installments = snap.installmentsIds.compactMap { transactionMap[$0] }
@@ -502,6 +583,7 @@ enum BackupArchive {
         }
         for snap in transactionsSnap {
             guard let obj = transactionMap[snap.id] else { continue }
+            guard winningTransactionIDs.contains(snap.id) else { continue }
             obj.account = snap.accountId.flatMap { accountMap[$0] }
             obj.statement = snap.statementId.flatMap { statementMap[$0] }
             obj.category = snap.categoryId.flatMap { categoryMap[$0] }
@@ -524,6 +606,7 @@ enum BackupArchive {
         }
         for snap in pendingImportsSnap {
             guard let obj = pendingImportMap[snap.id] else { continue }
+            guard winningPendingImportIDs.contains(snap.id) else { continue }
             obj.account = snap.accountId.flatMap { accountMap[$0] }
             obj.statement = snap.statementId.flatMap { statementMap[$0] }
             obj.resolvedTransaction = snap.resolvedTransactionId.flatMap { transactionMap[$0] }
@@ -531,6 +614,7 @@ enum BackupArchive {
         }
         for snap in stockPositionsSnap {
             guard let obj = stockPositionMap[snap.id] else { continue }
+            guard winningStockPositionIDs.contains(snap.id) else { continue }
             obj.account = snap.accountId.flatMap { accountMap[$0] }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
         }
@@ -594,7 +678,46 @@ enum BackupArchive {
         }
 
         _ = HouseholdAllocationRepairService.repair(transactions: Array(transactionMap.values))
-        try context.save()
+        let promotionStoreURL = try promotionOverridesURL ?? PromotionStore.defaultURL()
+        let currentPromotionOverrides = try PromotionStore.read(fileURL: promotionStoreURL)
+        let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
+        let currentSpendRequirements = try SpendRequirementStore.read(fileURL: spendStoreURL)
+        let hadSpendRequirementsFile = FileManager.default.fileExists(atPath: spendStoreURL.path)
+        do {
+            switch strategy {
+            case .replaceAll:
+                if let promotionOverridesSnap {
+                    try PromotionStore.replace(with: promotionOverridesSnap, at: promotionStoreURL)
+                }
+            case .mergeKeepingNewer:
+                if let promotionOverridesSnap { try PromotionStore.merge(promotionOverridesSnap, at: promotionStoreURL) }
+            }
+            switch strategy {
+            case .replaceAll:
+                if let spendRequirementsSnap {
+                    try SpendRequirementStore.replace(with: spendRequirementsSnap, at: spendStoreURL,
+                        accountIDs: Set(accountMap.keys),
+                        accountCurrencies: Dictionary(uniqueKeysWithValues: accountMap.map { ($0.key, $0.value.currency) }))
+                } else {
+                    try SpendRequirementStore.reset(fileURL: spendStoreURL)
+                }
+            case .mergeKeepingNewer:
+                if let spendRequirementsSnap {
+                    try SpendRequirementStore.merge(spendRequirementsSnap, at: spendStoreURL,
+                        accountIDs: Set(accountMap.keys),
+                        accountCurrencies: Dictionary(uniqueKeysWithValues: accountMap.map { ($0.key, $0.value.currency) }))
+                }
+            }
+            try context.save()
+        } catch {
+            try? PromotionStore.replace(with: currentPromotionOverrides, at: promotionStoreURL)
+            if hadSpendRequirementsFile {
+                try? SpendRequirementStore.replace(with: currentSpendRequirements, at: spendStoreURL)
+            } else {
+                try? SpendRequirementStore.reset(fileURL: spendStoreURL)
+            }
+            throw error
+        }
 
         let statementsSource = bundleURL.appendingPathComponent(statementsSubdirectory)
         if fm.fileExists(atPath: statementsSource.path) {

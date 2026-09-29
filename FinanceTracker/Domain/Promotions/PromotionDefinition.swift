@@ -2,7 +2,7 @@ import Foundation
 
 /// Formato declarativo de una promoción (spec: docs/specs/2026-09-22-promotion-tracking-brainstorm.md, secciones C/H).
 /// Es configuración, no estado: borrarla no pierde datos del usuario. Todo dinero es Decimal.
-struct PromotionDefinition: Equatable, Decodable {
+struct PromotionDefinition: Equatable, Codable, Sendable {
     let id: String
     let displayName: String
     /// UUID obligatorio para evaluar; nil ⇒ desvinculada / no calculable (clase ①).
@@ -19,7 +19,7 @@ struct PromotionDefinition: Equatable, Decodable {
 
     // MARK: - Ventana (fechas literales yyyy-MM-dd resueltas al autorar, con procedencia)
 
-    enum PromotionWindow: Equatable, Decodable {
+    enum PromotionWindow: Equatable, Codable, Sendable {
         case fixed(start: String, end: String, provenance: String)
         case anchored(start: String, durationDays: Int, provenance: String)
         case unknown(note: String?)
@@ -27,7 +27,7 @@ struct PromotionDefinition: Equatable, Decodable {
 
     // MARK: - Forma matemática (3 cerradas; una 4ª exige código deliberado — spec D)
 
-    enum PromotionShape: Equatable, Decodable {
+    enum PromotionShape: Equatable, Codable, Sendable {
         case spendThreshold(target: Decimal, reward: Decimal)
         case cashbackCap(ratePercent: Decimal, cap: Decimal)
         case tieredPeriods(periods: [PromotionPeriod], threshold: Decimal, reward: Decimal,
@@ -35,20 +35,20 @@ struct PromotionDefinition: Equatable, Decodable {
     }
 }
 
-struct PromotionPeriod: Equatable, Decodable {
+struct PromotionPeriod: Equatable, Codable, Sendable {
     let start: String
     let end: String
 }
 
 /// Ámbito del tope anual (spec J.4: T&C ambiguos; default conservador = vigencia total).
-enum RewardCapScope: String, Equatable, Decodable {
+enum RewardCapScope: String, Equatable, Codable, Sendable {
     case promoLifetime
     case calendarYear
 }
 
 // MARK: - Alcance y políticas
 
-struct PromotionScope: Equatable, Decodable {
+struct PromotionScope: Equatable, Codable, Sendable {
     let currency: String
     /// Whitelist con alias; vacía = todo comercio (bonos de bienvenida).
     let merchants: [MerchantEntry]
@@ -58,7 +58,7 @@ struct PromotionScope: Equatable, Decodable {
     let excludeThirdParties: Bool
 }
 
-struct MerchantEntry: Equatable, Decodable {
+struct MerchantEntry: Equatable, Codable, Sendable {
     /// Identificador explícito de comercio (avisos preventivos de solapamiento sin comparar regex — spec H).
     let id: String
     let patterns: [String]
@@ -66,25 +66,25 @@ struct MerchantEntry: Equatable, Decodable {
     let channel: MerchantChannel?
 }
 
-enum ChannelRestriction: String, Equatable, Decodable {
+enum ChannelRestriction: String, Equatable, Codable, Sendable {
     case any
     case physicalOnly
 }
 
-enum MerchantChannel: String, Equatable, Decodable {
+enum MerchantChannel: String, Equatable, Codable, Sendable {
     case any
     case physical
     case online
     case aggregator
 }
 
-struct RefundPolicy: Equatable, Decodable {
-    enum Kind: String, Equatable, Decodable { case subtract, ignore }
+struct RefundPolicy: Equatable, Codable, Sendable {
+    enum Kind: String, Equatable, Codable, Sendable { case subtract, ignore }
     let kind: Kind
 }
 
-struct MsiPolicy: Equatable, Decodable {
-    enum Kind: String, Equatable, Decodable { case countPostedInstallments, excludeAll, uncertain }
+struct MsiPolicy: Equatable, Codable, Sendable {
+    enum Kind: String, Equatable, Codable, Sendable { case countPostedInstallments, excludeAll, uncertain }
     let kind: Kind
     /// Descriptores de reversión (créditos positivos) para la conciliación — solo sugerencia; el signo decide la función.
     let reversalPatterns: [String]
@@ -92,7 +92,7 @@ struct MsiPolicy: Equatable, Decodable {
     let conversionRiskThreshold: Decimal?
 }
 
-struct RewardSpec: Equatable, Decodable {
+struct RewardSpec: Equatable, Codable, Sendable {
     let expectedAmount: Decimal
     /// Patrón de descriptor de créditos candidatos a recibo (solo listado, sin asignación — spec G).
     let descriptorPatterns: [String]
@@ -100,8 +100,8 @@ struct RewardSpec: Equatable, Decodable {
 
 // MARK: - Tabla de canal compartida (un archivo, referenciada por todas las promos — spec H)
 
-struct ChannelTable: Equatable {
-    struct Entry: Equatable, Decodable {
+struct ChannelTable: Equatable, Codable, Sendable {
+    struct Entry: Equatable, Codable, Sendable {
         /// Descriptor regex (agregadores/terceros) — exclusivo con merchantID.
         let pattern: String?
         /// Canal declarado para un comercio de alguna whitelist.
@@ -140,6 +140,25 @@ extension PromotionDefinition.PromotionWindow {
                 debugDescription: "Ventana desconocida: \(other)")
         }
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .fixed(let start, let end, let provenance):
+            try c.encode("fixed", forKey: .kind)
+            try c.encode(start, forKey: .start)
+            try c.encode(end, forKey: .end)
+            try c.encode(provenance, forKey: .provenance)
+        case .anchored(let start, let durationDays, let provenance):
+            try c.encode("anchored", forKey: .kind)
+            try c.encode(start, forKey: .start)
+            try c.encode(durationDays, forKey: .durationDays)
+            try c.encode(provenance, forKey: .provenance)
+        case .unknown(let note):
+            try c.encode("unknown", forKey: .kind)
+            try c.encodeIfPresent(note, forKey: .note)
+        }
+    }
 }
 
 extension PromotionDefinition.PromotionShape {
@@ -166,6 +185,27 @@ extension PromotionDefinition.PromotionShape {
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .kind, in: c,
                 debugDescription: "Forma desconocida: \(other)")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .spendThreshold(let target, let reward):
+            try c.encode("spendThreshold", forKey: .kind)
+            try c.encode(target, forKey: .target)
+            try c.encode(reward, forKey: .rewardAmount)
+        case .cashbackCap(let ratePercent, let cap):
+            try c.encode("cashbackCap", forKey: .kind)
+            try c.encode(ratePercent, forKey: .ratePercent)
+            try c.encode(cap, forKey: .cap)
+        case .tieredPeriods(let periods, let threshold, let reward, let annualCap, let capScope):
+            try c.encode("tieredPeriods", forKey: .kind)
+            try c.encode(periods, forKey: .periods)
+            try c.encode(threshold, forKey: .threshold)
+            try c.encode(reward, forKey: .rewardAmount)
+            try c.encode(annualCap, forKey: .annualRewardCap)
+            try c.encode(capScope, forKey: .capScope)
         }
     }
 }

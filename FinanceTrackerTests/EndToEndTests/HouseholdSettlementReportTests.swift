@@ -321,6 +321,22 @@ struct HouseholdSettlementReportTests {
         #expect(result.amountToRecoverFromPartner == 130)
     }
 
+    @Test("Screenshot case keeps the Fer-only amount distinct from the zero proportional share")
+    func screenshotRecoveryComposition() {
+        let salary = category("Salary", kind: .income)
+        let shared = category("Shared expenses", kind: .expense)
+        let ferOnly = category("Fer only", kind: .expense)
+        let result = report([
+            transaction(amount: 7_900, category: salary),
+            transaction(amount: -5_260, category: shared, assignment: .shared),
+            transaction(amount: -4_229, category: ferOnly, assignment: .partner),
+        ], setup: HouseholdSettlementSetup(partnerIncomeEstimate: 0))
+
+        #expect(result.partnerFairShare == 0)
+        #expect(result.partnerOnlyTotal == 4_229)
+        #expect(result.amountToRecoverFromPartner == 4_229)
+    }
+
     @Test("Legacy Unassigned transactions resolve and repair to User")
     func unassignedTransactionsGroup() {
         let food = category("Groceries", kind: .expense)
@@ -553,11 +569,11 @@ struct HouseholdSettlementReportTests {
             transaction(amount: -80, category: food, assignment: .partner)
         ], partnerIncome: 500)
 
-        #expect(result.plainTextSummary.contains("Household Settlement"))
-        #expect(result.plainTextSummary.contains("Fer estimate"))
-        #expect(result.plainTextSummary.contains("Fer-only due this month"))
-        #expect(result.plainTextSummary.contains("Pending for upcoming months"))
-        #expect(result.plainTextSummary.contains("Total to recover from Fer"))
+        #expect(result.plainTextSummary.contains("Cuentas del hogar"))
+        #expect(result.plainTextSummary.contains("Estimación de Fer"))
+        #expect(result.plainTextSummary.contains("Por cobrar a Fer este mes"))
+        #expect(result.plainTextSummary.contains("Pendiente para los próximos meses"))
+        #expect(result.plainTextSummary.contains("Total por cobrar a Fer"))
     }
 
     // MARK: - Explicit inclusion

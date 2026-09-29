@@ -28,7 +28,7 @@ enum CategoryKindFilter: Hashable, CaseIterable {
     var displayName: String {
         switch self {
         case .all:
-            "All"
+            String(localized: "All")
         case .income:
             CategoryKind.income.displayName
         case .expense:
@@ -105,12 +105,13 @@ struct CategoryManagementTree {
 
             guard !query.isEmpty else { return true }
 
-            if Self.normalized(parent.name).contains(query) {
+            if Self.normalized(parent.localizedName).contains(query) || Self.normalized(parent.name).contains(query) {
                 return true
             }
 
             return subcategories(for: parent).contains { subcategory in
-                Self.normalized(subcategory.name).contains(query)
+                Self.normalized(subcategory.localizedName).contains(query)
+                    || Self.normalized(subcategory.name).contains(query)
             }
         }
     }
@@ -151,8 +152,8 @@ struct CategoryManagementTree {
     }
 
     private static func categoryDisplaySort(_ lhs: Category, _ rhs: Category) -> Bool {
-        let lhsName = normalized(lhs.name)
-        let rhsName = normalized(rhs.name)
+        let lhsName = normalized(lhs.localizedName)
+        let rhsName = normalized(rhs.localizedName)
         if lhsName != rhsName { return lhsName < rhsName }
         if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
         return lhs.id.uuidString < rhs.id.uuidString
@@ -163,15 +164,15 @@ extension CategoryKind {
     var displayName: String {
         switch self {
         case .income:
-            "Income"
+            String(localized: "Income")
         case .expense:
-            "Expense"
+            String(localized: "Expense")
         case .transfer:
-            "Transfer"
+            String(localized: "Transfer")
         case .investment:
-            "Investment"
+            String(localized: "Investment")
         case .creditCardPayment:
-            "Credit Card Payment"
+            String(localized: "Credit Card Payment")
         }
     }
 }

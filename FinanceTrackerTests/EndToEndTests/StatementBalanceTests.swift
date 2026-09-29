@@ -98,7 +98,7 @@ struct StatementBalancePersistenceTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let pipeline = IngestPipeline(context: context)
         guard let url = FixtureLoader.optionalURL("01.pdf") else { return }
@@ -123,7 +123,7 @@ struct StatementBalancePersistenceTests {
         let container = try makeContainer()
         let context = container.mainContext
 
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let pipeline = IngestPipeline(context: context)
         guard

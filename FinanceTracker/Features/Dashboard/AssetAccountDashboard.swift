@@ -6,6 +6,7 @@ import Charts
 struct AssetAccountDashboard: View {
     let snapshot: AssetAccountSnapshot
     var onTransactionTap: ((Transaction) -> Void)? = nil
+    var onViewAllTransactions: (() -> Void)? = nil
     var onRefreshPrices: (() async -> String?)? = nil
     var onEditPositions: (() -> Void)? = nil
 
@@ -25,7 +26,7 @@ struct AssetAccountDashboard: View {
                 balanceChart
             }
             if !snapshot.spendingByCategory.isEmpty { spendingDonut }
-            if !snapshot.recentTransactions.isEmpty { recentList }
+            recentList
         }
         .sheet(item: $breakdown) { req in
             BreakdownSheet(request: req)
@@ -44,7 +45,7 @@ struct AssetAccountDashboard: View {
                             Text(MoneyFormat.string(amount, code: snapshot.currencyCode))
                                 .font(.title2.bold())
                                 .money()
-                            Text("Valued as of \(date.formatted(date: .abbreviated, time: .shortened))")
+                            Text("Valuado al \(date.formattedMX(date: .abbreviated, time: .shortened))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -294,16 +295,30 @@ struct AssetAccountDashboard: View {
 
     private var recentList: some View {
         DashboardListCard(title: "Recent Transactions") {
-            ForEach(snapshot.recentTransactions.prefix(10)) { tx in
+            let rows = Array(snapshot.recentTransactions.prefix(10))
+            if rows.isEmpty {
+                Text("No transactions for this period")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            }
+            ForEach(rows) { tx in
                 Button {
                     onTransactionTap?(tx)
                 } label: {
                     DashboardTransactionRow(transaction: tx, showsAccount: false)
                 }
                 .buttonStyle(.plain)
-                if tx.id != snapshot.recentTransactions.prefix(10).last?.id {
+                if tx.id != rows.last?.id {
                     DashboardSeparator()
                 }
+            }
+            if let onViewAllTransactions {
+                Button("View more transactions", systemImage: "arrow.right", action: onViewAllTransactions)
+                    .buttonStyle(.borderless)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(10)
             }
         }
     }

@@ -21,8 +21,8 @@ struct NetWorthCompositionTests {
 
         #expect(total.total == d("2186628.97"))
         #expect(total.chartSlices.map(\.bucket) == [.liquidity, .patrimonial, .retirement])
-        #expect(total.footerTitle == "Total net worth")
-        #expect(total.helperText == "Liabilities reduce liquidity.")
+        #expect(total.footerTitle == "Patrimonio neto total")
+        #expect(total.helperText == "Los pasivos reducen la liquidez.")
 
         let totalLiquidityPercent = try #require(total.percentage(for: .liquidity))
         let totalPatrimonialPercent = try #require(total.percentage(for: .patrimonial))
@@ -33,8 +33,8 @@ struct NetWorthCompositionTests {
 
         #expect(available.total == d("598180.88"))
         #expect(available.chartSlices.map(\.bucket) == [.liquidity, .patrimonial])
-        #expect(available.footerTitle == "Available net worth")
-        #expect(available.helperText == "Excludes retirement assets.")
+        #expect(available.footerTitle == "Patrimonio neto disponible")
+        #expect(available.helperText == "Excluye los activos para el retiro.")
         #expect(available.percentage(for: .retirement) == nil)
 
         let availableLiquidityPercent = try #require(available.percentage(for: .liquidity))

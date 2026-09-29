@@ -8,6 +8,14 @@ enum NetWorthCompositionBucket: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    var displayName: String {
+        switch self {
+        case .liquidity: String(localized: "Liquidity")
+        case .patrimonial: String(localized: "Patrimonial")
+        case .retirement: String(localized: "Retirement")
+        }
+    }
+
     var color: Color {
         switch self {
         case .liquidity:
@@ -33,6 +41,12 @@ enum NetWorthCompositionMode: String, CaseIterable, Identifiable {
     case available = "Available"
 
     var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .total: String(localized: "Total")
+        case .available: String(localized: "Available")
+        }
+    }
 
     var buckets: [NetWorthCompositionBucket] {
         switch self {
@@ -45,15 +59,15 @@ enum NetWorthCompositionMode: String, CaseIterable, Identifiable {
 
     var footerTitle: String {
         switch self {
-        case .total: "Total net worth"
-        case .available: "Available net worth"
+        case .total: String(localized: "Total net worth")
+        case .available: String(localized: "Available net worth")
         }
     }
 
     var helperText: String? {
         switch self {
-        case .total: "Liabilities reduce liquidity."
-        case .available: "Excludes retirement assets."
+        case .total: String(localized: "Liabilities reduce liquidity.")
+        case .available: String(localized: "Excludes retirement assets.")
         }
     }
 }
@@ -286,7 +300,7 @@ struct NetWorthCompositionCard: View {
     private var modePicker: some View {
         Picker("Composition view", selection: $selectedMode) {
             ForEach(NetWorthCompositionMode.allCases) { mode in
-                Text(mode.rawValue).tag(mode)
+                Text(mode.displayName).tag(mode)
             }
         }
         .labelsHidden()
@@ -340,7 +354,7 @@ struct NetWorthCompositionCard: View {
     private var centerLabel: some View {
         let amount = activeBucket.map { display.amount(for: $0) } ?? display.total
         return VStack(spacing: 3) {
-            Text(activeBucket?.rawValue ?? selectedMode.rawValue)
+            Text(activeBucket?.displayName ?? selectedMode.displayName)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
             Text(MoneyFormat.string(code: currencyCode, amount))
@@ -390,7 +404,7 @@ struct NetWorthCompositionCard: View {
             Circle()
                 .fill(bucket.color)
                 .frame(width: 8, height: 8)
-            Text(bucket.rawValue)
+            Text(bucket.displayName)
                 .font(.caption.weight(.medium))
             Text(percentText(display.percentage(for: bucket)))
                 .font(.caption2.monospacedDigit())
@@ -413,7 +427,7 @@ struct NetWorthCompositionCard: View {
         .onHover { hovering in
             hoveredBucket = hovering ? bucket : nil
         }
-        .help("\(bucket.rawValue): \(MoneyFormat.string(code: currencyCode, amount)), \(percentText(display.percentage(for: bucket)))")
+        .help("\(bucket.displayName): \(MoneyFormat.string(code: currencyCode, amount)), \(percentText(display.percentage(for: bucket)))")
     }
 
     private func detailRow(_ title: String, amount: Decimal, bold: Bool = false) -> some View {
@@ -453,13 +467,13 @@ struct NetWorthCompositionCard: View {
 
     private var accessibilitySummary: String {
         var parts = [
-            "Net worth composition, \(selectedMode.rawValue) view.",
+            "Composición del patrimonio, vista \(selectedMode.displayName.lowercased()).",
             "\(display.footerTitle) \(MoneyFormat.string(code: currencyCode, display.total)).",
-            "Gross liquidity \(MoneyFormat.string(code: currencyCode, composition.grossLiquidity)).",
-            "Liabilities \(MoneyFormat.string(code: currencyCode, composition.totalLiabilities))."
+            "Liquidez bruta \(MoneyFormat.string(code: currencyCode, composition.grossLiquidity)).",
+            "Pasivos \(MoneyFormat.string(code: currencyCode, composition.totalLiabilities))."
         ]
         parts.append(contentsOf: display.buckets.map { bucket in
-            "\(bucket.rawValue) \(MoneyFormat.string(code: currencyCode, display.amount(for: bucket)))."
+            "\(bucket.displayName) \(MoneyFormat.string(code: currencyCode, display.amount(for: bucket)))."
         })
         return parts.joined(separator: " ")
     }

@@ -178,7 +178,7 @@ private struct ReportRow: View {
             Spacer()
 
             if report.newTransactions > 0 {
-                Text("\(report.newTransactions) new")
+                Text("\(report.newTransactions) nuevos")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.green)
                     .padding(.horizontal, 8)
@@ -187,7 +187,7 @@ private struct ReportRow: View {
             }
 
             if report.duplicateTransactions > 0 {
-                Text("\(report.duplicateTransactions) dup")
+                Text("\(report.duplicateTransactions) duplicados")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.orange)
                     .padding(.horizontal, 8)
@@ -211,8 +211,8 @@ private struct ReportRow: View {
                     .background(Capsule().fill(detailsTint.opacity(0.12)))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("View \(detailsLabel.lowercased())")
-                .accessibilityHint("Shows the affected row and review explanation.")
+                .accessibilityLabel("Ver \(detailsLabel.lowercased())")
+                .accessibilityHint("Muestra el renglón afectado y la explicación de la revisión.")
             }
         }
         .padding(.horizontal, 16)
@@ -267,7 +267,7 @@ private struct ImportErrorSheet: View {
                         ForEach(Array(errors.enumerated()), id: \.offset) { index, error in
                             VStack(alignment: .leading, spacing: 4) {
                                 if let row = error.row {
-                                    Text("Row \(row)")
+                                    Text("Renglón \(row)")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(.secondary)
                                 }
@@ -302,10 +302,10 @@ extension IngestReport: Identifiable {
 extension IngestReport {
     var summary: String {
         var parts: [String] = []
-        if newTransactions > 0 { parts.append("\(newTransactions) new") }
-        if duplicateTransactions > 0 { parts.append("\(duplicateTransactions) duplicates") }
-        if errorCount > 0 { parts.append("\(errorCount) errors") }
-        if uncategorizedCount > 0 { parts.append("\(uncategorizedCount) uncategorized") }
-        return parts.isEmpty ? "No transactions found" : parts.joined(separator: ", ")
+        if newTransactions > 0 { parts.append("\(newTransactions) movimientos nuevos") }
+        if duplicateTransactions > 0 { parts.append("\(duplicateTransactions) duplicados") }
+        if errorCount > 0 { parts.append("\(errorCount) errores") }
+        if uncategorizedCount > 0 { parts.append("\(uncategorizedCount) sin categoría") }
+        return parts.isEmpty ? "No se encontraron movimientos" : parts.joined(separator: ", ")
     }
 }

@@ -62,6 +62,9 @@ document exists to prevent.
 - **Never deploy merely because implementation is complete.**
 - **Keep changes focused on the requested scope.** Do not bundle unrelated
   refactors.
+- **Every user-visible change requires performance evidence before it is
+  complete.** Passing functional tests alone is not enough; use representative
+  data and record the measured interaction in the handoff.
 - **Do not silently weaken, skip, or delete tests to obtain a green result.**
 - **Do not conceal limitations or unverified behavior.** State them.
 - **Prefer reversible operations.** Copy before replace; move-aside before
@@ -106,15 +109,27 @@ Every work item is in exactly one state. Do not skip states.
   clean.
 - **Approval:** none.
 
+### PERFORMANCE VERIFICATION
+- **Entry:** automated verification for the coherent slice passes.
+- **Permitted:** profiling the canonical Dev build with representative data;
+  focused measurements for non-UI calculations are also acceptable.
+- **Exit:** record the interaction and measurement method; first visible
+  response is under 100 ms, and longer work does not block the main thread or
+  animation. Use Time Profiler and Animation Hitches for UI flows when
+  available. If a meaningful measurement cannot be obtained, report the
+  limitation and do not mark the change ready or complete.
+- **Approval:** none.
+
 ### INDEPENDENT REVIEW (first gate — see §9)
-- **Entry:** automated verification passes.
+- **Entry:** automated and performance verification pass.
 - **Permitted:** a fresh-context reviewer attempts to invalidate readiness.
 - **Exit:** all BLOCKING findings resolved; IMPORTANT findings resolved or
   explicitly justified; affected tests rerun.
 - **Approval:** none (reviewer reports findings; primary agent resolves).
 
 ### READY FOR DEVELOPMENT VALIDATION
-- **Entry:** automated verification + first independent review pass.
+- **Entry:** automated verification + performance evidence + first independent
+  review pass.
 - **Permitted:** reporting readiness to the user with the §23 template; nothing
   release-related.
 - **Exit:** the user explicitly approves (→ APPROVED FOR RELEASE) or reports a
@@ -189,9 +204,11 @@ Every work item is in exactly one state. Do not skip states.
 8. Implement the smallest coherent change.
 9. Run targeted tests during implementation (focused `-only-testing` suites).
 10. Run the complete required verification suite (§8).
-11. Conduct the first independent readiness review (§9).
-12. Fix findings and repeat verification.
-13. Report `READY FOR DEVELOPMENT VALIDATION` (§10/§23).
+11. Measure each changed user-visible interaction with representative data
+    (§8); do not infer responsiveness from tests or build results.
+12. Conduct the first independent readiness review (§9).
+13. Fix findings and repeat automated and performance verification.
+14. Report `READY FOR DEVELOPMENT VALIDATION` (§10/§23).
 
 The loop repeats until acceptance criteria are met, required commands pass, and
 the first independent review has no unresolved BLOCKING findings. If repeated
@@ -285,6 +302,7 @@ the no-override rule.
 | Build for testing | `… xcodebuild build-for-testing -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests -destination 'platform=macOS'` | When iterating on tests | `** TEST BUILD SUCCEEDED **` | No | Not documented in AGENTS/README but valid |
 | Full serial suite | `… xcodebuild test -project FinanceTracker.xcodeproj -scheme FinanceTrackerTests -destination 'platform=macOS' -parallel-testing-enabled NO` | Before READY FOR DEVELOPMENT VALIDATION and before release | `Test run with N tests … passed` / `** TEST SUCCEEDED **` | Yes | **`-parallel-testing-enabled NO` is mandatory** — parallel runs hang on PDFKit/Vision teardown |
 | Focused suite | `… xcodebuild test … -only-testing:FinanceTrackerTests/<Suite>` (then `-parallel-testing-enabled NO`) | During implementation for touched areas | pass | Yes for touched areas | Swift Testing `@Suite` struct name, e.g. `HouseholdSettlementReportTests` |
+| Performance verification | Instruments Time Profiler + Animation Hitches on the canonical Dev app; record scenario, representative data, and first visible response | Every user-visible change, before independent review | First visible response <100 ms; longer work does not block UI/animation | Yes | No UI test harness. If Instruments is unavailable, use a focused signpost/timing measurement where it captures the interaction; otherwise leave the change explicitly unverified and not ready. |
 | Domain money guard | `grep -rnE "\b(Double|Float)\b" FinanceTracker/Domain/ \| grep -vE "NSDecimal\|doubleValue\|//"` | Before READY FOR DEVELOPMENT VALIDATION | no output | Yes | **No `.swiftlint.yml`, no pre-commit hook** — AD-007 is a convention, not enforced. This grep is the manual guard. |
 | Whitespace guard | `git diff --check` | Before any commit | clean | Yes | None |
 
@@ -364,6 +382,7 @@ When the feature is ready for the user to test, return a report containing:
 - any migration or seeded-data behavior
 - exact commands executed
 - exact test results (suite name + pass/fail counts; build status)
+- performance scenario, measurement method, result, and any limitation
 - review findings and their disposition
 - known limitations
 - focused manual test steps
@@ -526,7 +545,7 @@ at `…/Application Support/FinanceTracker/Backups/`.)
 **Real backup mechanism:** `.ftbackup` folder bundles written by
 `BackupScheduler` (24h gate on launch; retention 7 daily / 4 weekly / 12
 monthly) and by manual export from Settings. Format: `Info.plist` +
-`manifest.json` (`schemaVersion: Int`, currently 6) + `models/*.json` +
+`manifest.json` (`schemaVersion: Int`, currently 9) + `models/*.json` +
 `statements/*`. Restore strategies: `replaceAll`, `mergeKeepingNewer`.
 
 Before installing a release that reads or writes user data:

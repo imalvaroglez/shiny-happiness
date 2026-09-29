@@ -24,7 +24,7 @@ struct YearMonth: Hashable, Identifiable, Comparable {
     }
 
     var displayName: String {
-        startDate.formatted(.dateTime.month(.wide).year())
+        startDate.formatted(.dateTime.month(.wide).year().locale(Locale(identifier: "es-MX")))
     }
 
     var fileNameComponent: String {
@@ -158,38 +158,38 @@ struct HouseholdSettlementReport {
     var hasIncludedTransactions: Bool { includedTransactionCount > 0 }
 
     var splitLabel: String {
-        guard splitAvailable else { return "Unavailable" }
-        return "You \(Self.percent(userIncomeShare)) / Fer \(Self.percent(partnerIncomeShare))"
+        guard splitAvailable else { return String(localized: "Unavailable") }
+        return "Tú \(Self.percent(userIncomeShare)) / Fer \(Self.percent(partnerIncomeShare))"
     }
 
     var plainTextSummary: String {
-        let month = monthStart.formatted(.dateTime.month(.wide).year())
+        let month = monthStart.formatted(.dateTime.month(.wide).year().locale(Locale(identifier: "es-MX")))
         return [
-            "Household Settlement — \(month)",
+            "Cuentas del hogar — \(month)",
             "",
-            "Income assumptions:",
-            "Your salary: \(Self.money(userSalaryIncome))",
-            "Fer estimate: \(Self.money(partnerIncomeEstimate))",
-            "Split: \(splitLabel)",
+            "Supuestos de ingresos:",
+            "Tu sueldo: \(Self.money(userSalaryIncome))",
+            "Estimación de Fer: \(Self.money(partnerIncomeEstimate))",
+            "Distribución: \(splitLabel)",
             "",
-            "Shared expenses:",
-            "Total shared: \(Self.money(totalSharedExpenses))",
-            "Fer shared portion: \(Self.money(partnerFairShare))",
-            "Your shared portion: \(Self.money(userFairShare))",
+            "Gastos compartidos:",
+            "Total compartido: \(Self.money(totalSharedExpenses))",
+            "Parte de Fer: \(Self.money(partnerFairShare))",
+            "Tu parte: \(Self.money(userFairShare))",
             "",
-            "Fer-only due this month:",
+            "Por cobrar a Fer este mes:",
             Self.money(partnerOnlyTotal),
-            "Fer-only due count: \(ferRows.count)",
-            "Pending for upcoming months:",
+            "Movimientos por cobrar: \(ferRows.count)",
+            "Pendiente para los próximos meses:",
             Self.money(pendingForUpcomingMonths),
-            "Pending count: \(deferredFerRows.count)",
+            "Movimientos pendientes: \(deferredFerRows.count)",
             "",
-            "Total paid by you:",
+            "Total pagado por ti:",
             Self.money(totalPaidByUser),
-            "Your final cost:",
+            "Tu costo final:",
             Self.money(userFinalCost),
             "",
-            "Total to recover from Fer:",
+            "Total por cobrar a Fer:",
             Self.money(amountToRecoverFromPartner)
         ].joined(separator: "\n")
     }
@@ -197,6 +197,7 @@ struct HouseholdSettlementReport {
     static func money(_ amount: Decimal, code: String = "MXN") -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
+        formatter.locale = Locale(identifier: "es-MX")
         formatter.currencyCode = code
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2

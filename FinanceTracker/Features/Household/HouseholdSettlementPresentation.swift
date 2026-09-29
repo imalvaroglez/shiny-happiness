@@ -8,7 +8,7 @@ struct HouseholdSettlementPresentationFormatters {
     static var live: HouseholdSettlementPresentationFormatters {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
-        return make(locale: .current, calendar: calendar, timeZone: .current)
+        return make(locale: Locale(identifier: "es_MX"), calendar: calendar, timeZone: .current)
     }
 
     static var stableForTests: HouseholdSettlementPresentationFormatters {
@@ -155,6 +155,7 @@ struct HouseholdSettlementSummaryState {
     let resultLabel: String
     let recoverAmount: String
     let resultDescription: String
+    let recoveryComposition: String
     let breakdownTitle: String
     let breakdownLines: [Line]
 }
@@ -192,7 +193,7 @@ struct HouseholdTransactionRowState: Identifiable {
 }
 
 struct HouseholdSettlementPresenter {
-    static let navigationTitle = "Household Settlement"
+    static let navigationTitle = String(localized: "Household Settlement")
 
     let formatters: HouseholdSettlementPresentationFormatters
 
@@ -212,7 +213,7 @@ struct HouseholdSettlementPresenter {
         return HouseholdSettlementScreenState(
             navigationTitle: Self.navigationTitle,
             reportMonthTitle: monthTitle,
-            subtitle: "Review Household expenses you explicitly included — Mine, Shared, and Fer.",
+            subtitle: localized("Review Household expenses you explicitly included — Mine, Shared, and Fer."),
             selectedYearMonth: selectedMonth,
             monthlySetup: monthlySetup(
                 setup: setup,
@@ -235,33 +236,33 @@ struct HouseholdSettlementPresenter {
         splitText: String
     ) -> HouseholdMonthlySetupState {
         let rows = [
-            "Your salary income",
-            setup.useUserIncomeManualOverride ? "Manual salary override" : nil,
-            "Fer income estimate",
-            "Split",
-            setup.splitMethod == .customPercent ? "Custom split" : nil,
-            "Notes"
+            localized("Your salary income"),
+            setup.useUserIncomeManualOverride ? localized("Manual salary override") : nil,
+            localized("Fer income estimate"),
+            localized("Split"),
+            setup.splitMethod == .customPercent ? localized("Custom split") : nil,
+            localized("Notes")
         ].compactMap { $0 }
         return HouseholdMonthlySetupState(
-            title: "Monthly Setup",
+            title: localized("Monthly Setup"),
             rowLabels: rows,
-            userSalaryLabel: "Your salary income",
+            userSalaryLabel: localized("Your salary income"),
             userSalaryValue: formatters.currency(report.detectedUserSalaryIncome, "MXN"),
             userSalaryHelper: validation.missingUserSalary
-                ? "No salary income detected for this month."
-                : "Detected from salary/compensation transactions only.",
-            manualSalaryLabel: "Manual salary override",
-            manualSalaryHelper: "Used only for this settlement report.",
-            partnerIncomeLabel: "Fer income estimate",
-            partnerIncomeHelper: "Manual monthly estimate. Used only for this report.",
-            splitLabel: "Split",
+                ? localized("No salary income detected for this month.")
+                : localized("Detected from salary/compensation transactions only."),
+            manualSalaryLabel: localized("Manual salary override"),
+            manualSalaryHelper: localized("Used only for this settlement report."),
+            partnerIncomeLabel: localized("Fer income estimate"),
+            partnerIncomeHelper: localized("Manual monthly estimate. Used only for this report."),
+            splitLabel: localized("Split"),
             splitValue: splitText,
-            customSplitLabel: "Custom split",
-            customSplitError: validation.invalidCustomSplit ? "Custom split must add to 100%." : nil,
-            notesLabel: "Notes",
-            copyPreviousTitle: "Copy Previous Month",
-            clearTitle: "Clear",
-            setupStatusText: validation.canSave ? saveStatus : "Fix setup to save",
+            customSplitLabel: localized("Custom split"),
+            customSplitError: validation.invalidCustomSplit ? localized("Custom split must add to 100%.") : nil,
+            notesLabel: localized("Notes"),
+            copyPreviousTitle: localized("Copy Previous Month"),
+            clearTitle: localized("Clear"),
+            setupStatusText: validation.canSave ? saveStatus : localized("Fix setup to save"),
             showsManualSalaryOverrideButton: validation.missingUserSalary,
             showsManualSalaryInput: setup.useUserIncomeManualOverride
         )
@@ -270,23 +271,24 @@ struct HouseholdSettlementPresenter {
     private func summary(report: HouseholdSettlementReport, splitText: String) -> HouseholdSettlementSummaryState {
         let count = report.includedTransactionCount
         let resultDescription = count == 0
-            ? "Based only on transactions included in Household Settlement."
-            : "Based only on \(count) transaction\(count == 1 ? "" : "s") included in Household Settlement."
+            ? localized("Based only on transactions included in Household Settlement.")
+            : "Basado solo en \(count) movimiento\(count == 1 ? "" : "s") incluido\(count == 1 ? "" : "s") en Cuentas del hogar."
         return HouseholdSettlementSummaryState(
-            resultLabel: "To recover from Fer",
+            resultLabel: localized("To recover from Fer"),
             recoverAmount: formatters.currency(report.amountToRecoverFromPartner, "MXN"),
             resultDescription: resultDescription,
-            breakdownTitle: "Breakdown",
+            recoveryComposition: "Se compone de \(formatters.currency(report.partnerFairShare, "MXN")) de gastos compartidos y \(formatters.currency(report.partnerOnlyTotal, "MXN")) de gastos exclusivos de Fer.",
+            breakdownTitle: localized("Breakdown"),
             breakdownLines: [
-                .init(id: .totalPaidByUser, label: "Total household expenses paid by you", value: formatters.currency(report.totalPaidByUser, "MXN")),
-                .init(id: .sharedExpenses, label: "Shared household expenses", value: formatters.currency(report.totalSharedExpenses, "MXN")),
-                .init(id: .partnerSharedPortion, label: "Fer shared portion", value: formatters.currency(report.partnerFairShare, "MXN")),
-                .init(id: .partnerOnlyPaidByUser, label: "Fer-only due this month", value: formatters.currency(report.partnerOnlyTotal, "MXN")),
-                .init(id: .pendingForUpcomingMonths, label: "Pending for upcoming months", value: formatters.currency(report.pendingForUpcomingMonths, "MXN")),
-                .init(id: .userFinalCost, label: "Your final household cost", value: formatters.currency(report.userFinalCost, "MXN")),
-                .init(id: .userSalary, label: "Your salary income", value: formatters.currency(report.userSalaryIncome, "MXN")),
-                .init(id: .partnerIncome, label: "Fer income estimate", value: formatters.currency(report.partnerIncomeEstimate, "MXN")),
-                .init(id: .split, label: "Split", value: splitText),
+                .init(id: .totalPaidByUser, label: localized("Total household expenses paid by you"), value: formatters.currency(report.totalPaidByUser, "MXN")),
+                .init(id: .sharedExpenses, label: localized("Shared household expenses"), value: formatters.currency(report.totalSharedExpenses, "MXN")),
+                .init(id: .partnerSharedPortion, label: localized("Fer shared portion"), value: formatters.currency(report.partnerFairShare, "MXN")),
+                .init(id: .partnerOnlyPaidByUser, label: localized("Fer-only due this month"), value: formatters.currency(report.partnerOnlyTotal, "MXN")),
+                .init(id: .pendingForUpcomingMonths, label: localized("Pending for upcoming months"), value: formatters.currency(report.pendingForUpcomingMonths, "MXN")),
+                .init(id: .userFinalCost, label: localized("Your final household cost"), value: formatters.currency(report.userFinalCost, "MXN")),
+                .init(id: .userSalary, label: localized("Your salary income"), value: formatters.currency(report.userSalaryIncome, "MXN")),
+                .init(id: .partnerIncome, label: localized("Fer income estimate"), value: formatters.currency(report.partnerIncomeEstimate, "MXN")),
+                .init(id: .split, label: localized("Split"), value: splitText),
             ]
         )
     }
@@ -297,26 +299,26 @@ struct HouseholdSettlementPresenter {
     ) -> HouseholdWarningState? {
         var messages: [String] = []
         if validation.missingUserSalary {
-            messages.append("No salary income detected for this month. Add a salary transaction or use a manual override to calculate a proportional split.")
+            messages.append(localized("No salary income detected for this month. Add a salary transaction or use a manual override to calculate a proportional split."))
         }
         if validation.zeroTotalHouseholdIncome {
-            messages.append("Income assumptions are incomplete. Add your salary income or Fer's estimate to calculate the proportional split.")
+            messages.append(localized("Income assumptions are incomplete. Add your salary income or Fer's estimate to calculate the proportional split."))
         } else {
             if validation.missingUserSalary, report.partnerIncomeEstimate > 0 {
-                messages.append("Your salary income is missing. Use a manual override, 50/50, or custom split before assigning Fer 100%.")
+                messages.append(localized("Your salary income is missing. Use a manual override, 50/50, or custom split before assigning Fer 100%."))
             }
             if validation.missingPartnerIncomeEstimate {
-                messages.append("Fer income estimate is missing. Proportional split assigns 100% to you.")
+                messages.append(localized("Fer income estimate is missing. Proportional split assigns 100% to you."))
             }
         }
         if validation.invalidCustomSplit {
-            messages.append("Custom split must total 100%.")
+            messages.append(localized("Custom split must total 100%."))
         }
 
         let uniqueMessages = Array(Set(messages)).sorted()
         guard !uniqueMessages.isEmpty else { return nil }
         return HouseholdWarningState(
-            title: "Income assumptions need attention",
+            title: localized("Income assumptions need attention"),
             messages: uniqueMessages
         )
     }
@@ -328,7 +330,7 @@ struct HouseholdSettlementPresenter {
         return [
             HouseholdTransactionSectionState(
                 id: .partnerOnly,
-                title: "Fer-only expenses",
+                title: localized("Fer-only expenses"),
                 countText: countText(ferRows.count),
                 subtotal: subtotal(report.ferRows),
                 initiallyExpanded: false,
@@ -336,7 +338,7 @@ struct HouseholdSettlementPresenter {
             ),
             HouseholdTransactionSectionState(
                 id: .shared,
-                title: "Shared expenses",
+                title: localized("Shared expenses"),
                 countText: countText(report.sharedRows.count),
                 subtotal: subtotal(report.sharedRows),
                 initiallyExpanded: false,
@@ -344,7 +346,7 @@ struct HouseholdSettlementPresenter {
             ),
             HouseholdTransactionSectionState(
                 id: .userOnly,
-                title: "Your household expenses",
+                title: localized("Your household expenses"),
                 countText: countText(report.userRows.count),
                 subtotal: subtotal(report.userRows),
                 initiallyExpanded: false,
@@ -354,7 +356,7 @@ struct HouseholdSettlementPresenter {
     }
 
     private func countText(_ count: Int) -> String {
-        "\(count) transaction\(count == 1 ? "" : "s")"
+        "\(count) movimiento\(count == 1 ? "" : "s")"
     }
 
     private func subtotal(_ rows: [HouseholdSettlementRow]) -> String {
@@ -372,20 +374,20 @@ struct HouseholdSettlementPresenter {
             let currency = transaction.currency
             let allocation = transaction.resolvedHouseholdAllocation
             var metadata = [
-                transaction.account?.displayName ?? "No account",
-                transaction.category?.name ?? "Uncategorized",
+                transaction.account?.displayName ?? localized("No account"),
+                transaction.category?.localizedName ?? "Sin categoría",
             ]
             let status: String
             var deferredToMonth: YearMonth? = nil
             switch allocation {
             case .user:
-                metadata.append("User")
-                status = "Your cost: \(formatters.currency(row.userShare, currency))"
+                metadata.append(localized("User"))
+                status = "\(localized("Your cost")): \(formatters.currency(row.userShare, currency))"
             case .shared:
-                metadata.append(contentsOf: ["Shared", report.splitMethod.displayName])
-                status = "Fer \(formatters.currency(row.partnerShare, currency)) / You \(formatters.currency(row.userShare, currency))"
+                metadata.append(contentsOf: [localized("Shared"), report.splitMethod.displayName])
+                status = "\(localized("Fer's share")): \(formatters.currency(row.partnerShare, currency)) / \(localized("Your share")): \(formatters.currency(row.userShare, currency))"
             case .partner:
-                metadata.append("Fer")
+                metadata.append(localized("Fer"))
                 let reportMonthTitle = formatters.monthTitle(reportYM.startDate)
                 if let due = report.dueDates[transaction.id] {
                     let dueYM = YearMonth(date: due)
@@ -402,11 +404,11 @@ struct HouseholdSettlementPresenter {
                 let userPercent = row.amount == 0 ? Decimal.zero : row.userShare / row.amount
                 let ferPercent = row.amount == 0 ? Decimal.zero : row.partnerShare / row.amount
                 metadata.append(contentsOf: [
-                    "Shared",
-                    "Custom split",
-                    "You \(formatters.percent(userPercent)) / Fer \(formatters.percent(ferPercent))",
+                    localized("Shared"),
+                    localized("Custom split"),
+                    "\(localized("You")) \(formatters.percent(userPercent)) / Fer \(formatters.percent(ferPercent))",
                 ])
-                status = "Fer \(formatters.currency(row.partnerShare, currency)) / You \(formatters.currency(row.userShare, currency))"
+                status = "\(localized("Fer's share")): \(formatters.currency(row.partnerShare, currency)) / \(localized("Your share")): \(formatters.currency(row.userShare, currency))"
             }
             if let notes = transaction.settlementNotes, !notes.isEmpty {
                 metadata.append(notes)
@@ -424,7 +426,11 @@ struct HouseholdSettlementPresenter {
     }
 
     private func splitLabel(_ report: HouseholdSettlementReport) -> String {
-        guard report.splitAvailable else { return "Unavailable" }
-        return "You \(formatters.percent(report.userIncomeShare)) / Fer \(formatters.percent(report.partnerIncomeShare))"
+        guard report.splitAvailable else { return localized("Unavailable") }
+        return "\(localized("You")) \(formatters.percent(report.userIncomeShare)) / Fer \(formatters.percent(report.partnerIncomeShare))"
+    }
+
+    private func localized(_ key: String) -> String {
+        String(localized: String.LocalizationValue(key))
     }
 }

@@ -228,7 +228,7 @@ private struct PositionRowView: View {
                 Button("Delete", role: .destructive) { confirmingDelete = true }
             }
 
-            DisclosureGroup("Buy More") {
+            DisclosureGroup("Comprar más") {
                 HStack {
                     TextField("Added shares", value: $buyShares, format: .number)
                     TextField("Buy price", value: $buyPrice, format: .number)
@@ -241,7 +241,7 @@ private struct PositionRowView: View {
         }
         .padding(.vertical, 8)
         .confirmationDialog(
-            "Delete \(position.emisoraSerie)?",
+            "¿Eliminar \(position.emisoraSerie)?",
             isPresented: $confirmingDelete,
             titleVisibility: .visible
         ) {

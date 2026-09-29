@@ -1,4 +1,4 @@
-"""Validate a complete schema-7 backup using only references inside that bundle."""
+"""Validate a complete schema-7/8 backup using only references inside that bundle."""
 
 import hashlib
 import json
@@ -9,7 +9,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from ftbackup import REQUIRED_MODELS
+from ftbackup import required_models
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DATE_KEYS = {"periodStart", "periodEnd", "monthStart", "firstChargeDate", "date"}
@@ -33,8 +33,14 @@ def check(bundle_dir: Path) -> list[str]:
         return [f"manifest is invalid: {exc}"]
     if not isinstance(manifest, dict):
         return ["manifest must be a JSON object"]
-    if manifest.get("schemaVersion") != 7:
-        err(f"schemaVersion != 7: {manifest.get('schemaVersion')}")
+    schema = manifest.get("schemaVersion")
+    try:
+        names = required_models(schema) if isinstance(schema, int) and not isinstance(schema, bool) else []
+    except ValueError:
+        names = []
+    if not names:
+        err(f"schemaVersion must be 7 or 8: {schema}")
+        names = required_models(7)
     if not isinstance(manifest.get("appVersion"), str) or not manifest["appVersion"]:
         err("manifest.appVersion is missing or invalid")
     created_at = manifest.get("createdAt")
@@ -60,7 +66,7 @@ def check(bundle_dir: Path) -> list[str]:
         hashes = {}
 
     data: dict[str, list] = {}
-    for name in REQUIRED_MODELS:
+    for name in names:
         path = bundle_dir / "models" / f"{name}.json"
         try:
             payload = path.read_bytes()
@@ -76,6 +82,19 @@ def check(bundle_dir: Path) -> list[str]:
             err(f"modelCounts[{name}] does not match array length")
         if hashes.get(name) != hashlib.sha256(payload).hexdigest():
             err(f"contentHashes[{name}] does not match sha256")
+
+    if schema == 8:
+        overrides = data.get("PromotionOverrides", [])
+        if len(overrides) != 1 or not isinstance(overrides[0], dict):
+            err("PromotionOverrides must contain exactly one object")
+        else:
+            config = overrides[0]
+            if (config.get("schemaVersion") != 1
+                    or not isinstance(config.get("definitions"), list)
+                    or not all(isinstance(row, dict) for row in config["definitions"])
+                    or not isinstance(config.get("deletedIDs"), list)
+                    or not all(isinstance(value, str) for value in config["deletedIDs"])):
+                err("PromotionOverrides[0] has an invalid versioned payload")
 
     def walk_dates(obj, where: str) -> None:
         if isinstance(obj, dict):
@@ -110,10 +129,20 @@ def check(bundle_dir: Path) -> list[str]:
     walk_money(data, "bundle")
 
     ids: dict[str, set[str]] = {}
-    for name in REQUIRED_MODELS:
+    for name in names:
         for index, row in enumerate(data.get(name, [])):
             if not isinstance(row, dict):
                 err(f"{name}[{index}] is not an object")
+                continue
+            if name == "PromotionOverrides":
+                invalid_payload = (
+                    index != 0
+                    or row.get("schemaVersion") != 1
+                    or not isinstance(row.get("definitions"), list)
+                    or not isinstance(row.get("deletedIDs"), list)
+                )
+                if invalid_payload:
+                    err("PromotionOverrides[0] has an invalid versioned payload")
                 continue
             identifier = row.get("id")
             if not isinstance(identifier, str) or not identifier:

@@ -111,7 +111,7 @@ enum DashboardPeriodLabel: Hashable {
     }
 
     private static func shortDate(_ date: Date) -> String {
-        date.formatted(.dateTime.month(.abbreviated).day().year())
+        date.formatted(.dateTime.month(.abbreviated).day().year().locale(Locale(identifier: "es-MX")))
     }
 }
 

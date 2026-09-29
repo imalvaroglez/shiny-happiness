@@ -28,7 +28,7 @@ struct HouseholdSettlementView: View {
     @State private var saveError: String?
     @State private var dueDatePickerTxID: UUID?
     @State private var showingExporter = false
-    @State private var saveStatus = "Saved"
+    @State private var saveStatus = "Guardado"
     @State private var isLoadingSetup = false
     @State private var pendingSaveTask: Task<Void, Never>?
 
@@ -83,6 +83,8 @@ struct HouseholdSettlementView: View {
                     header(nil)
                 }
             }
+            .frame(maxWidth: 1120, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .top)
             .padding(.horizontal)
             .padding(.top, 10)
             .padding(.bottom)
@@ -163,9 +165,8 @@ struct HouseholdSettlementView: View {
     }
 
     private func header(_ state: HouseholdSettlementScreenState?) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
                     Button { shiftMonth(-1) } label: {
                         Image(systemName: "chevron.left")
                     }
@@ -199,17 +200,20 @@ struct HouseholdSettlementView: View {
                             .padding(.vertical, 4)
                             .background(.blue.opacity(0.12), in: Capsule())
                     }
-                }
-                Text(state?.subtitle ?? "Review Household expenses you explicitly included — Mine, Shared, and Fer.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("household.subtitle")
+                Spacer(minLength: 8)
+                Text(saveStatus)
+                    .font(.caption)
+                    .foregroundStyle(saveStatus == "Guardado" ? Color.secondary : Color.orange)
+                    .fixedSize()
             }
-            Spacer()
-            Text(saveStatus)
-                .font(.caption)
-                .foregroundStyle(saveStatus == "Saved" ? Color.secondary : Color.orange)
+            Text(state?.subtitle ?? String(localized: "Review Household expenses you explicitly included — Mine, Shared, and Fer."))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("household.subtitle")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var monthPicker: some View {
@@ -300,8 +304,9 @@ struct HouseholdSettlementView: View {
                             .tag(HouseholdSplitMethod.customPercent)
                             .accessibilityIdentifier("household.split.custom")
                     }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 420)
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(maxWidth: 460, alignment: .trailing)
                     .accessibilityIdentifier("household.split.picker")
                 }
                 if splitMethod == .customPercent {
@@ -343,6 +348,8 @@ struct HouseholdSettlementView: View {
             }
         }
         .accessibilityIdentifier("household.setup.card")
+        .frame(maxWidth: 580)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder
@@ -395,6 +402,10 @@ struct HouseholdSettlementView: View {
             Text(state.resultDescription)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            Text(state.recoveryComposition)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("household.summary.recoveryComposition")
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -575,7 +586,7 @@ struct HouseholdSettlementView: View {
                 .font(.headline)
                 .accessibilityIdentifier("household.transactionsHeader.title")
             if selectionMode {
-                Text("\(selectedIDs.count) selected")
+                Text("\(selectedIDs.count) seleccionados")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -601,14 +612,22 @@ struct HouseholdSettlementView: View {
     }
 
     private func setupRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(label)
-                .frame(width: 160, alignment: .leading)
-            content()
-                .frame(maxWidth: .infinity, alignment: .trailing)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(label)
+                    .frame(width: 145, alignment: .leading)
+                content()
+                    .frame(width: 350, alignment: .trailing)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                Text(label).foregroundStyle(.secondary)
+                content().frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
+        .frame(maxWidth: 507)
+        .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, 14)
-        .padding(.vertical, 11)
+        .padding(.vertical, 9)
     }
 
     private func percentField(_ label: String, value: Binding<Decimal>) -> some View {
@@ -671,7 +690,7 @@ struct HouseholdSettlementView: View {
         monthTransactions = input.transactions
         monthDueDates = input.dueDates
         report = HouseholdSettlementReportService.build(monthStart: monthStart, transactions: input.transactions, dueDates: input.dueDates, setup: savedSetup)
-        saveStatus = "Saved"
+        saveStatus = "Guardado"
         isLoadingSetup = false
     }
 
@@ -689,7 +708,7 @@ struct HouseholdSettlementView: View {
 
     private func scheduleSave() {
         pendingSaveTask?.cancel()
-        saveStatus = "Unsaved changes"
+        saveStatus = "Cambios sin guardar"
         guard setupIsValid else { return }
         let month = selectedMonth.startDate
         let setupToSave = setup
@@ -716,7 +735,7 @@ struct HouseholdSettlementView: View {
             customPartnerPercent: setupToSave.customPartnerPercent,
             context: modelContext
         )
-        saveStatus = "Saved"
+        saveStatus = "Guardado"
     }
 
     private func copyPreviousMonth() {

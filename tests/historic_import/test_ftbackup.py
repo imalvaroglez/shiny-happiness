@@ -99,6 +99,24 @@ def test_new_bundle_is_complete_and_selfcheck_uses_internal_references(tmp_path)
     assert selfcheck.check(bundle / "missing")
 
 
+def test_schema_eight_backup_preserves_promotion_overrides_through_historic_import(tmp_path):
+    values = _blank_models()
+    override_bytes = b'[ { "schemaVersion" : 1, "updatedAt" : "2026-09-22T12:00:00Z", "definitions" : [], "deletedIDs" : ["gone"] } ]\n'
+    values["PromotionOverrides"] = json.loads(override_bytes)
+    payloads = {name: json.dumps(rows, indent=2).encode() for name, rows in values.items()}
+    payloads["PromotionOverrides"] = override_bytes
+    reference = ftbackup.write_bundle(tmp_path / "schema-eight.ftbackup", payloads, RUN_TS, "0.15.0",
+                                      validate=selfcheck.check)
+    loaded = build.load_reference(reference, ACCOUNT_ID, build.PILOTS["amex"])
+    output = tmp_path / "schema-eight-copy.ftbackup"
+    ftbackup.write_bundle(output, loaded["model_bytes"], RUN_TS, "0.15.0", source_bundle=reference,
+                          validate=selfcheck.check)
+
+    assert json.loads((output / "manifest.json").read_text())["schemaVersion"] == 8
+    assert (output / "models/PromotionOverrides.json").read_bytes() == override_bytes
+    assert selfcheck.check(output) == []
+
+
 def test_imported_money_and_credit_flow_keep_exact_json_values(tmp_path):
     bundle = _full_bundle(tmp_path)
     transactions = json.loads((bundle / "models" / "Transaction.json").read_bytes(), parse_float=Decimal)

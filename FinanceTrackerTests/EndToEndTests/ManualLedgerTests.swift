@@ -367,7 +367,7 @@ struct ManualLedgerTests {
     func creditCardPaymentCreatesPairedWithPaymentCategories() throws {
         let container = try makeContainer()
         let context = container.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let checking = Account(institution: "Bank", type: .checking, currency: "MXN")
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN")
@@ -457,7 +457,7 @@ struct ManualLedgerTests {
     func paymentPairExcludedFromCashFlow() async throws {
         let container = try makeContainer()
         let context = container.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let checking = Account(institution: "Bank", type: .checking, currency: "MXN")
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN")
@@ -560,7 +560,7 @@ struct ManualLedgerTests {
     func cardCreditExcludedFromConsolidatedIncome() async throws {
         let container = try makeContainer()
         let context = container.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN", nickname: "Card")
         context.insert(card)
@@ -681,7 +681,7 @@ struct ManualLedgerTests {
     func importedCardPaymentIsNotRelabeledAsTransfer() throws {
         let container = try makeContainer()
         let context = container.mainContext
-        SeedDataLoader.bootstrapIfNeeded(context: context)
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
 
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN")
         context.insert(card)

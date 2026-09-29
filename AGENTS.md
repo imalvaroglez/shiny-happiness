@@ -33,6 +33,10 @@ For non-trivial changes, prefer an orchestrated multi-agent workflow: parallel
 read-only exploration, scoped implementation, and fresh-context independent
 review. See `docs/LOOPS.md` for role boundaries and approval gates.
 
+Every user-visible change also requires recorded performance verification under
+`docs/LOOPS.md` §8; do not mark it complete or ready for development validation
+without that evidence.
+
 
 
 ## Build, Test, and Development Commands
@@ -130,6 +134,7 @@ Dashboard work must preserve a clear split between financial semantics and rende
 - Net Worth is never a transaction sum. It is a point-in-time balance as of `effectiveNetWorthDate`, using historical snapshots or resolver reconstruction. The Net Worth card, final visible chart point, and breakdown total must match.
 - Net Worth breakdown rows explain account balance provenance, not period activity. Wording must not imply that prior snapshots or reconstruction anchors are transactions inside the selected period.
 - Cash Flow and Charges vs Payments are period-comparison charts, not date-scale charts. Render them through the shared grouped-period bar renderer: `All` skips inactive buckets; bounded Month/Quarter/Year/Custom trim inactive edges but preserve inactive buckets between active buckets as subtle zero placeholders.
+- Credit-card Month uses a daily charges chart: omit zero-activity and payment-only days, preserve each charge date in its label/tooltip, and show payments and credits as separate totals below. Other liability periods keep the grouped Charges vs Payments chart.
 - Sparse grouped-bar charts must stay compact and centered at wide dashboard widths. Do not allow a few active months to stretch across the full card. Hover should resolve to the nearest rendered group id and update only when the group changes.
 - Net Worth and Balance charts remain date-based point-in-time line/area charts. Do not convert them to grouped bars.
 
@@ -185,6 +190,12 @@ Do not add broad `@Query<Transaction>` to views that can appear when there are z
 - Bar width scales by populated bucket count via `barWidth(for:bucketCount:)` so charts stay compact when data is sparse.
 - Cash Flow trims the x-axis domain to the first and last populated bucket; inactive leading/trailing months are excluded.
 - Net Worth and account Balance charts remain date-based line/area charts — never convert them to grouped bars.
+
+### Interface composition
+
+- Related values stay visually close; controls and repeated data columns share alignment and width.
+- Equal-width cards in the same row also share header, plot, and footer proportions. Do not use empty space to force height symmetry or leave a long detail list beside a short chart.
+- Keep primary screens compact and readable at wide and narrow window sizes, with supporting detail one clear action away.
 
 ### Focused test commands
 

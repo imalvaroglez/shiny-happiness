@@ -174,6 +174,7 @@ struct LiabilityAccountSnapshot {
     /// Progreso de promociones de la cuenta (evaluado sobre el historial completo, no el
     /// periodo visible — spec G: conciliación hasta la fecha de evaluación).
     var promotions: [PromotionProgress] = []
+    var spendRequirementCard: SpendRequirementCardData? = nil
 
     var amountOwed: Decimal { abs(currentBalance) }
     var daysUntilDue: Int? {
@@ -182,6 +183,12 @@ struct LiabilityAccountSnapshot {
     }
 
     var currencyCode: String { account.currency }
+}
+
+struct SpendRequirementCardData {
+    let requirement: SpendRequirement?
+    let calculation: SpendRequirementCalculation
+    let reviewTransactions: [Transaction]
 }
 
 struct MonthlyChargesPayments: Identifiable {

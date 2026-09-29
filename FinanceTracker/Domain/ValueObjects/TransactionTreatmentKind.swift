@@ -13,13 +13,13 @@ enum TransactionTreatmentKind: String, Codable, CaseIterable {
 extension TransactionTreatmentKind {
     var displayName: String {
         switch self {
-        case .regular: "Regular"
-        case .retirementContributionUserFunded: "User-funded retirement contribution"
-        case .retirementContributionEmployerFunded: "Employer retirement contribution"
-        case .statutoryRetirementContribution: "Statutory retirement contribution"
-        case .investmentReturn: "Investment return"
-        case .fee: "Fee"
-        case .valuationAdjustment: "Valuation adjustment"
+        case .regular: String(localized: "Regular")
+        case .retirementContributionUserFunded: String(localized: "User-funded retirement contribution")
+        case .retirementContributionEmployerFunded: String(localized: "Employer retirement contribution")
+        case .statutoryRetirementContribution: String(localized: "Statutory retirement contribution")
+        case .investmentReturn: String(localized: "Investment return")
+        case .fee: String(localized: "Fee")
+        case .valuationAdjustment: String(localized: "Valuation adjustment")
         }
     }
 }
