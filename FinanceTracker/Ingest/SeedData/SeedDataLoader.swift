@@ -40,6 +40,7 @@ struct SeedDataLoader {
             try loadCategoriesIfNeeded(context: context, categoriesByName: &categoriesByName)
             try repairStaleCategoryKinds(context: context, categoriesByName: &categoriesByName)
             try repairDuplicateActiveCategories(context: context)
+            try repairDanglingCategoryLinks(context: context)
             categoriesByName = try buildExistingMap(context: context)
             try syncRules(context: context, categoriesByName: categoriesByName)
         }
@@ -213,6 +214,59 @@ struct SeedDataLoader {
 
         if softDeletedCount > 0 {
             Logger.app.info("Category repair: soft-deleted \(softDeletedCount) duplicate active category record(s)")
+        }
+    }
+
+    /// Relinks transactions and rules whose category is soft-deleted to the live
+    /// category with the same path (kind + name chain from the root), when one
+    /// exists. Links with no live counterpart stay untouched; reviving those is
+    /// the manual recovery flow's job (CategoryRecoveryService).
+    private static func repairDanglingCategoryLinks(context: ModelContext) throws {
+        let allCategories = try context.fetch(FetchDescriptor<Category>())
+        guard allCategories.contains(where: { $0.deletedAt != nil }) else { return }
+
+        // Same path scheme as CategoryRecoveryService.currentPaths.
+        func path(for category: Category, visiting: Set<UUID> = []) -> String? {
+            guard !visiting.contains(category.id) else { return nil }
+            var next = visiting
+            next.insert(category.id)
+            let parentPath = category.parent.flatMap { path(for: $0, visiting: next) } ?? ""
+            return "\(parentPath)/\(category.kind.rawValue)/\(normalizedCategoryName(category.name))"
+        }
+
+        var liveByPath: [String: Category] = [:]
+        for category in allCategories where category.deletedAt == nil {
+            guard let key = path(for: category) else { continue }
+            if let current = liveByPath[key], current.id.uuidString <= category.id.uuidString { continue }
+            liveByPath[key] = category
+        }
+        guard !liveByPath.isEmpty else { return }
+
+        let danglingByPath: [UUID: String] = allCategories.reduce(into: [:]) { map, category in
+            guard category.deletedAt != nil, let key = path(for: category) else { return }
+            map[category.id] = key
+        }
+        guard danglingByPath.values.contains(where: { liveByPath[$0] != nil }) else { return }
+
+        var relinked = 0
+        for tx in try context.fetch(FetchDescriptor<Transaction>()) {
+            guard let dead = tx.category, dead.deletedAt != nil,
+                  let key = danglingByPath[dead.id],
+                  let live = liveByPath[key], live.id != dead.id else { continue }
+            tx.category = live
+            tx.touch()
+            relinked += 1
+        }
+        for rule in try context.fetch(FetchDescriptor<CategoryRule>()) {
+            guard let dead = rule.category, dead.deletedAt != nil,
+                  let key = danglingByPath[dead.id],
+                  let live = liveByPath[key], live.id != dead.id else { continue }
+            rule.category = live
+            rule.touch()
+            relinked += 1
+        }
+        if relinked > 0 {
+            Logger.app.info("Category repair: relinked \(relinked) row(s) from soft-deleted categories to live siblings")
         }
     }
 
