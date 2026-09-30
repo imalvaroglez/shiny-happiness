@@ -1,10 +1,18 @@
 # Overview — Insights, Spending Analytics & Explainable Projections
 
-**Status:** approved for phased implementation (2026-08-04). This is the
-canonical Overview specification. It supersedes the recovered 2026-07-24
-draft, the external phased plan, and the interpretation decisions D4/D5/D12 in
-`docs/superpowers/specs/2026-07-07-dashboard-redesign-design.md`. The visual
-component system remains unchanged.
+**Status:** superseded — closed 2026-09-30 without implementation. It was
+approved for phased implementation on 2026-08-04 and was the canonical
+Overview specification (superseding the recovered 2026-07-24 draft, the
+external phased plan, and the interpretation decisions D4/D5/D12 in
+`docs/superpowers/specs/2026-07-07-dashboard-redesign-design.md`), but
+releases 0.13.0–0.16.1 shipped without it and 0.14.0 deliberately removed
+the Insights section from the consolidated dashboard ("never produced
+reliable signal even with complete history"), which conflicts with OV-30 /
+Phase 1A as written. Lesson recorded: an overview feed must earn trust
+against real history before rejoining the product. The stalled branch
+`codex/overview-phase-1a` was discarded; its Domain layer had no consumer
+after the Insights removal. Nothing in this document gates future work —
+revisit the topic only with a fresh spec.
 
 **Release:** 0.13.0. This work does not change SwiftData models, migrations,
 or `.ftbackup` schema.
