@@ -3,6 +3,15 @@
 **Status:** approved for a gated 0.14.0 implementation. **Release state:**
 `BLOCKED` until every compatibility proof in this document succeeds.
 
+> **Re-based 2026-09-30.** The gated implementation never ran: 0.14.0
+> shipped without it, the app reached 0.16.1, and the `.ftbackup` manifest
+> advanced 7→9. Read every "0.14.0" below as "the first release that needs
+> a canonical `Transaction` field". The released frozen-graph commits are
+> V4=`ed84ce2`, V5=`d013af6`, V6=`04710b2`. The decision is now registered
+> in `DECISIONS.md` as AD-023 (deferred): sidecar `@Model`s and JSON
+> stores remain the default for new persisted data; nothing here is
+> authorization to touch `Transaction`.
+
 ## Objective and constraints
 
 The current migration history couples V4–V6 schema checksums to live models.
