@@ -1226,7 +1226,7 @@ enum CategoryPalette {
         return "categorical-\(index)"
     }
 
-    private static let uncategorizedName = "Uncategorized"
+    static let uncategorizedName = "Uncategorized"
 
     private static let knownNames: [String] = [
         "Food & Drink", "Restaurants", "Groceries", "Coffee", "Fast Food", "Bars & Nightlife",

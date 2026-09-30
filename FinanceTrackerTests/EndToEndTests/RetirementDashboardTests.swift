@@ -352,6 +352,31 @@ struct RetirementDashboardTests {
         #expect(BreakdownSheet.includesInCategorySpendingBreakdown(tx, category: cat) == false)
     }
 
+    @Test("Uncategorized sentinel drilldown matches nil and soft-deleted category rows")
+    func uncategorizedSentinelMatchesUncategorizedRows() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        // Same shape as the sentinel DashboardViewModel builds: never persisted.
+        let sentinel = FinanceTracker.Category(name: "Uncategorized", kind: .expense)
+        let liveCat = FinanceTracker.Category(name: "Streaming", kind: .expense)
+        context.insert(liveCat)
+        let deadCat = FinanceTracker.Category(name: "Streaming", kind: .expense)
+        context.insert(deadCat)
+        deadCat.deletedAt = .now
+
+        let nilTx = manualTx(amount: -100, movement: .expense, treatment: .regular, in: context)
+        let deadTx = manualTx(amount: -80, movement: .expense, treatment: .regular, category: deadCat, in: context)
+        let liveTx = manualTx(amount: -60, movement: .expense, treatment: .regular, category: liveCat, in: context)
+        try context.save()
+
+        #expect(BreakdownSheet.includesInCategorySpendingBreakdown(nilTx, category: sentinel))
+        #expect(BreakdownSheet.includesInCategorySpendingBreakdown(deadTx, category: sentinel))
+        #expect(BreakdownSheet.includesInCategorySpendingBreakdown(liveTx, category: sentinel) == false)
+        #expect(BreakdownSheet.includesInCategorySpendingBreakdown(liveTx, category: liveCat))
+        #expect(BreakdownSheet.includesInCategorySpendingBreakdown(nilTx, category: liveCat) == false)
+    }
+
     @Test("Cash-flow drilldown excludes a retirement-contribution income transaction that is not a transfer")
     func cashFlowExcludesRetirementContribution() throws {
         let container = try makeContainer()

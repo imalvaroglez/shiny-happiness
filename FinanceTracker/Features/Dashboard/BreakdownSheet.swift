@@ -380,7 +380,15 @@ extension BreakdownSheet {
     }
 
     static func includesInCategorySpendingBreakdown(_ tx: Transaction, category: Category) -> Bool {
-        tx.category?.id == category.id
+        let matchesCategory: Bool
+        if category.name == CategoryPalette.uncategorizedName, category.deletedAt == nil {
+            // The dashboard's uncategorized sentinel: its UUID is fresh, so match
+            // the rows the donut actually bucketed into it (nil or soft-deleted).
+            matchesCategory = tx.category == nil || tx.category?.deletedAt != nil
+        } else {
+            matchesCategory = tx.category?.id == category.id
+        }
+        return matchesCategory
             && classifier.classify(transaction: tx).countsAsRegularExpense
     }
 }

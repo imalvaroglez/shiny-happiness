@@ -379,4 +379,75 @@ struct CategoryRepairTests {
         #expect(activeIncome.first?.id == canonicalIncome.id)
         #expect(duplicateIncome.deletedAt == deletedAt)
     }
+
+    @Test("Dangling links to a soft-deleted category are relinked to the live same-path sibling")
+    func relinksDanglingCategoryLinks() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let liveParent = FinanceTracker.Category(name: "Comida", kind: .expense)
+        context.insert(liveParent)
+        let liveChild = FinanceTracker.Category(name: "Restaurantes", parent: liveParent, kind: .expense)
+        context.insert(liveChild)
+
+        let deadParent = FinanceTracker.Category(name: "Comida", kind: .expense)
+        context.insert(deadParent)
+        let deadChild = FinanceTracker.Category(name: "Restaurantes", parent: deadParent, kind: .expense)
+        context.insert(deadChild)
+        deadParent.deletedAt = .now
+        deadChild.deletedAt = .now
+
+        let account = Account(institution: "Test", type: .checking, currency: "MXN")
+        context.insert(account)
+        let tx = Transaction(
+            account: account,
+            postedAt: .now,
+            amount: -320,
+            descriptionRaw: "Taquería",
+            category: deadChild
+        )
+        context.insert(tx)
+        let rule = CategoryRule(
+            patternRegex: "taquer",
+            merchantMatch: "Taquería",
+            category: deadChild,
+            priority: 10,
+            source: "seed"
+        )
+        context.insert(rule)
+        try context.save()
+
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        #expect(tx.category?.id == liveChild.id, "Transaction should point at the live sibling")
+        #expect(rule.category?.id == liveChild.id, "Rule should point at the live sibling")
+        #expect(deadChild.deletedAt != nil, "The soft-deleted sibling stays deleted")
+    }
+
+    @Test("Dangling links without a live same-path sibling are left untouched")
+    func keepsDanglingLinkWithoutLiveSibling() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let deadOnly = FinanceTracker.Category(name: "Legacy Bucket", kind: .expense)
+        context.insert(deadOnly)
+        deadOnly.deletedAt = .now
+
+        let account = Account(institution: "Test", type: .checking, currency: "MXN")
+        context.insert(account)
+        let tx = Transaction(
+            account: account,
+            postedAt: .now,
+            amount: -150,
+            descriptionRaw: "Old charge",
+            category: deadOnly
+        )
+        context.insert(tx)
+        try context.save()
+
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        #expect(tx.category?.id == deadOnly.id, "No live sibling exists, the link must stay")
+        #expect(deadOnly.deletedAt != nil)
+    }
 }
