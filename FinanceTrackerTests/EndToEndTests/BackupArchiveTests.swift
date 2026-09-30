@@ -606,7 +606,9 @@ struct BackupArchiveTests {
         try write("StockPosition", [StockPositionSnapshot]())
         try write("HouseholdPartnerIncomeEstimate", [HouseholdPartnerIncomeEstimateSnapshot]())
         try write("SettlementDueDateOverride", [SettlementDueDateOverrideSnapshot]())
-        try write("PromotionOverrides", [PromotionOverrides()])
+        // El store del V1 ya no existe; los backups 8..<10 solo exigen que el
+        // archivo sea un arreglo JSON válido (verificación de hashes/presencia).
+        try Data("[]".utf8).write(to: modelsDir.appendingPathComponent("PromotionOverrides.json"))
         if schemaVersion >= 9 {
             try write("SpendRequirement", [SpendRequirementSettings()])
         }

@@ -53,13 +53,12 @@ struct AppDataResetService {
         try deleteAllObjects(of: Account.self, from: context)
     }
 
-    static func resetAllData(context: ModelContext, promotionOverridesURL: URL? = nil,
-                             spendRequirementsURL: URL? = nil, promotionLedgerURL: URL? = nil) throws {
+    static func resetAllData(context: ModelContext, spendRequirementsURL: URL? = nil,
+                             promotionLedgerURL: URL? = nil) throws {
         try deletePersistentModels(from: context)
         try context.save()
         try verifyCleanSlate(context: context)
         try SeedDataLoader.bootstrapIfNeeded(context: context)
-        try PromotionStore.reset(fileURL: promotionOverridesURL)
         try SpendRequirementStore.reset(fileURL: spendRequirementsURL)
         try PromotionLedgerStore.reset(fileURL: promotionLedgerURL)
     }

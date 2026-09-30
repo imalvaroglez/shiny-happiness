@@ -160,19 +160,6 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()) == 0)
     }
 
-    @Test("resetAllData clears local promotion overrides")
-    func resetClearsPromotionOverrides() throws {
-        let container = try makeContainer()
-        let context = container.mainContext
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("reset-promos-\(UUID())", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = root.appendingPathComponent("PromotionOverrides.json")
-        try PromotionStore.replace(with: PromotionOverrides(), at: url)
-
-        try AppDataResetService.resetAllData(context: context, promotionOverridesURL: url)
-
-        #expect(!FileManager.default.fileExists(atPath: url.path))
-    }
 
     @Test("resetAllData clears spend requirement settings")
     func resetClearsSpendRequirements() throws {
