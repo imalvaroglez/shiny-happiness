@@ -15,6 +15,7 @@
 		087E49C3462CAECCF0E67F06 /* DataBursatilClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E4BE0266F3DA957DDA0B8E0 /* DataBursatilClientTests.swift */; };
 		098C90493B0CB3D2AEA48DD7 /* MetricChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E285B0E8F12DCECA19A8F97 /* MetricChip.swift */; };
 		09F4E74AC7B1BEAD6905F2BE /* categories.json in Resources */ = {isa = PBXBuildFile; fileRef = 5C84E93C9A795A6020B4643B /* categories.json */; };
+		0BED9051387B18A6F9859A54 /* PromotionBoardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B02D96C14A4CFE070BA8CBF /* PromotionBoardTests.swift */; };
 		0E220C56F01C5F73AC25E438 /* BackupArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2312AE0B7A293DE0CD290ED8 /* BackupArchive.swift */; };
 		10159DAFACB34C5ADFE78BF5 /* PromotionLedgerStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D08C409DEF2357BA340F345 /* PromotionLedgerStoreTests.swift */; };
 		10F0BB94816CF5E4497DC82D /* CategoryRecoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31F7E9939F34CBB59CC758D /* CategoryRecoveryService.swift */; };
@@ -206,7 +207,6 @@
 		EAA5F82ACA2104BB533A8E05 /* SpendRequirement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79AADBC64E510B86D1F54A48 /* SpendRequirement.swift */; };
 		EADBE2FB305A7B4241D78F74 /* CategoryRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2F130B0509FE843CB686B4E /* CategoryRule.swift */; };
 		ECF56C3797135E1B38E5E3BB /* PromotionEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59D5068F2E3CB1B4EDFA3B6 /* PromotionEvaluator.swift */; };
-		EE6D7C077A166D91DD66780A /* PromotionHealthSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 646C2553BF6A7344A9772562 /* PromotionHealthSection.swift */; };
 		EE981FAE7AF35C481C9B0DC9 /* date_patterns.json in Resources */ = {isa = PBXBuildFile; fileRef = B79322B178BC59F4C069263D /* date_patterns.json */; };
 		EEBF2ADC04D506EA75F09A3D /* SettingsDataHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E18E82681373C8C536CE560 /* SettingsDataHealthTests.swift */; };
 		EEE5B0117DF6B280438A0AB6 /* TransactionSortMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15FE867B4D961BEA8B7D183F /* TransactionSortMode.swift */; };
@@ -216,6 +216,7 @@
 		F5DB3DDF765B96ACE07C2188 /* BackupModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750478702E1F74AF19265F62 /* BackupModels.swift */; };
 		F64F0325C721CC53653B88F5 /* HouseholdInclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BEEAF60DAD3D262734994E1 /* HouseholdInclusionTests.swift */; };
 		F6EF7475044393425338B9EC /* ConsolidatedDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C2CD008ED3068A1C7FF4C2 /* ConsolidatedDashboard.swift */; };
+		F95096E697E16A4F79228386 /* PromotionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0664C67C3365097C1B6135A /* PromotionViews.swift */; };
 		FA323C243628981CAF7381AF /* PromotionSnapshotWiringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC7155E2E5B4BF34096FF1C /* PromotionSnapshotWiringTests.swift */; };
 		FA6555FD0FDADDF1307B9E70 /* HouseholdSettlementReportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FEBB15355E0E96F56D3E126 /* HouseholdSettlementReportTests.swift */; };
 		FC94419B05C6E83DDDCD8B52 /* FinanceTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C7D22FF552A54C707D08AA2 /* FinanceTrackerApp.swift */; };
@@ -239,6 +240,7 @@
 		03131945D1AD4F5B0BEE2CA2 /* SourceFileTrackingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceFileTrackingTests.swift; sourceTree = "<group>"; };
 		04914B517C9B033CAEAC9321 /* DashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViewModel.swift; sourceTree = "<group>"; };
 		084ECD2379C85611D120A356 /* RawTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawTransaction.swift; sourceTree = "<group>"; };
+		0B02D96C14A4CFE070BA8CBF /* PromotionBoardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromotionBoardTests.swift; sourceTree = "<group>"; };
 		0DFE0313E049E079B4450263 /* RetirementSemanticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetirementSemanticsTests.swift; sourceTree = "<group>"; };
 		0E18E82681373C8C536CE560 /* SettingsDataHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDataHealthTests.swift; sourceTree = "<group>"; };
 		0FDB25D9D1C225ED8F6DCB0D /* channel_table.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = channel_table.json; sourceTree = "<group>"; };
@@ -304,7 +306,6 @@
 		5E31BC464A71CD5263D32CFD /* DataHealthSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataHealthSummary.swift; sourceTree = "<group>"; };
 		62C7D882BEF6682B5A31ADDE /* FinanceTracker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FinanceTracker.entitlements; sourceTree = "<group>"; };
 		6413C1BCA04D30478DFBF64C /* CashFlowExclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CashFlowExclusionTests.swift; sourceTree = "<group>"; };
-		646C2553BF6A7344A9772562 /* PromotionHealthSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromotionHealthSection.swift; sourceTree = "<group>"; };
 		672775DA320EEBEDEF167921 /* TransactionClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionClassifier.swift; sourceTree = "<group>"; };
 		67DCEB0832ADA26837DC4401 /* RetirementDashboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetirementDashboardTests.swift; sourceTree = "<group>"; };
 		6813D29124C05045CEDD6125 /* StructuralParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralParserTests.swift; sourceTree = "<group>"; };
@@ -385,6 +386,7 @@
 		BB0EB885128E2A69A17B135B /* AccountType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountType.swift; sourceTree = "<group>"; };
 		BB808F813CAADB72059B7BF1 /* FixtureLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureLoader.swift; sourceTree = "<group>"; };
 		BBCFB99BB78FEEA517AB0DED /* ImportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportViewModel.swift; sourceTree = "<group>"; };
+		C0664C67C3365097C1B6135A /* PromotionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromotionViews.swift; sourceTree = "<group>"; };
 		C23123DADD25D7251F027568 /* Date+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Date+Presentation.swift"; sourceTree = "<group>"; };
 		C242211369A6CD113C645916 /* PromotionDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromotionDefinition.swift; sourceTree = "<group>"; };
 		C377B11E49DF2A1F59DF0A87 /* PasteImportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteImportSheet.swift; sourceTree = "<group>"; };
@@ -476,6 +478,7 @@
 			isa = PBXGroup;
 			children = (
 				6FDCC1E1EA4B587691BFE65F /* PromotionAccumulatorTests.swift */,
+				0B02D96C14A4CFE070BA8CBF /* PromotionBoardTests.swift */,
 				9D08C409DEF2357BA340F345 /* PromotionLedgerStoreTests.swift */,
 				1532DD1AA5438967E8B08931 /* PromotionWindowTests.swift */,
 			);
@@ -577,6 +580,14 @@
 			path = PortfolioTests;
 			sourceTree = "<group>";
 		};
+		54801E21D5D0B7196ECC3ECC /* Promotions */ = {
+			isa = PBXGroup;
+			children = (
+				C0664C67C3365097C1B6135A /* PromotionViews.swift */,
+			);
+			path = Promotions;
+			sourceTree = "<group>";
+		};
 		556602BD2A10F46EC395E5A2 /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
@@ -612,7 +623,6 @@
 				A597EF9FEFE3473730377F78 /* CategoryManagementActions.swift */,
 				75CA9AD4E9A397F2014E57FC /* CategoryManagementViewState.swift */,
 				5E31BC464A71CD5263D32CFD /* DataHealthSummary.swift */,
-				646C2553BF6A7344A9772562 /* PromotionHealthSection.swift */,
 				1ADE896B846BF60B6FF840B9 /* SettingsView.swift */,
 				F122B897821AA169444CC790 /* SpendRequirementEditorSheet.swift */,
 			);
@@ -935,6 +945,7 @@
 				BAEFBBDF3B348463CBF5D1FE /* Dashboard */,
 				1B1E52D28CEBE1EBE8C15CB5 /* Household */,
 				CE91EB894300310A07B2ED50 /* Portfolio */,
+				54801E21D5D0B7196ECC3ECC /* Promotions */,
 				5F147C33DA08A282D9109A96 /* Settings */,
 				46953376510AE15C8DF3F135 /* Shared */,
 				A21224E520E06D103F851F94 /* Statements */,
@@ -1206,10 +1217,10 @@
 				40667FCF6903CBD3B5DB72FF /* PromotionDefinition.swift in Sources */,
 				60D55D75D253FBD8E3E1205D /* PromotionDetailSheet.swift in Sources */,
 				ECF56C3797135E1B38E5E3BB /* PromotionEvaluator.swift in Sources */,
-				EE6D7C077A166D91DD66780A /* PromotionHealthSection.swift in Sources */,
 				D9DFC9FEC0241BC65CE1569D /* PromotionLedger.swift in Sources */,
 				5EA6CD0FEDA323E96AD71541 /* PromotionLedgerStore.swift in Sources */,
 				471A0EFE5B21F38248A64B73 /* PromotionStore.swift in Sources */,
+				F95096E697E16A4F79228386 /* PromotionViews.swift in Sources */,
 				98ED875B1A1C223A0B03E2AE /* PromotionsCard.swift in Sources */,
 				6B10DFBF6B32F7DB37BB4991 /* RawTransaction.swift in Sources */,
 				A32C65AECBA5FCC6DDECF6E0 /* RetirementKind.swift in Sources */,
@@ -1298,6 +1309,7 @@
 				A0B223628AB851DDDE58D052 /* PortfolioServiceTests.swift in Sources */,
 				1D8C3F29D3E921820B600B1B /* PortfolioViewDataTests.swift in Sources */,
 				7F8BE081D1F8700D80A47DA7 /* PromotionAccumulatorTests.swift in Sources */,
+				0BED9051387B18A6F9859A54 /* PromotionBoardTests.swift in Sources */,
 				FD38AA8BE3F08E47CE04F84C /* PromotionBundleCatalogTests.swift in Sources */,
 				16726043E7AF86835F782986 /* PromotionCatalogTests.swift in Sources */,
 				E6975C4AE336937CEE0C03DE /* PromotionEvaluatorGatesTests.swift in Sources */,

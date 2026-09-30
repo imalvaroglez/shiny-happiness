@@ -53,6 +53,16 @@ struct PromotionLedgerEntry: Equatable, Sendable {
     let currency: String
     let postedAt: Date
     let deletedAt: Date?
+    var description = ""
+
+    init(id: UUID, amount: Decimal, currency: String, postedAt: Date, deletedAt: Date?, description: String = "") {
+        self.id = id
+        self.amount = amount
+        self.currency = currency
+        self.postedAt = postedAt
+        self.deletedAt = deletedAt
+        self.description = description
+    }
 }
 
 struct PromotionProgressSummary: Equatable, Sendable {
@@ -152,5 +162,146 @@ enum PromotionWindowCalculator {
         }
         let daysRemaining = endDay.map { civilDays(from: asOfDay, to: $0) + 1 }
         return .during(dayNumber: dayNumber, totalDays: totalDays, daysRemaining: daysRemaining)
+    }
+}
+
+// MARK: - Consultas puras para la UI
+
+/// Promo activa con su avance calculado, para cards y listas.
+struct ManualPromotionSummary: Identifiable, Equatable, Sendable {
+    let record: PromotionRecord
+    let progress: PromotionProgressSummary
+    var id: UUID { record.id }
+}
+
+/// Fila del drill-down: la contribución vive solo si la adjudicación cuenta
+/// (transacción presente, viva, de la moneda de la promo).
+struct PromotionDetailRow: Identifiable, Equatable, Sendable {
+    let attributionID: UUID
+    let transactionID: UUID
+    let date: Date?
+    let description: String
+    /// `−tx.amount` cuando aporta; `nil` cuando está excluida.
+    let contribution: Decimal?
+    let isOutOfWindow: Bool
+    let excludedReason: String?
+    var id: UUID { attributionID }
+}
+
+enum PromotionBoard {
+    /// Promos vivas (no archivadas, no eliminadas), opcionalmente ancladas a una cuenta.
+    static func activePromotions(in ledger: PromotionLedger, anchoredTo accountID: UUID? = nil) -> [PromotionRecord] {
+        ledger.promotions.filter {
+            $0.deletedAt == nil && $0.archivedAt == nil
+                && (accountID == nil || $0.accountID == accountID)
+        }
+    }
+
+    static func activeSummaries(ledger: PromotionLedger, anchoredTo accountID: UUID,
+                                transactions: [PromotionLedgerEntry], asOf: Date,
+                                calendar: Calendar = .current) -> [ManualPromotionSummary] {
+        summaries(for: activePromotions(in: ledger, anchoredTo: accountID),
+                  ledger: ledger, transactions: transactions, asOf: asOf, calendar: calendar)
+    }
+
+    /// Para Settings: incluye archivadas, excluye eliminadas.
+    static func allSummaries(ledger: PromotionLedger, transactions: [PromotionLedgerEntry],
+                             asOf: Date, calendar: Calendar = .current) -> [ManualPromotionSummary] {
+        summaries(for: ledger.promotions.filter { $0.deletedAt == nil },
+                  ledger: ledger, transactions: transactions, asOf: asOf, calendar: calendar)
+    }
+
+    /// Promos vivas adjudicables a una tx de `currency`, ordenadas por nombre.
+    static func selectablePromotions(ledger: PromotionLedger, currency: String) -> [PromotionRecord] {
+        activePromotions(in: ledger)
+            .filter { $0.currency == currency }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    static func attributedPromotionIDs(ledger: PromotionLedger, transactionID: UUID) -> [UUID] {
+        ledger.attributions
+            .filter { $0.transactionID == transactionID && $0.deletedAt == nil }
+            .map(\.promotionID)
+    }
+
+    /// Filas del drill-down: contribuciones primero (fecha descendente),
+    /// luego excluidas con razón, y las referencias ausentes al final.
+    static func detailRows(promotionID: UUID, ledger: PromotionLedger,
+                           transactions: [PromotionLedgerEntry],
+                           calendar: Calendar = .current) -> [PromotionDetailRow] {
+        guard let promotion = ledger.promotions.first(where: { $0.id == promotionID }) else { return [] }
+        let entriesByID = Dictionary(transactions.map { ($0.id, $0) },
+                                     uniquingKeysWith: { first, _ in first })
+        let startDay = promotion.windowStart.map { calendar.startOfDay(for: $0) }
+        let endDayExclusive = promotion.windowEnd.map {
+            calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: $0))!
+        }
+
+        var contributions: [PromotionDetailRow] = []
+        var excluded: [PromotionDetailRow] = []
+        var missing: [PromotionDetailRow] = []
+
+        for attribution in ledger.attributions
+        where attribution.promotionID == promotionID && attribution.deletedAt == nil {
+            guard let entry = entriesByID[attribution.transactionID] else {
+                missing.append(PromotionDetailRow(attributionID: attribution.id,
+                                                  transactionID: attribution.transactionID,
+                                                  date: nil, description: "",
+                                                  contribution: nil, isOutOfWindow: false,
+                                                  excludedReason: "sin transacción"))
+                continue
+            }
+            guard entry.deletedAt == nil else {
+                excluded.append(PromotionDetailRow(attributionID: attribution.id,
+                                                    transactionID: entry.id,
+                                                    date: entry.postedAt,
+                                                    description: entry.description,
+                                                    contribution: nil, isOutOfWindow: false,
+                                                    excludedReason: "transacción eliminada"))
+                continue
+            }
+            guard entry.currency == promotion.currency else {
+                excluded.append(PromotionDetailRow(attributionID: attribution.id,
+                                                    transactionID: entry.id,
+                                                    date: entry.postedAt,
+                                                    description: entry.description,
+                                                    contribution: nil, isOutOfWindow: false,
+                                                    excludedReason: "otra moneda"))
+                continue
+            }
+            let postedDay = calendar.startOfDay(for: entry.postedAt)
+            var outOfWindow = false
+            if let startDay, postedDay < startDay {
+                outOfWindow = true
+            } else if let endDayExclusive, postedDay >= endDayExclusive {
+                outOfWindow = true
+            }
+            contributions.append(PromotionDetailRow(attributionID: attribution.id,
+                                                    transactionID: entry.id,
+                                                    date: entry.postedAt,
+                                                    description: entry.description,
+                                                    contribution: -entry.amount,
+                                                    isOutOfWindow: outOfWindow,
+                                                    excludedReason: nil))
+        }
+
+        return contributions
+            .sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+            + excluded + missing
+    }
+
+    private static func summaries(for promotions: [PromotionRecord], ledger: PromotionLedger,
+                                  transactions: [PromotionLedgerEntry], asOf: Date,
+                                  calendar: Calendar) -> [ManualPromotionSummary] {
+        promotions
+            .map { record in
+                ManualPromotionSummary(
+                    record: record,
+                    progress: PromotionAccumulator.progress(promotion: record,
+                                                            attributions: ledger.attributions,
+                                                            transactions: transactions,
+                                                            asOf: asOf, calendar: calendar))
+            }
+            .sorted { $0.record.name.localizedStandardCompare($1.record.name) == .orderedAscending }
     }
 }

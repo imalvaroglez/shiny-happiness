@@ -1,14 +1,6 @@
 import SwiftData
 import SwiftUI
 
-struct ManualPromotionPreviewKey: Equatable {
-    let accountID: UUID
-    let kind: ManualTransactionKind
-    let date: Date
-    let amount: Decimal
-    let description: String
-}
-
 struct ManualTransactionSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -38,11 +30,9 @@ struct ManualTransactionSheet: View {
     @State private var includeInHousehold: Bool = false
     @State private var showingCategoryPicker = false
     @State private var errorMessage: String?
-    @State private var promotionHistoryAccountID: UUID?
-    @State private var promotionHistory: [Transaction] = []
-    @State private var promotionCatalog: PromotionCatalog?
-    @State private var promotionPreviewResults: [PromotionProgress] = []
-    @State private var promotionPreviewTask: Task<Void, Never>?
+    @State private var promotionsModel = PromotionLedgerViewModel()
+    @State private var selectedPromotionIDs: Set<UUID> = []
+    @State private var attributionFailure: AttributionFailure?
 
     private var selectedAccount: Account? {
         accounts.first { $0.id == accountID }
@@ -70,19 +60,6 @@ struct ManualTransactionSheet: View {
         }
     }
 
-    private var promotionPreviewKey: ManualPromotionPreviewKey? {
-        guard kind == .charge, amount != 0,
-              !description.trimmingCharacters(in: .whitespaces).isEmpty,
-              let selectedAccount else { return nil }
-        return ManualPromotionPreviewKey(
-            accountID: selectedAccount.id,
-            kind: kind,
-            date: date,
-            amount: amount < 0 ? amount : -abs(amount),
-            description: description
-        )
-    }
-
     var body: some View {
         VStack(spacing: 18) {
             Text("Add Transaction")
@@ -101,7 +78,8 @@ struct ManualTransactionSheet: View {
                     .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
             )
 
-            promotionPreview
+            promotionsSection
+            attributionFailureAlert
 
             if let errorMessage {
                 Text(errorMessage)
@@ -128,9 +106,6 @@ struct ManualTransactionSheet: View {
             updateCounterparty()
         }
         .onChange(of: accountID) {
-            promotionHistoryAccountID = nil
-            promotionHistory = []
-            promotionCatalog = nil
             normalizeKindAndCategory()
             updateCounterparty()
         }
@@ -138,11 +113,9 @@ struct ManualTransactionSheet: View {
             normalizeKindAndCategory()
             updateCounterparty()
         }
-        .onChange(of: promotionPreviewKey, initial: true) { _, key in
-            schedulePromotionPreview(for: key)
-        }
-        .onDisappear {
-            promotionPreviewTask?.cancel()
+        .task { promotionsModel.reload(context: modelContext) }
+        .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
+            promotionsModel.reload(context: modelContext)
         }
         .sheet(isPresented: $showingCategoryPicker) {
             CategoryPickerView(
@@ -165,27 +138,37 @@ struct ManualTransactionSheet: View {
         .pickerStyle(.segmented)
     }
 
-    // MARK: - Promotion preview, cached by candidate inputs (never by view presentation state)
+    // MARK: - Adjudicación manual a promociones
+
+    struct AttributionFailure: Identifiable {
+        let id = UUID()
+        let transactionID: UUID
+        var failedIDs: Set<UUID>
+    }
 
     @ViewBuilder
-    private var promotionPreview: some View {
-        if !promotionPreviewResults.isEmpty {
+    private var promotionsSection: some View {
+        let currency = selectedAccount?.currency
+        let options = currency.map { PromotionBoard.selectablePromotions(ledger: promotionsModel.ledger, currency: $0) } ?? []
+        if !options.isEmpty, kind != .transfer, kind != .payment {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Cuenta para:")
+                Text("Cuenta para promociones")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                ForEach(promotionPreviewResults, id: \.definitionID) { promo in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(stateColor(promo))
-                            .frame(width: 5, height: 5)
-                        Text(promo.displayName)
-                            .font(.caption)
-                        Spacer()
-                        Text(projectionText(promo))
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
+                ForEach(options) { promo in
+                    Toggle(promo.name, isOn: Binding(
+                        get: { selectedPromotionIDs.contains(promo.id) },
+                        set: { isOn in
+                            if isOn { selectedPromotionIDs.insert(promo.id) }
+                            else { selectedPromotionIDs.remove(promo.id) }
+                        }))
+                    .font(.caption)
+                    .toggleStyle(.checkbox)
+                }
+                if let warning = outOfWindowWarning {
+                    Text(warning)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
                 }
             }
             .padding(.horizontal, 12)
@@ -194,114 +177,83 @@ struct ManualTransactionSheet: View {
         }
     }
 
-    private func schedulePromotionPreview(for key: ManualPromotionPreviewKey?) {
-        promotionPreviewTask?.cancel()
-        promotionPreviewTask = nil
-        guard let key else {
-            promotionPreviewResults = []
-            return
+    @ViewBuilder
+    private var attributionFailureAlert: some View {
+        if let failure = attributionFailure {
+            VStack(spacing: 6) {
+                Text("La transacción se guardó, pero no se pudo adjudicar a \(failure.failedIDs.count) promoción(es).")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                HStack {
+                    Button("Reintentar") { retryPendingAttributions() }
+                    Button("Más tarde") { deferAttributions() }
+                }
+                .font(.caption)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
+    }
 
-        promotionPreviewResults = []
+    /// Aviso informativo: la ventana nunca filtra (PA-07).
+    private var outOfWindowWarning: String? {
+        let calendar = promotionsModel.promotionCalendar
+        let day = calendar.startOfDay(for: date)
+        let outCount = selectedPromotionIDs.reduce(0) { count, promotionID in
+            guard let record = promotionsModel.ledger.promotions.first(where: { $0.id == promotionID }) else { return count }
+            guard record.windowStart != nil || record.windowEnd != nil else { return count }
+            let startDay = record.windowStart.map { calendar.startOfDay(for: $0) }
+            let endDayExclusive = record.windowEnd.map { calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: $0))! }
+            if let startDay, day < startDay { return count + 1 }
+            if let endDayExclusive, day >= endDayExclusive { return count + 1 }
+            return count
+        }
+        guard outCount > 0 else { return nil }
+        return outCount == 1
+            ? "1 promoción seleccionada está fuera de su ventana — cuenta igual; solo es un aviso."
+            : "\(outCount) promociones seleccionadas están fuera de su ventana — cuentan igual; solo es un aviso."
+    }
 
-        promotionPreviewTask = Task { @MainActor in
+    /// Solo reintenta el upsert del ledger (idempotente); jamás crea otra transacción.
+    private func retryPendingAttributions() {
+        guard let failure = attributionFailure else { return }
+        var failed = Set<UUID>()
+        for promotionID in failure.failedIDs {
             do {
-                try await Task.sleep(nanoseconds: 200_000_000)
+                try PromotionLedgerStore.attribute(transactionID: failure.transactionID, promotionID: promotionID)
             } catch {
-                return
+                failed.insert(promotionID)
             }
-            guard !Task.isCancelled, promotionPreviewKey == key else { return }
-            updatePromotionPreview(for: key)
-            promotionPreviewTask = nil
+        }
+        if failed.isEmpty {
+            attributionFailure = nil
+            onSaved()
+            dismiss()
+        } else {
+            attributionFailure = AttributionFailure(transactionID: failure.transactionID, failedIDs: failed)
         }
     }
 
-    /// Fetches the complete account history once per selected account and evaluates
-    /// only after candidate inputs settle; opening the category sheet does no work here.
-    @MainActor
-    private func updatePromotionPreview(for key: ManualPromotionPreviewKey) {
-        guard let account = accounts.first(where: { $0.id == key.accountID }) else {
-            promotionPreviewResults = []
-            return
-        }
+    private func deferAttributions() {
+        attributionFailure = nil
+        onSaved()
+        dismiss()
+    }
 
-        if promotionHistoryAccountID != key.accountID {
-            let catalog = PromotionStore.load()
-            promotionCatalog = catalog
-            promotionHistoryAccountID = key.accountID
-            let bound = catalog.definitions.filter { $0.accountUUID == key.accountID }
-            guard !bound.isEmpty else {
-                promotionHistory = []
-                promotionPreviewResults = []
-                return
-            }
-
-            let descriptor = FetchDescriptor<Transaction>(
-                predicate: #Predicate<Transaction> { tx in tx.deletedAt == nil },
-                sortBy: [SortDescriptor(\.postedAt)]
-            )
+    /// La tx ya se guardó; un fallo del ledger deja la hoja abierta con Reintentar/Más tarde.
+    private func applyAttributions(to transaction: Transaction) {
+        guard !selectedPromotionIDs.isEmpty else { return }
+        var failed = Set<UUID>()
+        for promotionID in selectedPromotionIDs {
             do {
-                promotionHistory = try modelContext.fetch(descriptor).filter { $0.account?.id == key.accountID }
+                try PromotionLedgerStore.attribute(transactionID: transaction.id, promotionID: promotionID)
             } catch {
-                promotionHistoryAccountID = nil
-                promotionCatalog = nil
-                promotionHistory = []
-                promotionPreviewResults = []
-                return
+                failed.insert(promotionID)
             }
         }
-
-        guard let catalog = promotionCatalog else {
-            promotionPreviewResults = []
-            return
-        }
-        let bound = catalog.definitions.filter { $0.accountUUID == key.accountID }
-        guard !bound.isEmpty else {
-            promotionPreviewResults = []
-            return
-        }
-
-        // Transacción candidata — NO insertada en el contexto; solo para evaluación.
-        let candidate = Transaction(
-            account: account,
-            postedAt: key.date,
-            amount: key.amount,
-            descriptionRaw: key.description
-        )
-
-        promotionPreviewResults = PromotionEvaluator().evaluate(
-            definitions: bound, account: account,
-            transactions: promotionHistory + [candidate],
-            channelTable: catalog.channelTable, asOf: key.date
-        ).filter { $0.eligibleFirm > 0 || $0.possiblePositiveAddition > 0 }
-    }
-
-    private func projectionText(_ promo: PromotionProgress) -> String {
-        switch promo.shapeSummary {
-        case .spendThreshold(let target, let remaining):
-            return remaining > 0
-                ? MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", promo.eligibleFirm)
-                    + " / " + MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", target)
-                : "✓"
-        case .cashback(let devengado, _, _):
-            return MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", devengado)
-        case .tieredPeriods(let periods, let earned, let cap):
-            if let current = periods.first(where: { $0.phase == .current }) {
-                return MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", current.firm)
-                    + " / " + MoneyFormat.string(code: selectedAccount?.currency ?? "MXN", current.threshold)
-            }
-            _ = periods; _ = earned; _ = cap
-            return ""
-        }
-    }
-
-    private func stateColor(_ promo: PromotionProgress) -> Color {
-        switch promo.displayState {
-        case .enCurso: return .blue
-        case .thresholdReachedPerRecords: return .green
-        case .thresholdSuspended, .provisional, .estimated: return .orange
-        case .expiredSuspended: return .orange
-        case .expired: return .gray
+        if !failed.isEmpty {
+            attributionFailure = AttributionFailure(transactionID: transaction.id, failedIDs: failed)
         }
     }
 
@@ -477,11 +429,12 @@ struct ManualTransactionSheet: View {
     }
 
     private func save() {
+        var createdTransaction: Transaction?
         do {
             switch kind {
             case .income:
                 guard let account = selectedAccount else { throw ManualAccountError.missingAccount }
-                _ = try ManualTransactionService.create(
+                createdTransaction = try ManualTransactionService.create(
                     account: account,
                     date: date,
                     description: description,
@@ -492,7 +445,7 @@ struct ManualTransactionSheet: View {
                 )
             case .expense:
                 guard let account = selectedAccount else { throw ManualAccountError.missingAccount }
-                _ = try ManualTransactionService.create(
+                createdTransaction = try ManualTransactionService.create(
                     account: account,
                     date: date,
                     description: description,
@@ -505,7 +458,7 @@ struct ManualTransactionSheet: View {
                 )
             case .charge:
                 guard let account = selectedAccount else { throw ManualAccountError.missingAccount }
-                _ = try ManualTransactionService.create(
+                createdTransaction = try ManualTransactionService.create(
                     account: account,
                     date: date,
                     description: description,
@@ -518,7 +471,7 @@ struct ManualTransactionSheet: View {
                 )
             case .cardCredit:
                 guard let account = selectedAccount else { throw ManualAccountError.missingAccount }
-                _ = try ManualTransactionService.create(
+                createdTransaction = try ManualTransactionService.create(
                     account: account,
                     date: date,
                     description: description,
@@ -556,6 +509,10 @@ struct ManualTransactionSheet: View {
                     context: modelContext
                 )
             }
+            if let createdTransaction {
+                applyAttributions(to: createdTransaction)
+            }
+            guard attributionFailure == nil else { return }
             onSaved()
             dismiss()
         } catch {

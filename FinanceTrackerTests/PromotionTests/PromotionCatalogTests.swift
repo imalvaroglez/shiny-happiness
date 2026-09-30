@@ -192,23 +192,4 @@ struct PromotionCatalogTests {
         #expect(try PromotionStore.read(fileURL: file).deletedIDs.contains(original.id))
     }
 
-    @Test("Promotion editor requires a card and preserves an existing definition")
-    func editorDraftRequiresAccountAndPreservesDefinition() throws {
-        let original = try #require(PromotionCatalog.load().definitions.first { $0.accountUUID != nil })
-        var draft = PromotionEditorDraft(original)
-        draft.accountID = nil
-        #expect(throws: PromotionEditorError.accountRequired) { try draft.definition() }
-
-        draft.accountID = original.accountUUID
-        let edited = try draft.definition()
-        #expect(edited.id == original.id)
-        #expect(edited.displayName == original.displayName)
-        #expect(edited.window == original.window)
-        #expect(edited.shape == original.shape)
-        #expect(edited.scope == original.scope)
-        #expect(edited.refundPolicy == original.refundPolicy)
-        #expect(edited.msiPolicy == original.msiPolicy)
-        #expect(edited.reward == original.reward)
-        #expect(edited.knownUnknowns == original.knownUnknowns)
-    }
 }

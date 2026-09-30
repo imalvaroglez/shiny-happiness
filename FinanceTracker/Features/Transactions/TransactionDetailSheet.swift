@@ -27,6 +27,9 @@ struct TransactionDetailSheet: View {
     @State private var draftIncluded: Bool
     @State private var draftCategory: Category?
     @State private var showingCategoryPicker = false
+    @State private var promotionsModel = PromotionLedgerViewModel()
+    @State private var attributionError: String?
+    @State private var pendingAttribution: (promotionID: UUID, isOn: Bool)?
 
     @State private var pendingKeyword: String?
     @State private var categoryDidChange = false
@@ -94,6 +97,10 @@ struct TransactionDetailSheet: View {
             if draftExpenseAssignment == .custom, draftCustomFerAmount == nil {
                 draftCustomFerAmount = (abs(displayAmount) / 2).currencyRounded
             }
+        }
+        .task { promotionsModel.reload(context: modelContext) }
+        .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
+            promotionsModel.reload(context: modelContext)
         }
         .sheet(isPresented: $showingCategoryPicker) {
             CategoryPickerView(transaction: transaction) { category, keyword in
@@ -217,6 +224,11 @@ struct TransactionDetailSheet: View {
                 panelDivider
             }
 
+            if !isBalanceMirror, !selectablePromotions.isEmpty {
+                promotionsRow
+                panelDivider
+            }
+
             if isSettlementEditable {
                 settlementRows
                 panelDivider
@@ -236,6 +248,64 @@ struct TransactionDetailSheet: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
         )
+    }
+
+    private var selectablePromotions: [PromotionRecord] {
+        PromotionBoard.selectablePromotions(ledger: promotionsModel.ledger, currency: transaction.currency)
+    }
+
+    private var attributedPromotionIDs: Set<UUID> {
+        Set(PromotionBoard.attributedPromotionIDs(ledger: promotionsModel.ledger, transactionID: transaction.id))
+    }
+
+    @ViewBuilder
+    private var promotionsRow: some View {
+        VStack(spacing: 6) {
+            editRow("Promociones") {
+                Text("\(attributedPromotionIDs.count) adjudicada\(attributedPromotionIDs.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(selectablePromotions) { promo in
+                    Toggle(promo.name, isOn: Binding(
+                        get: { attributedPromotionIDs.contains(promo.id) },
+                        set: { isOn in toggleAttribution(promotionID: promo.id, isOn: isOn) }))
+                    .font(.caption)
+                    .toggleStyle(.checkbox)
+                }
+                if let attributionError {
+                    HStack(spacing: 8) {
+                        Text(attributionError)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                        Button("Reintentar") { retryLastAttribution() }
+                            .font(.caption2)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+        }
+    }
+
+    private func toggleAttribution(promotionID: UUID, isOn: Bool) {
+        pendingAttribution = (promotionID, isOn)
+        do {
+            if isOn {
+                try PromotionLedgerStore.attribute(transactionID: transaction.id, promotionID: promotionID)
+            } else {
+                try PromotionLedgerStore.unattribute(transactionID: transaction.id, promotionID: promotionID)
+            }
+            attributionError = nil
+        } catch {
+            attributionError = "No se pudo \(isOn ? "adjudicar" : "quitar la adjudicación"): \(error.localizedDescription)"
+        }
+    }
+
+    private func retryLastAttribution() {
+        guard let pending = pendingAttribution else { return }
+        toggleAttribution(promotionID: pending.promotionID, isOn: pending.isOn)
     }
 
     @ViewBuilder

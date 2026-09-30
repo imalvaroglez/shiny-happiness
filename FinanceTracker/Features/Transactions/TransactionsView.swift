@@ -123,6 +123,37 @@ struct TransactionsView: View {
     @Binding var sessionState: TransactionSessionState
 
     @State private var appliedResetSignal = 0
+    @State private var promotionsModel = PromotionLedgerViewModel()
+
+    /// Cuántas promos vivas tiene cada tx (badge discreto en la fila).
+    private var promotionCountsByTransaction: [UUID: Int] {
+        var counts: [UUID: Int] = [:]
+        for attribution in promotionsModel.ledger.attributions where attribution.deletedAt == nil {
+            counts[attribution.transactionID, default: 0] += 1
+        }
+        return counts
+    }
+
+    private func ledgerRow(for tx: Transaction, wideLayout: Bool) -> some View {
+        TransactionLedgerRow(
+            transaction: tx,
+            isDeletedMode: sessionState.showingRecentlyDeleted,
+            isSelectionMode: selectionMode,
+            isSelected: selectedIDs.contains(tx.id),
+            onToggleSelection: { toggleSelection(tx) },
+            wideLayout: wideLayout,
+            showsAccount: sessionState.accountFilterID == nil,
+            promotionCount: promotionCountsByTransaction[tx.id] ?? 0,
+            onOpenDetail: { editingTransaction = tx },
+            onOpenCategoryPicker: {
+                editingTransaction = tx
+            },
+            onDelete: { softDelete(tx) },
+            onRestore: { restore(tx) },
+            onApplyToSimilar: { beginApplyToSimilar(tx) },
+            onToggleHousehold: { toggleHouseholdInclusion(tx) }
+        )
+    }
     @State private var allTransactions: [Transaction] = []
     @State private var deletedTransactions: [Transaction] = []
     @State private var consumedPresetID: UUID?
@@ -344,6 +375,10 @@ struct TransactionsView: View {
             consumePresetIfNeeded()
             fetchTransactions()
             recomputeDisplay()
+            promotionsModel.reload(context: modelContext)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
+            promotionsModel.reload(context: modelContext)
         }
         .onChange(of: preset) {
             consumePresetIfNeeded()
@@ -409,23 +444,7 @@ struct TransactionsView: View {
                             ForEach(dayGroups) { group in
                                 Section {
                                     ForEach(Array(group.transactions.enumerated()), id: \.element.id) { index, tx in
-                                        TransactionLedgerRow(
-                                            transaction: tx,
-                                            isDeletedMode: sessionState.showingRecentlyDeleted,
-                                            isSelectionMode: selectionMode,
-                                            isSelected: selectedIDs.contains(tx.id),
-                                            onToggleSelection: { toggleSelection(tx) },
-                                            wideLayout: wideLayout,
-                                            showsAccount: sessionState.accountFilterID == nil,
-                                            onOpenDetail: { editingTransaction = tx },
-                                            onOpenCategoryPicker: {
-                                                editingTransaction = tx
-                                            },
-                                            onDelete: { softDelete(tx) },
-                                            onRestore: { restore(tx) },
-                                            onApplyToSimilar: { beginApplyToSimilar(tx) },
-                                            onToggleHousehold: { toggleHouseholdInclusion(tx) }
-                                        )
+                                        ledgerRow(for: tx, wideLayout: wideLayout)
                                         if index < group.transactions.count - 1 {
                                             DashboardSeparator()
                                         }
