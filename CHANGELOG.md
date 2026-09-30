@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-29
+
+### Fixed
+
+- **Enlaces colgantes a categorías eliminadas.** Las transacciones y reglas cuyo punto de enlace apuntaba a una categoría eliminada (p. ej. tras limpiar duplicados o restaurar respaldos) vuelven a enlazarse automáticamente a la categoría viva equivalente al iniciar la app, reduciendo el sector "Sin categoría" de las gráficas a los movimientos genuinamente sin categoría.
+- **Desglose del sector "Sin categoría".** Al abrir el desglose de ese sector ahora se listan las transacciones que lo componen (sin categoría o con categoría eliminada); antes mostraba la lista vacía.
+
 ## [0.16.0] - 2026-09-28
 
 ### Added
