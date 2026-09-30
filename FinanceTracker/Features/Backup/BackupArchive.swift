@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    nonisolated private static let schemaVersion = 9
+    nonisolated private static let schemaVersion = 10
     nonisolated private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -79,6 +79,13 @@ enum BackupArchive {
             }
             guard snapshots[0].validate(accountIDs: Set(currencies.keys), accountCurrencies: currencies).isEmpty else { return false }
         }
+        if manifest.schemaVersion >= 10 {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let ledgerData = arrayData(for: "PromotionLedger", in: modelsDir),
+                  let snapshots = try? decoder.decode([PromotionLedger].self, from: ledgerData),
+                  snapshots.count == 1 else { return false }
+        }
         return true
     }
 
@@ -104,12 +111,14 @@ enum BackupArchive {
         if schemaVersion >= 3 { names.append("StockPosition") }
         if schemaVersion >= 4 { names.append("HouseholdPartnerIncomeEstimate") }
         if schemaVersion >= 7 { names.append("SettlementDueDateOverride") }
-        if schemaVersion >= 8 { names.append("PromotionOverrides") }
+        // Schema 10 retiró el store del V1: sus overrides solo se exigen en backups 8..<10.
+        if schemaVersion >= 8 && schemaVersion < 10 { names.append("PromotionOverrides") }
         if schemaVersion >= 9 { names.append("SpendRequirement") }
+        if schemaVersion >= 10 { names.append("PromotionLedger") }
         return names
     }
 
-    static func export(to bundleURL: URL, from context: ModelContext, promotionOverridesURL: URL? = nil,
+    static func export(to bundleURL: URL, from context: ModelContext, promotionLedgerURL: URL? = nil,
                        spendRequirementsURL: URL? = nil) async throws {
         let fm = FileManager.default
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
@@ -192,8 +201,10 @@ enum BackupArchive {
         }
         try writeJSON("SettlementDueDateOverride", newestByTx.values.map { SettlementDueDateOverrideSnapshot($0) })
 
-        let promotionStoreURL = try promotionOverridesURL ?? PromotionStore.defaultURL()
-        try writeJSON("PromotionOverrides", [try PromotionStore.read(fileURL: promotionStoreURL)])
+        // Schema 10: el ledger de adjudicación manual reemplaza al store del V1,
+        // que ya no se exporta.
+        try writeJSON("PromotionLedger",
+                      [try PromotionLedgerStore.read(fileURL: promotionLedgerURL ?? PromotionLedgerStore.defaultURL())])
         let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
         try writeJSON("SpendRequirement", [try SpendRequirementStore.read(fileURL: spendStoreURL)])
 
@@ -221,14 +232,14 @@ enum BackupArchive {
     }
 
     static func restore(from bundleURL: URL, into context: ModelContext, strategy: RestoreStrategy,
-                        promotionOverridesURL: URL? = nil, spendRequirementsURL: URL? = nil) async throws {
+                        promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil) async throws {
         let fm = FileManager.default
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard (1...9).contains(manifest.schemaVersion) else {
+        guard (1...10).contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
         guard isValidBundle(manifest, at: bundleURL) else {
@@ -278,13 +289,15 @@ enum BackupArchive {
         } else {
             dueDateOverridesSnap = try loadOptionalJSON(SettlementDueDateOverrideSnapshot.self, "SettlementDueDateOverride")
         }
-        let promotionOverridesSnap: PromotionOverrides?
-        if manifest.schemaVersion >= 8 {
-            let snapshots = try loadJSON(PromotionOverrides.self, "PromotionOverrides")
+        // Schema 10 introdujo el ledger de promociones; schemas 1–9 no lo traen
+        // (replaceAll lo vacía, merge conserva el local).
+        let promotionLedgerSnap: PromotionLedger?
+        if manifest.schemaVersion >= 10 {
+            let snapshots = try loadJSON(PromotionLedger.self, "PromotionLedger")
             guard snapshots.count == 1 else { throw RestoreError.invalidBundle }
-            promotionOverridesSnap = snapshots.first
+            promotionLedgerSnap = snapshots.first
         } else {
-            promotionOverridesSnap = nil
+            promotionLedgerSnap = nil
         }
         let spendRequirementsSnap: SpendRequirementSettings?
         if manifest.schemaVersion >= 9 {
@@ -678,19 +691,24 @@ enum BackupArchive {
         }
 
         _ = HouseholdAllocationRepairService.repair(transactions: Array(transactionMap.values))
-        let promotionStoreURL = try promotionOverridesURL ?? PromotionStore.defaultURL()
-        let currentPromotionOverrides = try PromotionStore.read(fileURL: promotionStoreURL)
+        let ledgerURL = try promotionLedgerURL ?? PromotionLedgerStore.defaultURL()
+        let currentLedger = try PromotionLedgerStore.read(fileURL: ledgerURL)
+        let hadLedgerFile = FileManager.default.fileExists(atPath: ledgerURL.path)
         let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
         let currentSpendRequirements = try SpendRequirementStore.read(fileURL: spendStoreURL)
         let hadSpendRequirementsFile = FileManager.default.fileExists(atPath: spendStoreURL.path)
         do {
             switch strategy {
             case .replaceAll:
-                if let promotionOverridesSnap {
-                    try PromotionStore.replace(with: promotionOverridesSnap, at: promotionStoreURL)
+                if let promotionLedgerSnap {
+                    try PromotionLedgerStore.replace(with: promotionLedgerSnap, at: ledgerURL)
+                } else {
+                    // Backup ≤9 sin ledger: replaceAll deja el ledger vacío (explícito).
+                    try PromotionLedgerStore.reset(fileURL: ledgerURL)
                 }
             case .mergeKeepingNewer:
-                if let promotionOverridesSnap { try PromotionStore.merge(promotionOverridesSnap, at: promotionStoreURL) }
+                // Backup ≤9 sin ledger: el local se conserva íntegro (nada que mezclar).
+                if let promotionLedgerSnap { try PromotionLedgerStore.merge(promotionLedgerSnap, at: ledgerURL) }
             }
             switch strategy {
             case .replaceAll:
@@ -710,7 +728,11 @@ enum BackupArchive {
             }
             try context.save()
         } catch {
-            try? PromotionStore.replace(with: currentPromotionOverrides, at: promotionStoreURL)
+            if hadLedgerFile {
+                try? PromotionLedgerStore.replace(with: currentLedger, at: ledgerURL)
+            } else {
+                try? PromotionLedgerStore.reset(fileURL: ledgerURL)
+            }
             if hadSpendRequirementsFile {
                 try? SpendRequirementStore.replace(with: currentSpendRequirements, at: spendStoreURL)
             } else {

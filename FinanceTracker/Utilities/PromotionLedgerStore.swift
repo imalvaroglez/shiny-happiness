@@ -128,6 +128,28 @@ enum PromotionLedgerStore {
         }
     }
 
+    /// Migración única del V1: el `PromotionOverrides.json` del evaluador
+    /// automático retirado jamás se reinterpreta como adjudicaciones — se
+    /// renombra a una copia `retired` recuperable junto al ledger. No-op si el
+    /// archivo legacy no existe.
+    static func retireLegacyOverridesIfNeeded(overridesURL: URL? = nil) throws {
+        let legacyURL: URL
+        if let overridesURL {
+            legacyURL = overridesURL
+        } else {
+            let support = try FileManager.default.url(for: .applicationSupportDirectory,
+                                                      in: .userDomainMask, appropriateFor: nil, create: true)
+            legacyURL = support.appendingPathComponent("FinanceTracker/PromotionOverrides.json")
+        }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: legacyURL.path) else { return }
+        let stamp = ISO8601DateFormatter().string(from: .now)
+            .replacingOccurrences(of: ":", with: "-")
+        let retired = legacyURL.deletingLastPathComponent()
+            .appendingPathComponent("PromotionOverrides.retired-\(stamp).json")
+        try fm.moveItem(at: legacyURL, to: retired)
+    }
+
     // MARK: Ubicación
 
     static func defaultURL() throws -> URL {

@@ -367,4 +367,22 @@ struct AppDataResetServiceTests {
         #expect(FileManager.default.fileExists(
             atPath: quarantined.appendingPathComponent("default.store-wal").path))
     }
+
+    @Test("resetAllData elimina el ledger de promociones")
+    func resetAllDataRemovesPromotionLedger() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("reset-ledger-\(UUID()).json")
+        try PromotionLedgerStore.save(
+            promotion: PromotionRecord(id: UUID(), name: "Promo", accountID: UUID(), currency: "MXN",
+                                       windowStart: nil, windowEnd: nil, targetAmount: nil,
+                                       rewardNote: nil, notes: nil, archivedAt: nil,
+                                       createdAt: .now, updatedAt: .now, deletedAt: nil),
+            at: storeURL)
+
+        try AppDataResetService.resetAllData(context: context, promotionLedgerURL: storeURL)
+
+        #expect(!FileManager.default.fileExists(atPath: storeURL.path))
+    }
 }

@@ -237,4 +237,38 @@ struct PromotionLedgerStoreTests {
         try PromotionLedgerStore.reset(fileURL: url)
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
+
+    // MARK: Retiro del store legacy del V1
+
+    @Test("retireLegacyOverridesIfNeeded renombra PromotionOverrides.json a copia retired verbatim")
+    func retireLegacyOverridesRenames() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("retire-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let legacy = dir.appendingPathComponent("PromotionOverrides.json")
+        let original = Data("{}".utf8)
+        try original.write(to: legacy)
+
+        try PromotionLedgerStore.retireLegacyOverridesIfNeeded(overridesURL: legacy)
+
+        #expect(!FileManager.default.fileExists(atPath: legacy.path), "el archivo legacy desaparece")
+        let contents = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(contents.count == 1)
+        #expect(contents[0].hasPrefix("PromotionOverrides.retired-"))
+        #expect(contents[0].hasSuffix(".json"))
+        let retired = dir.appendingPathComponent(contents[0])
+        #expect(try Data(contentsOf: retired) == original, "la copia retired conserva el contenido verbatim")
+    }
+
+    @Test("retireLegacyOverridesIfNeeded es no-op si no hay archivo legacy")
+    func retireLegacyOverridesNoOp() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("retire-empty-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        try PromotionLedgerStore.retireLegacyOverridesIfNeeded(
+            overridesURL: dir.appendingPathComponent("PromotionOverrides.json"))
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).isEmpty)
+    }
 }
