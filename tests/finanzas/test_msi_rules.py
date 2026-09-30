@@ -2,7 +2,7 @@
 
 Simula el Categorizer de la app (Categorizer.swift:17,25-31,43-52): regex sobre
 descriptionRaw, priority DESC, primera match gana. Los specs canónicos viven en
-promo.MSI_RULES (única fuente de verdad para skill y tests).
+_shared/msi_rules.py (única fuente de verdad para skill y tests).
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pytest
 from conftest import CATS, load_module_by_path
 
 REPO = Path(__file__).resolve().parents[2]
-promo = load_module_by_path("promo_msi_rules", REPO / ".claude" / "skills" / "finanzas" / "habits" / "scripts" / "promo.py")
+promo = load_module_by_path("msi_rules", REPO / ".claude" / "skills" / "finanzas" / "_shared" / "msi_rules.py")
 
 
 @pytest.fixture(scope="module")
