@@ -450,4 +450,64 @@ struct CategoryRepairTests {
         #expect(tx.category?.id == deadOnly.id, "No live sibling exists, the link must stay")
         #expect(deadOnly.deletedAt != nil)
     }
+
+    @Test("Kind mismatch between dead and live category blocks the relink")
+    func kindMismatchBlocksRelink() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let liveIncome = FinanceTracker.Category(name: "Interés", kind: .income)
+        context.insert(liveIncome)
+        let deadExpense = FinanceTracker.Category(name: "Interés", kind: .expense)
+        context.insert(deadExpense)
+        deadExpense.deletedAt = .now
+
+        let account = Account(institution: "Test", type: .checking, currency: "MXN")
+        context.insert(account)
+        let tx = Transaction(
+            account: account,
+            postedAt: .now,
+            amount: -90,
+            descriptionRaw: "Cargo",
+            category: deadExpense
+        )
+        context.insert(tx)
+        try context.save()
+
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        #expect(tx.category?.id == deadExpense.id, "Same name but different kind is not a sibling")
+    }
+
+    @Test("Dangling-link repair is idempotent across launches")
+    func danglingRepairIsIdempotent() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let liveCat = FinanceTracker.Category(name: "Deporte", kind: .expense)
+        context.insert(liveCat)
+        let deadCat = FinanceTracker.Category(name: "Deporte", kind: .expense)
+        context.insert(deadCat)
+        deadCat.deletedAt = .now
+
+        let account = Account(institution: "Test", type: .checking, currency: "MXN")
+        context.insert(account)
+        let tx = Transaction(
+            account: account,
+            postedAt: .now,
+            amount: -200,
+            descriptionRaw: "Gym",
+            category: deadCat
+        )
+        context.insert(tx)
+        try context.save()
+
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
+        let firstTouch = tx.lastModifiedAt
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
+
+        #expect(tx.category?.id == liveCat.id)
+        #expect(tx.lastModifiedAt == firstTouch, "Second launch must not touch the row again")
+        #expect(deadCat.deletedAt != nil)
+    }
 }
