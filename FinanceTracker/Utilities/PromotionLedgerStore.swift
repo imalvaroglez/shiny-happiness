@@ -183,14 +183,43 @@ enum PromotionLedgerStore {
         return winners.values.sorted { $0.id.uuidString < $1.id.uuidString }
     }
 
+    /// Reporta las reparaciones deterministas que la lectura aplicaría sobre
+    /// `ledger` (duplicados de llave natural y de id de promo). La UI de
+    /// Settings lo muestra para que el colapso no sea silencioso.
+    static func validate(_ ledger: PromotionLedger) -> [String] {
+        var notes: [String] = []
+        var seenPairs = Set<PromotionAttribution.PairKey>()
+        var duplicatePairs = 0
+        for attribution in ledger.attributions {
+            if !seenPairs.insert(PromotionAttribution.PairKey(attribution)).inserted {
+                duplicatePairs += 1
+            }
+        }
+        if duplicatePairs > 0 {
+            notes.append("\(duplicatePairs) adjudicaciones duplicadas se colapsan al leer (gana la más reciente)")
+        }
+        var seenPromotions = Set<UUID>()
+        var duplicatePromotions = 0
+        for promotion in ledger.promotions {
+            if !seenPromotions.insert(promotion.id).inserted {
+                duplicatePromotions += 1
+            }
+        }
+        if duplicatePromotions > 0 {
+            notes.append("\(duplicatePromotions) promociones duplicadas por id se colapsan al leer")
+        }
+        return notes
+    }
+
     private static func normalized(_ ledger: PromotionLedger) -> PromotionLedger {
         var normalized = ledger
         normalized.attributions = collapseByNaturalKey(ledger.attributions)
-        normalized.promotions = {
-            var seen = Set<UUID>()
-            return ledger.promotions.filter { seen.insert($0.id).inserted }
-                .sorted { $0.id.uuidString < $1.id.uuidString }
-        }()
+        var winners: [UUID: PromotionRecord] = [:]
+        for candidate in ledger.promotions {
+            if let existing = winners[candidate.id], !displaces(candidate, existing) { continue }
+            winners[candidate.id] = candidate
+        }
+        normalized.promotions = winners.values.sorted { $0.id.uuidString < $1.id.uuidString }
         return normalized
     }
 
@@ -248,7 +277,88 @@ private extension PromotionLedgerStore {
                                                 withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
-        try encoder.encode(ledger).write(to: url, options: .atomic)
+        try encoder.encode(truncatingDatesToWholeSeconds(ledger)).write(to: url, options: .atomic)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
+
+    /// El archivo local codifica fechas como `Double` (fracción sub-segundo
+    /// completa) y el bundle como ISO8601 (segundos). Sin truncar, un restore
+    /// puede ver la MISMA fila como «más nueva» local que en el bundle y
+    /// elegir un ganador equivocado al mezclar. Segundos enteros en ambas
+    /// representaciones; el desempate por id queda como contrato consistente.
+    static func truncatingDatesToWholeSeconds(_ ledger: PromotionLedger) -> PromotionLedger {
+        func trunc(_ date: Date) -> Date {
+            Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down))
+        }
+        var truncated = ledger
+        truncated.updatedAt = trunc(ledger.updatedAt)
+        truncated.promotions = ledger.promotions.map { promotion in
+            var promotion = promotion
+            promotion.windowStart = promotion.windowStart.map(trunc)
+            promotion.windowEnd = promotion.windowEnd.map(trunc)
+            promotion.archivedAt = promotion.archivedAt.map(trunc)
+            promotion.createdAt = trunc(promotion.createdAt)
+            promotion.updatedAt = trunc(promotion.updatedAt)
+            promotion.deletedAt = promotion.deletedAt.map(trunc)
+            return promotion
+        }
+        truncated.attributions = ledger.attributions.map { attribution in
+            var attribution = attribution
+            attribution.createdAt = trunc(attribution.createdAt)
+            attribution.updatedAt = trunc(attribution.updatedAt)
+            attribution.deletedAt = attribution.deletedAt.map(trunc)
+            return attribution
+        }
+        return truncated
+    }
+}
+
+// MARK: - Protocolo de dos almacenes
+
+/// Ejecuta la adjudicación DESPUÉS de persistir la transacción (spec
+/// §Protocolo de guardado). `retry` re-ejecuta únicamente el upsert
+/// idempotente del ledger — jamás crea otra transacción.
+enum AttributionSaver {
+    struct Outcome: Equatable {
+        let appliedPromotionIDs: Set<UUID>
+        let failedPromotionIDs: Set<UUID>
+    }
+
+    /// Filtra defensivamente por moneda viva de la promo (PA-05) y adjudica;
+    /// devuelve los ids cuya escritura falló (fail-visible).
+    @discardableResult
+    static func apply(transactionID: UUID, currency: String,
+                      selectedPromotionIDs: Set<UUID>,
+                      ledger: PromotionLedger,
+                      storeURL: URL? = nil) -> Outcome {
+        let allowed = Set(PromotionBoard.selectablePromotions(ledger: ledger, currency: currency).map(\.id))
+        let candidates = selectedPromotionIDs.intersection(allowed)
+        var failed = Set<UUID>()
+        for promotionID in candidates {
+            do {
+                try PromotionLedgerStore.attribute(transactionID: transactionID,
+                                                   promotionID: promotionID, at: storeURL)
+            } catch {
+                failed.insert(promotionID)
+            }
+        }
+        return Outcome(appliedPromotionIDs: candidates.subtracting(failed),
+                       failedPromotionIDs: failed)
+    }
+
+    /// Reintento del solo-ledger: idempotente por llave natural.
+    @discardableResult
+    static func retry(transactionID: UUID, failedPromotionIDs: Set<UUID>,
+                      storeURL: URL? = nil) -> Set<UUID> {
+        var failed = Set<UUID>()
+        for promotionID in failedPromotionIDs {
+            do {
+                try PromotionLedgerStore.attribute(transactionID: transactionID,
+                                                   promotionID: promotionID, at: storeURL)
+            } catch {
+                failed.insert(promotionID)
+            }
+        }
+        return failed
     }
 }

@@ -175,4 +175,35 @@ struct PromotionAccumulatorTests {
         #expect(summary.orphanCount == 0)
         #expect(summary.window == .during(dayNumber: 22, totalDays: 90, daysRemaining: 69))
     }
+
+    @Test("Editar el monto de la tx propaga el avance sin regrabar el ledger")
+    func amountEditPropagatesWithoutRewritingLedger() {
+        let tx = UUID()
+        let attribution = attribution(transactionID: tx)
+        let first = PromotionAccumulator.progress(
+            promotion: promo(), attributions: [attribution],
+            transactions: [entry(id: tx, amount: -1_000)], asOf: asOf, calendar: Self.calendar)
+        #expect(first.advance == 1_000)
+        // La edición de monto en SwiftData cambia la entrada; el ledger es el mismo.
+        let edited = PromotionAccumulator.progress(
+            promotion: promo(), attributions: [attribution],
+            transactions: [entry(id: tx, amount: -2_500)], asOf: asOf, calendar: Self.calendar)
+        #expect(edited.advance == 2_500)
+    }
+
+    @Test("Restaurar una tx soft-deleted la reintegra al avance")
+    func restoreReintegrates() {
+        let tx = UUID()
+        let attribution = attribution(transactionID: tx)
+        let deleted = PromotionAccumulator.progress(
+            promotion: promo(), attributions: [attribution],
+            transactions: [entry(id: tx, amount: -1_000, deletedAt: asOf)],
+            asOf: asOf, calendar: Self.calendar)
+        #expect(deleted.advance == 0)
+        let restored = PromotionAccumulator.progress(
+            promotion: promo(), attributions: [attribution],
+            transactions: [entry(id: tx, amount: -1_000)],
+            asOf: asOf, calendar: Self.calendar)
+        #expect(restored.advance == 1_000)
+    }
 }

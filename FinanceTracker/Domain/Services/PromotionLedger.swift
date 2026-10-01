@@ -290,6 +290,27 @@ enum PromotionBoard {
             + excluded + missing
     }
 
+    /// IDs de `promotionIDs` cuya ventana civil local no contiene `date`
+    /// (PA-07: el aviso informa, nunca filtra).
+    static func outOfWindowPromotionIDs(ledger: PromotionLedger, promotionIDs: Set<UUID>,
+                                        date: Date, calendar: Calendar) -> Set<UUID> {
+        let day = calendar.startOfDay(for: date)
+        var out = Set<UUID>()
+        for record in ledger.promotions where promotionIDs.contains(record.id) {
+            guard record.windowStart != nil || record.windowEnd != nil else { continue }
+            let startDay = record.windowStart.map { calendar.startOfDay(for: $0) }
+            let endDayExclusive = record.windowEnd.map {
+                calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: $0))!
+            }
+            if let startDay, day < startDay {
+                out.insert(record.id)
+            } else if let endDayExclusive, day >= endDayExclusive {
+                out.insert(record.id)
+            }
+        }
+        return out
+    }
+
     private static func summaries(for promotions: [PromotionRecord], ledger: PromotionLedger,
                                   transactions: [PromotionLedgerEntry], asOf: Date,
                                   calendar: Calendar) -> [ManualPromotionSummary] {

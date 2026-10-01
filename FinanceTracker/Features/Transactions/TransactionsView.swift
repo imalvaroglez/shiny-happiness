@@ -125,10 +125,15 @@ struct TransactionsView: View {
     @State private var appliedResetSignal = 0
     @State private var promotionsModel = PromotionLedgerViewModel()
 
-    /// Cuántas promos vivas tiene cada tx (badge discreto en la fila).
+    /// Cuántas promos vivas tiene cada tx (badge discreto en la fila). Las
+    /// adjudicaciones a promos eliminadas son huérfanas: no cuentan aquí
+    /// (se retiran desde Settings → Adjudicaciones huérfanas).
     private var promotionCountsByTransaction: [UUID: Int] {
+        let livePromotionIDs = Set(promotionsModel.ledger.promotions
+            .filter { $0.deletedAt == nil }.map(\.id))
         var counts: [UUID: Int] = [:]
-        for attribution in promotionsModel.ledger.attributions where attribution.deletedAt == nil {
+        for attribution in promotionsModel.ledger.attributions
+        where attribution.deletedAt == nil && livePromotionIDs.contains(attribution.promotionID) {
             counts[attribution.transactionID, default: 0] += 1
         }
         return counts

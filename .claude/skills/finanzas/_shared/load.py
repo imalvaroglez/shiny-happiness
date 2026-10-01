@@ -18,9 +18,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # v7 adds settlement overrides; v8 promotion configuration; v9 spend
-# requirements. All sidecars are exposed to callers without changing
-# transaction analysis by themselves.
-SUPPORTED_SCHEMA = {4, 5, 6, 7, 8, 9}
+# requirements; v10 replaces promotion overrides with the manual-attribution
+# PromotionLedger (AD-025) and stops exporting PromotionOverrides. All
+# sidecars are exposed to callers without changing transaction analysis.
+SUPPORTED_SCHEMA = {4, 5, 6, 7, 8, 9, 10}
 
 # Mismas ubicaciones que StoreFileResetService / BackupScheduler.
 DEFAULT_BACKUP_DIRS = [
@@ -142,6 +143,7 @@ def load_dataset(bundle: Optional[Path] = None) -> Dict[str, Any]:
     )}
     models["PromotionOverrides"] = _load_model(bundle, "PromotionOverrides")
     models["SpendRequirement"] = _load_model(bundle, "SpendRequirement")
+    models["PromotionLedger"] = _load_model(bundle, "PromotionLedger")
 
     accounts = {a["id"]: a for a in models["Account"]}
     categories = {c["id"]: c for c in models["Category"]}
@@ -162,6 +164,9 @@ def load_dataset(bundle: Optional[Path] = None) -> Dict[str, Any]:
         "settlement_due_date_overrides": models["SettlementDueDateOverride"],
         "promotion_overrides": models["PromotionOverrides"],
         "spend_requirements": models["SpendRequirement"],
+        # Ledger de adjudicación manual (manifest >= 10; vacío en backups viejos):
+        # models["PromotionLedger"] es una LISTA con un único dict {promotions, attributions}.
+        "promotion_ledger": models["PromotionLedger"][0] if models["PromotionLedger"] else {"promotions": [], "attributions": []},
     }
 
 

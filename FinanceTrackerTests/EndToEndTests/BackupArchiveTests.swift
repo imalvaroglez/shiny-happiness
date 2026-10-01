@@ -1113,4 +1113,66 @@ struct BackupArchiveTests {
 
         try? FileManager.default.removeItem(at: tmp)
     }
+    @Test("Un bundle v10 sin PromotionLedger.json es inválido para restore")
+    func v10BundleWithoutLedgerIsRejected() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("v10-no-ledger-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        try writeLegacyBundle(schemaVersion: 10, to: bundle)
+
+        let target = try makeContainer()
+        await #expect(throws: Error.self) {
+            try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+                                            promotionLedgerURL: root.appendingPathComponent("local/PromotionLedger.json"))
+        }
+    }
+
+    @Test("El fallo de restore tras tocar el ledger restaura el JSON previo")
+    func restoreFailureRollsBackLedger() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("rollback-ledger-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        let sourceStore = root.appendingPathComponent("source/PromotionLedger.json")
+        let targetStore = root.appendingPathComponent("target/PromotionLedger.json")
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+        var backupLedger = PromotionLedger()
+        backupLedger.promotions = [
+            PromotionRecord(id: UUID(), name: "Platinum 90 días", accountID: UUID(), currency: "MXN",
+                            windowStart: nil, windowEnd: nil, targetAmount: 100_000, rewardNote: nil,
+                            notes: nil, archivedAt: nil, createdAt: baseTime, updatedAt: baseTime,
+                            deletedAt: nil)
+        ]
+        backupLedger.updatedAt = baseTime
+        try PromotionLedgerStore.replace(with: backupLedger, at: sourceStore)
+        let source = try makeContainer()
+        try await BackupArchive.export(to: bundle, from: source.mainContext, promotionLedgerURL: sourceStore)
+
+        var localLedger = PromotionLedger()
+        localLedger.promotions = [
+            PromotionRecord(id: UUID(), name: "Local que debe sobrevivir", accountID: UUID(),
+                            currency: "MXN", windowStart: nil, windowEnd: nil, targetAmount: nil,
+                            rewardNote: nil, notes: nil, archivedAt: nil,
+                            createdAt: baseTime.addingTimeInterval(60), updatedAt: baseTime.addingTimeInterval(60),
+                            deletedAt: nil)
+        ]
+        localLedger.updatedAt = baseTime.addingTimeInterval(60)
+        try PromotionLedgerStore.replace(with: localLedger, at: targetStore)
+
+        // Gasto mínimo apunta a un DIRECTORIO: la escritura falla DESPUÉS de que
+        // el restore ya aplicó el merge del ledger → el catch debe restaurar el JSON previo.
+        let brokenSpendURL = root.appendingPathComponent("broken/SpendRequirements.json")
+        try FileManager.default.createDirectory(at: brokenSpendURL, withIntermediateDirectories: true)
+
+        let target = try makeContainer()
+        await #expect(throws: Error.self) {
+            try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+                                            promotionLedgerURL: targetStore,
+                                            spendRequirementsURL: brokenSpendURL)
+        }
+        let after = try PromotionLedgerStore.read(fileURL: targetStore)
+        #expect(after.promotions.count == 1)
+        #expect(after.promotions.first?.name == "Local que debe sobrevivir",
+                "el rollback del ledger restaura el contenido previo")
+    }
 }

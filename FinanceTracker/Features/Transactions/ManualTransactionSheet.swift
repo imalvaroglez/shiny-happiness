@@ -92,10 +92,10 @@ struct ManualTransactionSheet: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Save") { save() }
+                Button(attributionFailure == nil ? "Save" : "Guardada ✓") { save() }
                     .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(accounts.isEmpty)
+                    .disabled(accounts.isEmpty || attributionFailure != nil)
             }
         }
         .padding(24)
@@ -108,10 +108,12 @@ struct ManualTransactionSheet: View {
         .onChange(of: accountID) {
             normalizeKindAndCategory()
             updateCounterparty()
+            purgeStalePromotionSelection()
         }
         .onChange(of: kind) {
             normalizeKindAndCategory()
             updateCounterparty()
+            purgeStalePromotionSelection()
         }
         .task { promotionsModel.reload(context: modelContext) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
@@ -198,34 +200,32 @@ struct ManualTransactionSheet: View {
 
     /// Aviso informativo: la ventana nunca filtra (PA-07).
     private var outOfWindowWarning: String? {
-        let calendar = promotionsModel.promotionCalendar
-        let day = calendar.startOfDay(for: date)
-        let outCount = selectedPromotionIDs.reduce(0) { count, promotionID in
-            guard let record = promotionsModel.ledger.promotions.first(where: { $0.id == promotionID }) else { return count }
-            guard record.windowStart != nil || record.windowEnd != nil else { return count }
-            let startDay = record.windowStart.map { calendar.startOfDay(for: $0) }
-            let endDayExclusive = record.windowEnd.map { calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: $0))! }
-            if let startDay, day < startDay { return count + 1 }
-            if let endDayExclusive, day >= endDayExclusive { return count + 1 }
-            return count
-        }
+        let outCount = PromotionBoard.outOfWindowPromotionIDs(
+            ledger: promotionsModel.ledger, promotionIDs: selectedPromotionIDs,
+            date: date, calendar: promotionsModel.promotionCalendar).count
         guard outCount > 0 else { return nil }
         return outCount == 1
             ? "1 promoción seleccionada está fuera de su ventana — cuenta igual; solo es un aviso."
             : "\(outCount) promociones seleccionadas están fuera de su ventana — cuentan igual; solo es un aviso."
     }
 
+    /// PA-05: al cambiar de cuenta (o a transfer/pago) la selección no puede
+    /// quedarse con promos de otra moneda.
+    private func purgeStalePromotionSelection() {
+        guard let currency = selectedAccount?.currency else {
+            selectedPromotionIDs = []
+            return
+        }
+        let allowed = Set(PromotionBoard.selectablePromotions(ledger: promotionsModel.ledger,
+                                                             currency: currency).map(\.id))
+        selectedPromotionIDs.formIntersection(allowed)
+    }
+
     /// Solo reintenta el upsert del ledger (idempotente); jamás crea otra transacción.
     private func retryPendingAttributions() {
         guard let failure = attributionFailure else { return }
-        var failed = Set<UUID>()
-        for promotionID in failure.failedIDs {
-            do {
-                try PromotionLedgerStore.attribute(transactionID: failure.transactionID, promotionID: promotionID)
-            } catch {
-                failed.insert(promotionID)
-            }
-        }
+        let failed = AttributionSaver.retry(transactionID: failure.transactionID,
+                                            failedPromotionIDs: failure.failedIDs)
         if failed.isEmpty {
             attributionFailure = nil
             onSaved()
@@ -244,16 +244,13 @@ struct ManualTransactionSheet: View {
     /// La tx ya se guardó; un fallo del ledger deja la hoja abierta con Reintentar/Más tarde.
     private func applyAttributions(to transaction: Transaction) {
         guard !selectedPromotionIDs.isEmpty else { return }
-        var failed = Set<UUID>()
-        for promotionID in selectedPromotionIDs {
-            do {
-                try PromotionLedgerStore.attribute(transactionID: transaction.id, promotionID: promotionID)
-            } catch {
-                failed.insert(promotionID)
-            }
-        }
-        if !failed.isEmpty {
-            attributionFailure = AttributionFailure(transactionID: transaction.id, failedIDs: failed)
+        let outcome = AttributionSaver.apply(transactionID: transaction.id,
+                                             currency: transaction.currency,
+                                             selectedPromotionIDs: selectedPromotionIDs,
+                                             ledger: promotionsModel.ledger)
+        if !outcome.failedPromotionIDs.isEmpty {
+            attributionFailure = AttributionFailure(transactionID: transaction.id,
+                                                    failedIDs: outcome.failedPromotionIDs)
         }
     }
 

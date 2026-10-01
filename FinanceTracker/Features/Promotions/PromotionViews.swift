@@ -23,16 +23,22 @@ final class PromotionLedgerViewModel {
             loadError = error.localizedDescription
         }
         let descriptor = FetchDescriptor<Transaction>()
-        entries = (try? context.fetch(descriptor).map {
+        entries = (try? context.fetch(descriptor)).map(Self.entries(from:)) ?? []
+    }
+
+    /// SwiftData → vista ligera de evaluación (testeable sin contenedor:
+    /// los @Model no insertados funcionan como valores).
+    nonisolated static func entries(from transactions: [Transaction]) -> [PromotionLedgerEntry] {
+        transactions.map {
             PromotionLedgerEntry(id: $0.id, amount: $0.amount, currency: $0.currency,
                                  postedAt: $0.postedAt, deletedAt: $0.deletedAt,
                                  description: $0.descriptionRaw)
-        }) ?? []
+        }
     }
 
     var promotionCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = MexicoBankingCalendar.timeZone
+        calendar.timeZone = .current
         return calendar
     }
 }
@@ -75,76 +81,59 @@ extension PromotionWindowState {
 /// exactamente lo adjudicado por el dueño; la app informa, no deduce (AD-025).
 struct PromotionsSummaryLine: View {
     let accountID: UUID
-    let currencyCode: String
 
     @Environment(\.modelContext) private var modelContext
     @State private var model = PromotionLedgerViewModel()
-    @State private var showList = false
+    @State private var selected: PromotionRecord?
 
     var body: some View {
         let summaries = PromotionBoard.activeSummaries(ledger: model.ledger, anchoredTo: accountID,
                                                        transactions: model.entries, asOf: .now,
                                                        calendar: model.promotionCalendar)
-        if let loadError = model.loadError {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Promociones no disponibles")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(loadError)
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        } else if !summaries.isEmpty {
-            Button { showList = true } label: {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(dotColor(summaries.first))
-                        .frame(width: 7, height: 7)
-                    Text(headline(summaries.first))
+        Group {
+            if let loadError = model.loadError {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Promociones no disponibles")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer()
-                    Text("\(summaries.count) promo\(summaries.count == 1 ? "" : "s")")
+                    Text(loadError)
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else if !summaries.isEmpty {
+                // Spec UI 1: fila por promo activa — nombre, avance/meta, día N/M,
+                // marca de fuera de ventana; tap abre el drill-down.
+                VStack(spacing: 0) {
+                    ForEach(Array(summaries.enumerated()), id: \.element.id) { index, summary in
+                        Button { selected = summary.record } label: {
+                            PromotionRow(summary: summary)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                        if index < summaries.count - 1 { DashboardSeparator() }
+                    }
+                }
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
             }
-            .buttonStyle(.plain)
-            .sheet(isPresented: $showList) {
-                PromotionsListSheet(accountID: accountID)
-            }
+        }
+        .sheet(item: $selected) { record in
+            ManualPromotionDetailSheet(recordID: record.id)
+        }
+        .task { model.reload(context: modelContext) }
+        .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
+            model.reload(context: modelContext)
         }
     }
 
-    private func dotColor(_ summary: ManualPromotionSummary?) -> Color {
-        guard let summary, let target = summary.record.targetAmount else { return .blue }
-        return summary.progress.advance >= target ? .green : .blue
-    }
-
-    private func headline(_ summary: ManualPromotionSummary?) -> String {
-        guard let summary else { return "Promociones" }
-        var text = "\(summary.record.name): "
-        text += MoneyFormat.string(code: summary.record.currency, summary.progress.advance)
-        if let target = summary.record.targetAmount {
-            text += " / " + MoneyFormat.string(code: summary.record.currency, target)
-        }
-        if let window = summary.progress.window.label {
-            text += " · \(window)"
-        }
-        return text
-    }
 }
 
 // MARK: - Lista de promos de la cuenta
@@ -157,7 +146,6 @@ struct PromotionsListSheet: View {
     @State private var model = PromotionLedgerViewModel()
     @State private var selected: PromotionRecord?
     @State private var showingEditor = false
-    @State private var actionError: String?
 
     var body: some View {
         let calendar = model.promotionCalendar
@@ -591,6 +579,12 @@ struct PromotionEditorSheet: View {
         .padding(24)
         .frame(width: 480)
         .onAppear { populate() }
+        .onChange(of: accountID) {
+            // Al crear, la moneda por defecto es la de la cuenta ancla (PA-05).
+            guard existing == nil, let accountID,
+                  let account = accounts.first(where: { $0.id == accountID }) else { return }
+            currency = account.currency
+        }
     }
 
     private var availableCurrencies: [String] {
@@ -638,6 +632,10 @@ struct PromotionEditorSheet: View {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else { return }
         let target = parseAmount(targetText)
+        if let target, target <= 0 {
+            errorMessage = "La meta debe ser mayor que cero."
+            return
+        }
         let now = Date.now
         let record = PromotionRecord(
             id: existing?.id ?? UUID(),
@@ -703,6 +701,13 @@ struct PromotionSettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
+            let repairNotes = PromotionLedgerStore.validate(model.ledger)
+            if !repairNotes.isEmpty {
+                Text(repairNotes.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            orphanedAttributionsSection
             if summaries.isEmpty {
                 Text("Sin promociones. Crea una (p. ej. «Platinum 90 días») y adjudica transacciones desde su detalle.")
                     .font(.caption)
@@ -731,6 +736,41 @@ struct PromotionSettingsSection: View {
         .task { model.reload(context: modelContext) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
             model.reload(context: modelContext)
+        }
+    }
+
+    /// PA-09: las adjudicaciones de promos eliminadas son huérfanas VISIBLES
+    /// (no cuentan) y tienen camino de retiro.
+    @ViewBuilder
+    private var orphanedAttributionsSection: some View {
+        let livePromotionIDs = Set(model.ledger.promotions.filter { $0.deletedAt == nil }.map(\.id))
+        let orphans = model.ledger.attributions.filter {
+            $0.deletedAt == nil && !livePromotionIDs.contains($0.promotionID)
+        }
+        if !orphans.isEmpty {
+            DisclosureGroup("Adjudicaciones huérfanas (\(orphans.count))") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Pertenecen a promociones eliminadas; no cuentan en ningún avance.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    ForEach(orphans) { orphan in
+                        HStack {
+                            Text("→ promo \(orphan.promotionID.uuidString.prefix(8)) · tx \(orphan.transactionID.uuidString.prefix(8))")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Retirar") {
+                                try? PromotionLedgerStore.unattribute(transactionID: orphan.transactionID,
+                                                                      promotionID: orphan.promotionID)
+                            }
+                            .font(.caption2)
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+            .font(.caption)
+            .foregroundStyle(.orange)
         }
     }
 

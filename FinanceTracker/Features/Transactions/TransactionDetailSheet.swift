@@ -258,6 +258,13 @@ struct TransactionDetailSheet: View {
         Set(PromotionBoard.attributedPromotionIDs(ledger: promotionsModel.ledger, transactionID: transaction.id))
     }
 
+    private var outOfWindowCount: Int {
+        PromotionBoard.outOfWindowPromotionIDs(ledger: promotionsModel.ledger,
+                                               promotionIDs: attributedPromotionIDs,
+                                               date: transaction.postedAt,
+                                               calendar: promotionsModel.promotionCalendar).count
+    }
+
     @ViewBuilder
     private var promotionsRow: some View {
         VStack(spacing: 6) {
@@ -274,6 +281,13 @@ struct TransactionDetailSheet: View {
                         set: { isOn in toggleAttribution(promotionID: promo.id, isOn: isOn) }))
                     .font(.caption)
                     .toggleStyle(.checkbox)
+                }
+                if outOfWindowCount > 0 {
+                    Text(outOfWindowCount == 1
+                         ? "1 promoción adjudicada está fuera de su ventana — cuenta igual; solo es un aviso."
+                         : "\(outOfWindowCount) promociones adjudicadas están fuera de su ventana — cuentan igual; solo es un aviso.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
                 }
                 if let attributionError {
                     HStack(spacing: 8) {

@@ -271,4 +271,116 @@ struct PromotionLedgerStoreTests {
 
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).isEmpty)
     }
+
+    // MARK: Re-adjudicación, reparaciones y precisión
+
+    @Test("Re-adjudicar tras tombstone restaura la fila sin duplicar y conserva createdAt")
+    func reAdjudicationAfterTombstone() throws {
+        let promotionID = UUID()
+        let transactionID = UUID()
+        try PromotionLedgerStore.attribute(transactionID: transactionID, promotionID: promotionID, at: url)
+        let original = try PromotionLedgerStore.read(fileURL: url).attributions[0]
+        try PromotionLedgerStore.unattribute(transactionID: transactionID, promotionID: promotionID, at: url)
+        try PromotionLedgerStore.attribute(transactionID: transactionID, promotionID: promotionID, at: url)
+
+        let ledger = try PromotionLedgerStore.read(fileURL: url)
+        #expect(ledger.attributions.count == 1)
+        #expect(ledger.attributions[0].deletedAt == nil)
+        #expect(ledger.attributions[0].id == original.id)
+        #expect(ledger.attributions[0].createdAt == original.createdAt,
+                "la re-adjudicación restaura la MISMA fila (llave natural), no crea otra")
+    }
+
+    @Test("validate reporta duplicados colapsables en vez de reparar en silencio")
+    func validateReportsCollapsibleDuplicates() {
+        let promotionID = UUID()
+        let transactionID = UUID()
+        var ledger = PromotionLedger()
+        ledger.promotions = [
+            promo(id: promotionID, updatedAt: date("2026-09-20T00:00:00")),
+            promo(id: promotionID, name: "Duplicada", updatedAt: date("2026-09-21T00:00:00")),
+        ]
+        ledger.attributions = [
+            attribution(promotionID: promotionID, transactionID: transactionID,
+                        updatedAt: date("2026-09-20T00:00:00")),
+            attribution(promotionID: promotionID, transactionID: transactionID,
+                        updatedAt: date("2026-09-20T00:00:00")),
+        ]
+        let notes = PromotionLedgerStore.validate(ledger)
+        #expect(notes.count == 2)
+        #expect(notes.contains { $0.contains("adjudicaciones duplicadas") })
+        #expect(notes.contains { $0.contains("promociones duplicadas") })
+    }
+
+    @Test("La escritura trunca fechas a segundos enteros (paridad local Double vs bundle ISO8601)")
+    func writeTruncatesDatesToWholeSeconds() throws {
+        let subSecond = Date(timeIntervalSince1970: 1_700_000_000.75)
+        let floorSecond = Date(timeIntervalSince1970: 1_700_000_000)
+        var ledger = PromotionLedger()
+        ledger.promotions = [PromotionRecord(id: UUID(), name: "Platinum 90 días", accountID: UUID(),
+                                             currency: "MXN", windowStart: subSecond, windowEnd: subSecond,
+                                             targetAmount: nil, rewardNote: nil, notes: nil,
+                                             archivedAt: subSecond, createdAt: subSecond,
+                                             updatedAt: subSecond, deletedAt: subSecond)]
+        ledger.attributions = [PromotionAttribution(id: UUID(), promotionID: UUID(), transactionID: UUID(),
+                                                    createdAt: subSecond, updatedAt: subSecond,
+                                                    deletedAt: subSecond)]
+        ledger.updatedAt = subSecond
+        try PromotionLedgerStore.replace(with: ledger, at: url)
+
+        let read = try PromotionLedgerStore.read(fileURL: url)
+        let promotion = read.promotions[0]
+        #expect(promotion.createdAt == floorSecond)
+        #expect(promotion.updatedAt == floorSecond)
+        #expect(promotion.windowStart == floorSecond)
+        #expect(promotion.windowEnd == floorSecond)
+        #expect(promotion.archivedAt == floorSecond)
+        #expect(read.attributions[0].createdAt == floorSecond)
+        #expect(read.attributions[0].updatedAt == floorSecond)
+        #expect(read.updatedAt == floorSecond)
+    }
+
+    @Test("Merge con updatedAt idéntico es determinista por id, y el ganador de adjudicaciones se asevera")
+    func mergeTieBreakIsDeterministicById() throws {
+        let lowID = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000000")!
+        let highID = UUID(uuidString: "BBBBBBBB-0000-0000-0000-000000000000")!
+        let tie = date("2026-09-15T00:00:00")
+
+        // Local con id mayor gana frente a entrante con id menor y mismo updatedAt.
+        var local = PromotionLedger()
+        local.promotions = [promo(id: highID, name: "Local", updatedAt: tie)]
+        try PromotionLedgerStore.replace(with: local, at: url)
+        var incoming = PromotionLedger()
+        incoming.promotions = [promo(id: lowID, name: "Entrante", updatedAt: tie)]
+        try PromotionLedgerStore.merge(incoming, at: url)
+        // Nota: ids distintos son promos distintas que coexisten (contrato probado arriba);
+        // el empate real es mismo id, mismo updatedAt: gana la local (displaces = false).
+        #expect(try PromotionLedgerStore.read(fileURL: url).promotions.count == 2)
+
+        // Empate REAL: mismo id, updatedAt idéntico, payloads distintos → se conserva la local.
+        var tieLocal = PromotionLedger()
+        tieLocal.promotions = [promo(id: lowID, name: "Local misma fila", updatedAt: tie)]
+        try PromotionLedgerStore.replace(with: tieLocal, at: url)
+        var tieIncoming = PromotionLedger()
+        tieIncoming.promotions = [promo(id: lowID, name: "Entrante misma fila", updatedAt: tie)]
+        try PromotionLedgerStore.merge(tieIncoming, at: url)
+        #expect(try PromotionLedgerStore.read(fileURL: url).promotions.first?.name == "Local misma fila")
+
+        // Adjudicaciones misma llave natural: gana la de updatedAt mayor, aseverando el ganador.
+        let promotionID = UUID()
+        let transactionID = UUID()
+        var attrLocal = PromotionLedger()
+        attrLocal.promotions = tieLocal.promotions
+        attrLocal.attributions = [attribution(promotionID: promotionID, transactionID: transactionID,
+                                              updatedAt: date("2026-09-10T00:00:00"))]
+        try PromotionLedgerStore.replace(with: attrLocal, at: url)
+        var attrIncoming = PromotionLedger()
+        attrIncoming.attributions = [attribution(promotionID: promotionID, transactionID: transactionID,
+                                                 updatedAt: date("2026-09-20T00:00:00"))]
+        try PromotionLedgerStore.merge(attrIncoming, at: url)
+        let merged = try PromotionLedgerStore.read(fileURL: url)
+        let pair = merged.attributions.filter { $0.promotionID == promotionID }
+        #expect(pair.count == 1)
+        #expect(pair[0].updatedAt == date("2026-09-20T00:00:00"))
+    }
 }
