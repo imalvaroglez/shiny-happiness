@@ -440,28 +440,29 @@ struct TransactionsView: View {
                 )
             } else {
                 let wideLayout = geometry.size.width >= 900
-                VStack(spacing: 0) {
-                    if wideLayout {
-                        TransactionLedgerColumnHeader(showsAccount: sessionState.accountFilterID == nil)
-                            .padding(.horizontal, 12)
-                    }
-                    ScrollView {
-                        LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
-                            ForEach(dayGroups) { group in
-                                Section {
-                                    ForEach(Array(group.transactions.enumerated()), id: \.element.id) { index, tx in
-                                        ledgerRow(for: tx, wideLayout: wideLayout)
-                                        if index < group.transactions.count - 1 {
-                                            DashboardSeparator()
-                                        }
+                ScrollView {
+                    LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
+                        // El header de columnas VIAJA con el contenido (primer
+                        // elemento del stack): sin sibling estático que dejar
+                        // flotando si el recompute de filtros sobre-estima la
+                        // altura del contenido pineado.
+                        if wideLayout {
+                            TransactionLedgerColumnHeader(showsAccount: sessionState.accountFilterID == nil)
+                        }
+                        ForEach(dayGroups) { group in
+                            Section {
+                                ForEach(Array(group.transactions.enumerated()), id: \.element.id) { index, tx in
+                                    ledgerRow(for: tx, wideLayout: wideLayout)
+                                    if index < group.transactions.count - 1 {
+                                        DashboardSeparator()
                                     }
-                                } header: {
-                                    TransactionDateGroupHeader(group: group)
                                 }
+                            } header: {
+                                TransactionDateGroupHeader(group: group)
                             }
                         }
-                        .padding(.horizontal, 12)
                     }
+                    .padding(.horizontal, 12)
                     .scrollContentBackground(.hidden)
                     .background(.clear)
                 }
