@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Transaction headers and rows share column widths, including empty promotion badges, and keep one-line titles while respecting enlarged text.
+
 - Manual date suggestions remember the last successful capture per account; editing older movements no longer changes the next suggested date.
 
 - Promotion editing preserves targets and independent window bounds; invalid amounts and inverted windows show an error.
