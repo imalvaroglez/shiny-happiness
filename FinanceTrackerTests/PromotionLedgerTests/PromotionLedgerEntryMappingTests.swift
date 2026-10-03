@@ -33,3 +33,17 @@ struct PromotionLedgerEntryMappingTests {
         #expect(entries[1].deletedAt != nil)
     }
 }
+
+
+extension PromotionLedgerEntryMappingTests {
+    @Test @MainActor func fetchFailureDoesNotProduceZeroProgress() throws {
+        let container = try ModelContainer(for: Account.self, Transaction.self,
+                                         configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let model = PromotionLedgerViewModel()
+        let ledgerURL = FileManager.default.temporaryDirectory.appendingPathComponent("empty-\(UUID()).json")
+        model.reload(context: container.mainContext, ledgerURL: ledgerURL,
+                     fetchEntries: { throw CocoaError(.fileReadUnknown) })
+        #expect(model.loadError != nil)
+        #expect(model.entries.isEmpty)
+    }
+}

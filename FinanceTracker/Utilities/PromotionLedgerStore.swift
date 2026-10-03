@@ -30,33 +30,40 @@ enum PromotionLedgerStore {
     // MARK: Lectura
 
     static func read(fileURL: URL? = nil) throws -> PromotionLedger {
+        try readWithDiagnostics(fileURL: fileURL).ledger
+    }
+
+    static func readWithDiagnostics(fileURL: URL? = nil) throws -> (ledger: PromotionLedger, diagnostics: [String]) {
         let url = try fileURL ?? defaultURL()
-        guard FileManager.default.fileExists(atPath: url.path) else { return PromotionLedger() }
+        guard FileManager.default.fileExists(atPath: url.path) else { return (PromotionLedger(), []) }
         let ledger = try JSONDecoder().decode(PromotionLedger.self, from: Data(contentsOf: url))
         guard ledger.schemaVersion == 1 else {
             throw StoreError.invalid(["versión de archivo desconocida (\(ledger.schemaVersion))"])
         }
-        return normalized(ledger)
+        return (normalized(ledger), validate(ledger))
     }
 
     // MARK: Escritura
 
-    static func replace(with ledger: PromotionLedger, at fileURL: URL? = nil) throws {
+    static func replace(with ledger: PromotionLedger, at fileURL: URL? = nil, notify: Bool = true) throws {
         guard ledger.schemaVersion == 1 else {
             throw StoreError.invalid(["versión de archivo desconocida (\(ledger.schemaVersion))"])
         }
-        try write(normalized(ledger), to: try fileURL ?? defaultURL())
+        try write(normalized(ledger), to: try fileURL ?? defaultURL(), notify: notify)
     }
 
     static func save(promotion: PromotionRecord, at fileURL: URL? = nil) throws {
         let url = try fileURL ?? defaultURL()
         var ledger = try read(fileURL: url)
+        var promotion = promotion
+        promotion.updatedAt = PersistedMutationClock.next(after: ledger.promotions.first { $0.id == promotion.id }?.updatedAt,
+                                                          now: promotion.updatedAt)
         if let index = ledger.promotions.firstIndex(where: { $0.id == promotion.id }) {
             ledger.promotions[index] = promotion
         } else {
             ledger.promotions.append(promotion)
         }
-        ledger.updatedAt = .now
+        ledger.updatedAt = max(ledger.updatedAt, promotion.updatedAt)
         try write(ledger, to: url)
     }
 
@@ -65,9 +72,10 @@ enum PromotionLedgerStore {
         var ledger = try read(fileURL: url)
         guard let index = ledger.promotions.firstIndex(where: { $0.id == id }) else { return }
         guard ledger.promotions[index].deletedAt == nil else { return }
-        ledger.promotions[index].deletedAt = .now
-        ledger.promotions[index].updatedAt = .now
-        ledger.updatedAt = .now
+        let stamp = PersistedMutationClock.next(after: ledger.promotions[index].updatedAt)
+        ledger.promotions[index].deletedAt = stamp
+        ledger.promotions[index].updatedAt = stamp
+        ledger.updatedAt = max(ledger.updatedAt, stamp)
         try write(ledger, to: url)
     }
 
@@ -78,15 +86,16 @@ enum PromotionLedgerStore {
         if let index = ledger.attributions.firstIndex(where: {
             $0.promotionID == promotionID && $0.transactionID == transactionID
         }) {
+            guard ledger.attributions[index].deletedAt != nil else { return }
             ledger.attributions[index].deletedAt = nil
-            ledger.attributions[index].updatedAt = now
+            ledger.attributions[index].updatedAt = PersistedMutationClock.next(after: ledger.attributions[index].updatedAt, now: now)
         } else {
             ledger.attributions.append(
                 PromotionAttribution(id: UUID(), promotionID: promotionID,
                                      transactionID: transactionID, createdAt: now,
                                      updatedAt: now, deletedAt: nil))
         }
-        ledger.updatedAt = now
+        ledger.updatedAt = max(ledger.updatedAt, ledger.attributions.map(\.updatedAt).max() ?? now)
         try write(ledger, to: url)
     }
 
@@ -97,20 +106,23 @@ enum PromotionLedgerStore {
             $0.promotionID == promotionID && $0.transactionID == transactionID
         }) else { return }
         guard ledger.attributions[index].deletedAt == nil else { return }
-        ledger.attributions[index].deletedAt = .now
-        ledger.attributions[index].updatedAt = .now
-        ledger.updatedAt = .now
+        let stamp = PersistedMutationClock.next(after: ledger.attributions[index].updatedAt)
+        ledger.attributions[index].deletedAt = stamp
+        ledger.attributions[index].updatedAt = stamp
+        ledger.updatedAt = max(ledger.updatedAt, stamp)
         try write(ledger, to: url)
     }
 
     // MARK: Merge
 
-    static func merge(_ incoming: PromotionLedger, at fileURL: URL? = nil) throws {
+    @discardableResult
+    static func merge(_ incoming: PromotionLedger, at fileURL: URL? = nil, notify: Bool = true) throws -> [String] {
         guard incoming.schemaVersion == 1 else {
             throw StoreError.invalid(["versión de archivo desconocida (\(incoming.schemaVersion))"])
         }
         let url = try fileURL ?? defaultURL()
         var current = try read(fileURL: url)
+        let conflicts = mergeConflicts(local: current, incoming: incoming)
         current.promotions = mergeRows(local: current.promotions, incoming: incoming.promotions,
                                        id: { $0.id })
         let mergedAttributions = mergeRows(local: current.attributions,
@@ -118,14 +130,25 @@ enum PromotionLedgerStore {
                                            id: { $0.id })
         current.attributions = collapseByNaturalKey(mergedAttributions)
         current.updatedAt = max(current.updatedAt, incoming.updatedAt)
-        try write(current, to: url)
+        try write(current, to: url, notify: notify)
+        return conflicts
     }
 
-    static func reset(fileURL: URL? = nil) throws {
+    static func mergeConflicts(local: PromotionLedger, incoming: PromotionLedger) -> [String] {
+        let conflicts = incoming.promotions.filter { candidate in
+            local.promotions.contains { $0.id == candidate.id && $0.updatedAt == candidate.updatedAt && $0 != candidate }
+        }.count + incoming.attributions.filter { candidate in
+            local.attributions.contains { $0.id == candidate.id && $0.updatedAt == candidate.updatedAt && $0 != candidate }
+        }.count
+        return conflicts == 0 ? [] : ["\(conflicts) conflictos de promociones con fecha idéntica: se conservó la versión local."]
+    }
+
+    static func reset(fileURL: URL? = nil, notify: Bool = true) throws {
         let url = try fileURL ?? defaultURL()
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
+        if notify { NotificationCenter.default.post(name: didChangeNotification, object: nil) }
     }
 
     /// Migración única del V1: el `PromotionOverrides.json` del evaluador
@@ -272,13 +295,13 @@ extension PromotionAttribution: updatedAtComparable {
 }
 
 private extension PromotionLedgerStore {
-    static func write(_ ledger: PromotionLedger, to url: URL) throws {
+    static func write(_ ledger: PromotionLedger, to url: URL, notify: Bool = true) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
         try encoder.encode(truncatingDatesToWholeSeconds(ledger)).write(to: url, options: .atomic)
-        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        if notify { NotificationCenter.default.post(name: didChangeNotification, object: nil) }
     }
 
     /// El archivo local codifica fechas como `Double` (fracción sub-segundo

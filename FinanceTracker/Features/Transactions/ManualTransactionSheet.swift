@@ -125,9 +125,9 @@ struct ManualTransactionSheet: View {
             updateCounterparty()
             purgeStalePromotionSelection()
         }
-        .task { promotionsModel.reload(context: modelContext) }
+        .task { promotionsModel.reload(context: modelContext, includeTransactions: false) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
-            promotionsModel.reload(context: modelContext)
+            promotionsModel.scheduleReload(context: modelContext, includeTransactions: false)
         }
         .sheet(isPresented: $showingCategoryPicker) {
             CategoryPickerView(
@@ -162,6 +162,9 @@ struct ManualTransactionSheet: View {
     private var promotionsSection: some View {
         let currency = selectedAccount?.currency
         let options = currency.map { PromotionBoard.selectablePromotions(ledger: promotionsModel.ledger, currency: $0) } ?? []
+        if let error = promotionsModel.loadError {
+            Text("Promociones no disponibles: \(error)").font(.caption).foregroundStyle(.orange)
+        }
         if !options.isEmpty, kind != .transfer, kind != .payment {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Cuenta para promociones")
