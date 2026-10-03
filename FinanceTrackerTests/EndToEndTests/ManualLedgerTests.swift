@@ -720,4 +720,60 @@ struct ManualLedgerTests {
         )
         return try #require(try context.fetch(descriptor).first)
     }
+
+    @Test("La fecha sugerida hereda la de la última manual de la cuenta (captura consecutiva)")
+    func suggestedDateInheritsFromLastManualTransactionOfAccount() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let checking = Account(institution: "Test Bank", type: .checking, currency: "MXN", nickname: "Checking")
+        let other = Account(institution: "Other Bank", type: .checking, currency: "MXN", nickname: "Other")
+        context.insert(checking)
+        context.insert(other)
+
+        // Una importada más reciente NO cuenta: la sugerencia sigue a las manuales.
+        let imported = Transaction(account: checking,
+                                   postedAt: Date(timeIntervalSince1970: 900),
+                                   amount: -1, currency: "MXN", descriptionRaw: "Importada reciente")
+        imported.source = .imported
+        context.insert(imported)
+
+        let olderManual = Transaction(account: checking,
+                                      postedAt: Date(timeIntervalSince1970: 100),
+                                      amount: -2, currency: "MXN", descriptionRaw: "Manual vieja")
+        olderManual.source = .manual
+        olderManual.lastModifiedAt = Date(timeIntervalSince1970: 8_000)
+        context.insert(olderManual)
+        let newerManual = Transaction(account: checking,
+                                      postedAt: Date(timeIntervalSince1970: 500),
+                                      amount: -3, currency: "MXN", descriptionRaw: "Manual reciente")
+        newerManual.source = .manual
+        newerManual.lastModifiedAt = Date(timeIntervalSince1970: 9_000)
+        context.insert(newerManual)
+
+        // Manual de OTRA cuenta: irrelevante.
+        let elsewhere = Transaction(account: other,
+                                    postedAt: Date(timeIntervalSince1970: 700),
+                                    amount: -4, currency: "MXN", descriptionRaw: "De otra cuenta")
+        elsewhere.source = .manual
+        context.insert(elsewhere)
+
+        // Soft-deleted manual: tampoco sugiere.
+        let deleted = Transaction(account: checking,
+                                  postedAt: Date(timeIntervalSince1970: 800),
+                                  amount: -5, currency: "MXN", descriptionRaw: "Eliminada")
+        deleted.source = .manual
+        deleted.deletedAt = Date.now
+        context.insert(deleted)
+
+        try context.save()
+        let transactions = try context.fetch(FetchDescriptor<Transaction>())
+
+        #expect(ManualTransactionDateSuggestion.suggestedDate(accountID: checking.id,
+                                                             in: transactions)
+                == Date(timeIntervalSince1970: 500))
+        // Sin manuales en la cuenta → nil (la hoja cae a hoy).
+        #expect(ManualTransactionDateSuggestion.suggestedDate(accountID: UUID(),
+                                                             in: transactions) == nil)
+    }
 }

@@ -33,6 +33,8 @@ struct ManualTransactionSheet: View {
     @State private var promotionsModel = PromotionLedgerViewModel()
     @State private var selectedPromotionIDs: Set<UUID> = []
     @State private var attributionFailure: AttributionFailure?
+    @State private var didEditDate = false
+    @State private var lastSuggestedDate: Date?
 
     private var selectedAccount: Account? {
         accounts.first { $0.id == accountID }
@@ -104,11 +106,19 @@ struct ManualTransactionSheet: View {
             accountID = defaultAccountID ?? lockedAccountID ?? accounts.first?.id
             normalizeKindAndCategory()
             updateCounterparty()
+            applyDateSuggestion()
         }
         .onChange(of: accountID) {
             normalizeKindAndCategory()
             updateCounterparty()
             purgeStalePromotionSelection()
+            applyDateSuggestion()
+        }
+        .onChange(of: date) { _, newDate in
+            // El usuario tocó el selector: difiere del último valor que la
+            // sugerencia asignó programáticamente (sin carreras: el handler
+            // corre después, pero compara VALORES, no banderas).
+            if newDate != lastSuggestedDate { didEditDate = true }
         }
         .onChange(of: kind) {
             normalizeKindAndCategory()
@@ -207,6 +217,17 @@ struct ManualTransactionSheet: View {
         return outCount == 1
             ? "1 promoción seleccionada está fuera de su ventana — cuenta igual; solo es un aviso."
             : "\(outCount) promociones seleccionadas están fuera de su ventana — cuentan igual; solo es un aviso."
+    }
+
+    /// Fecha sugerida: la de la última manual de la cuenta. Solo se aplica si
+    /// el usuario no ha editado la fecha en esta sesión de captura.
+    private func applyDateSuggestion() {
+        guard !didEditDate, let accountID else { return }
+        let transactions = (try? modelContext.fetch(FetchDescriptor<Transaction>())) ?? []
+        let suggestion = ManualTransactionDateSuggestion.suggestedDate(accountID: accountID,
+                                                                      in: transactions) ?? Date.now
+        date = suggestion
+        lastSuggestedDate = suggestion
     }
 
     /// PA-05: al cambiar de cuenta (o a transfer/pago) la selección no puede
