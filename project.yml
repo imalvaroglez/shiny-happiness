@@ -36,10 +36,6 @@ targets:
         buildPhase: resources
         excludes:
           - "**/*.swift"
-      - path: FinanceTracker/Domain/Promotions/Catalog
-        buildPhase: resources
-        excludes:
-          - "**/*.swift"
       - path: FinanceTracker/es-MX.lproj
         buildPhase: resources
     settings:
@@ -84,10 +80,6 @@ targets:
         excludes:
           - "**/*.swift"
       - path: FinanceTracker/Ingest/StructuralParser/Knowledge
-        buildPhase: resources
-        excludes:
-          - "**/*.swift"
-      - path: FinanceTracker/Domain/Promotions/Catalog
         buildPhase: resources
         excludes:
           - "**/*.swift"

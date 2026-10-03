@@ -33,21 +33,20 @@ H.recurring(txs, ds)                        # suscripciones/gastos recurrentes (
 H.mom_delta(txs, ds)                        # cambio mes-a-mes por categoría
 ```
 
-## Tracker de promociones (`scripts/promo.py`)
+## Promociones
 
-Para preguntas "¿cómo voy de la promo X?": gasto bruto vs elegible, avance contra metas,
-días restantes y riesgos de conversión MSI. Clasifica por patrón primero (la categoría
-puede mentir); nunca recomienda gasto artificial:
+El tracker `promo.py` fue retirado (2026-09-30): el dueño rechazó el conteo
+automático y las promociones ahora son **adjudicación manual en la app**
+(AD-025 — crear la promo, adjudicar tx desde la hoja de transacción; el
+avance = −Σ montos adjudicados). Si preguntan "¿cómo voy de la promo X?",
+lee el PromotionLedger del `.ftbackup` (models/PromotionLedger.json en
+backups manifest ≥10) o remite a la card de la app. El script nunca
+recomendaba gasto artificial; conserva esa línea: mide, no aconseja.
 
-```bash
-python3 .claude/skills/finanzas/habits/scripts/promo.py \
-  --account "The Platinum Credit Card" --start 2026-09-09 --days 90 \
-  --targets 100000,105000,110000
-```
-
-Los specs de reglas MSI (`promo.MSI_RULES`) son la fuente canónica para crear CategoryRule
-vía `writeback.apply_category_rules` + `promo.resolve_rule_targets`. Como las categorías
-vienen duplicadas (household), pasa `prefer_ids` con los categoryIds que ya usan las
+Los specs de reglas MSI (`_shared/msi_rules.py: MSI_RULES`) siguen siendo la
+fuente canónica para crear CategoryRule vía `writeback.apply_category_rules`
++ `msi_rules.resolve_rule_targets`. Como las categorías vienen duplicadas
+(household), pasa `prefer_ids` con los categoryIds que ya usan las
 transacciones de la cuenta (continuidad), no la primera instancia del archivo.
 
 ## Certeza por agregación

@@ -27,6 +27,9 @@ struct TransactionDetailSheet: View {
     @State private var draftIncluded: Bool
     @State private var draftCategory: Category?
     @State private var showingCategoryPicker = false
+    @State private var promotionsModel = PromotionLedgerViewModel()
+    @State private var attributionError: String?
+    @State private var pendingAttribution: (promotionID: UUID, isOn: Bool)?
 
     @State private var pendingKeyword: String?
     @State private var categoryDidChange = false
@@ -94,6 +97,10 @@ struct TransactionDetailSheet: View {
             if draftExpenseAssignment == .custom, draftCustomFerAmount == nil {
                 draftCustomFerAmount = (abs(displayAmount) / 2).currencyRounded
             }
+        }
+        .task { promotionsModel.reload(context: modelContext, includeTransactions: false) }
+        .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
+            promotionsModel.scheduleReload(context: modelContext, includeTransactions: false)
         }
         .sheet(isPresented: $showingCategoryPicker) {
             CategoryPickerView(transaction: transaction) { category, keyword in
@@ -217,6 +224,11 @@ struct TransactionDetailSheet: View {
                 panelDivider
             }
 
+            if !isBalanceMirror, !selectablePromotions.isEmpty {
+                promotionsRow
+                panelDivider
+            }
+
             if isSettlementEditable {
                 settlementRows
                 panelDivider
@@ -236,6 +248,81 @@ struct TransactionDetailSheet: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
         )
+    }
+
+    private var selectablePromotions: [PromotionRecord] {
+        PromotionBoard.selectablePromotions(ledger: promotionsModel.ledger, currency: transaction.currency)
+    }
+
+    private var attributedPromotionIDs: Set<UUID> {
+        Set(PromotionBoard.attributedPromotionIDs(ledger: promotionsModel.ledger, transactionID: transaction.id))
+    }
+
+    private var outOfWindowCount: Int {
+        PromotionBoard.outOfWindowPromotionIDs(ledger: promotionsModel.ledger,
+                                               promotionIDs: attributedPromotionIDs,
+                                               date: transaction.postedAt,
+                                               calendar: promotionsModel.promotionCalendar).count
+    }
+
+    @ViewBuilder
+    private var promotionsRow: some View {
+        VStack(spacing: 6) {
+            editRow("Promociones") {
+                Text("\(attributedPromotionIDs.count) adjudicada\(attributedPromotionIDs.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                if let error = promotionsModel.loadError {
+                    Text("Promociones no disponibles: \(error)").font(.caption2).foregroundStyle(.orange)
+                }
+                ForEach(selectablePromotions) { promo in
+                    Toggle(promo.name, isOn: Binding(
+                        get: { attributedPromotionIDs.contains(promo.id) },
+                        set: { isOn in toggleAttribution(promotionID: promo.id, isOn: isOn) }))
+                    .font(.caption)
+                    .toggleStyle(.checkbox)
+                }
+                if outOfWindowCount > 0 {
+                    Text(outOfWindowCount == 1
+                         ? "1 promoción adjudicada está fuera de su ventana — cuenta igual; solo es un aviso."
+                         : "\(outOfWindowCount) promociones adjudicadas están fuera de su ventana — cuentan igual; solo es un aviso.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                if let attributionError {
+                    HStack(spacing: 8) {
+                        Text(attributionError)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                        Button("Reintentar") { retryLastAttribution() }
+                            .font(.caption2)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+        }
+    }
+
+    private func toggleAttribution(promotionID: UUID, isOn: Bool) {
+        pendingAttribution = (promotionID, isOn)
+        do {
+            if isOn {
+                try PromotionLedgerStore.attribute(transactionID: transaction.id, promotionID: promotionID)
+            } else {
+                try PromotionLedgerStore.unattribute(transactionID: transaction.id, promotionID: promotionID)
+            }
+            attributionError = nil
+        } catch {
+            attributionError = "No se pudo \(isOn ? "adjudicar" : "quitar la adjudicación"): \(error.localizedDescription)"
+        }
+    }
+
+    private func retryLastAttribution() {
+        guard let pending = pendingAttribution else { return }
+        toggleAttribution(promotionID: pending.promotionID, isOn: pending.isOn)
     }
 
     @ViewBuilder

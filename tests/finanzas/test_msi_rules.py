@@ -2,7 +2,7 @@
 
 Simula el Categorizer de la app (Categorizer.swift:17,25-31,43-52): regex sobre
 descriptionRaw, priority DESC, primera match gana. Los specs canónicos viven en
-promo.MSI_RULES (única fuente de verdad para skill y tests).
+msi_rules (cargado por ruta desde _shared/msi_rules.py) (única fuente de verdad para skill y tests).
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pytest
 from conftest import CATS, load_module_by_path
 
 REPO = Path(__file__).resolve().parents[2]
-promo = load_module_by_path("promo_msi_rules", REPO / ".claude" / "skills" / "finanzas" / "habits" / "scripts" / "promo.py")
+msi_rules = load_module_by_path("msi_rules", REPO / ".claude" / "skills" / "finanzas" / "_shared" / "msi_rules.py")
 
 
 @pytest.fixture(scope="module")
@@ -23,11 +23,11 @@ def rules() -> list[dict]:
         {"patternRegex": "(?i)MONTO", "priority": 100, "categoryId": "CC-PAY"},
         {"patternRegex": "(?i)AMAZON|AMZN", "priority": 10, "categoryId": "SHOPPING"},
     ]
-    return existing + promo.resolve_rule_targets(promo.MSI_RULES, list(CATS.values()))
+    return existing + msi_rules.resolve_rule_targets(msi_rules.MSI_RULES, list(CATS.values()))
 
 
 def categorize(rules: list[dict], description: str) -> str | None:
-    return promo.categorize_with_rules(rules, description)
+    return msi_rules.categorize_with_rules(rules, description)
 
 
 @pytest.mark.parametrize("description, expected", [
@@ -62,10 +62,10 @@ def test_amazon_msi_stays_shopping(rules: list[dict]) -> None:
 
 
 def test_rule_targets_resolve_to_existing_categories() -> None:
-    resolved = promo.resolve_rule_targets(promo.MSI_RULES, list(CATS.values()))
+    resolved = msi_rules.resolve_rule_targets(msi_rules.MSI_RULES, list(CATS.values()))
     names = {c["name"] for c in CATS.values()}
     ids = {c["id"] for c in CATS.values()}
-    for spec, rule in zip(promo.MSI_RULES, resolved, strict=True):
+    for spec, rule in zip(msi_rules.MSI_RULES, resolved, strict=True):
         assert rule["categoryId"] in ids
         assert spec["targetName"] in names
         assert rule["patternRegex"] == spec["patternRegex"]
@@ -84,18 +84,18 @@ def test_resolution_prefers_evidence_ids() -> None:
         cat("CCP-A", "Credit Card Payments", kind="creditCardPayment"),
     ]
     prefer = {"MSI Installments": "MSI-A", "Credit Card Payments": "CCP-A"}
-    resolved = promo.resolve_rule_targets(promo.MSI_RULES, cats, prefer_ids=prefer)
+    resolved = msi_rules.resolve_rule_targets(msi_rules.MSI_RULES, cats, prefer_ids=prefer)
     by_target = {spec["targetName"]: rule["categoryId"]
-                 for spec, rule in zip(promo.MSI_RULES, resolved, strict=True)}
+                 for spec, rule in zip(msi_rules.MSI_RULES, resolved, strict=True)}
     assert by_target["MSI Installments"] == "MSI-A"
     assert by_target["Credit Card Payments"] == "CCP-A"
 
     # sin preferencia: primera instancia determinística
-    fallback = promo.resolve_rule_targets(promo.MSI_RULES, cats)
+    fallback = msi_rules.resolve_rule_targets(msi_rules.MSI_RULES, cats)
     fb = {spec["targetName"]: rule["categoryId"]
-          for spec, rule in zip(promo.MSI_RULES, fallback, strict=True)}
+          for spec, rule in zip(msi_rules.MSI_RULES, fallback, strict=True)}
     assert fb["MSI Installments"] == "MSI-FIRST"
 
     # preferencia inválida (no es instancia de ese nombre): error explícito
     with pytest.raises(ValueError, match="no es una categoría"):
-        promo.resolve_rule_targets(promo.MSI_RULES, cats, prefer_ids={"MSI Installments": "BF-A"})
+        msi_rules.resolve_rule_targets(msi_rules.MSI_RULES, cats, prefer_ids={"MSI Installments": "BF-A"})

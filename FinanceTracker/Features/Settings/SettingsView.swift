@@ -7,12 +7,6 @@ private struct AccountDeletionTarget {
     let preview: AccountDeletionService.DeletionPreview
 }
 
-private struct PromotionEditorRequest: Identifiable {
-    let id = UUID()
-    let definition: PromotionDefinition
-    let isNew: Bool
-}
-
 private enum CategoryDeletionTarget {
     case parent(Category)
     case subcategory(Category, parent: Category)
@@ -88,8 +82,6 @@ struct SettingsView: View {
     @State private var resetErrorMessage: String?
     @State private var tokenDraft = ""
     @State private var tokenStatusMessage: String?
-    @State private var promotionCatalog: PromotionCatalog?
-    @State private var promotionEditorRequest: PromotionEditorRequest?
 
     @State private var accountDeletionTarget: AccountDeletionTarget?
     @State private var showingAddAccount = false
@@ -163,27 +155,8 @@ struct SettingsView: View {
                 aboutSection
             }
         }
-        .background {
-            Color.clear.sheet(item: $promotionEditorRequest) { request in
-                PromotionEditorSheet(
-                    definition: request.definition,
-                    accounts: accounts,
-                    isNew: request.isNew,
-                    onSave: refreshPromotionCatalog
-                )
-            }
-        }
-        .navigationTitle("Settings")
+.navigationTitle("Settings")
         .task(id: currentPane) {
-            if currentPane == .promotions, promotionCatalog == nil {
-                await Task.yield()
-                let catalog = await Task.detached(priority: .utility) {
-                    PromotionStore.load()
-                }.value
-                guard !Task.isCancelled else { return }
-                promotionCatalog = catalog
-                return
-            }
             guard currentPane == .backupData, !didLoadLatestBackup else { return }
             await Task.yield()
             let directory = backupsDirectory
@@ -364,25 +337,7 @@ struct SettingsView: View {
     }
 
     private var promotionsSection: some View {
-        PromotionHealthSection(
-            accounts: accounts,
-            catalog: promotionCatalog,
-            onEdit: presentPromotionEditor,
-            onCatalogChanged: refreshPromotionCatalog
-        )
-    }
-
-    private func presentPromotionEditor(_ definition: PromotionDefinition, _ isNew: Bool) {
-        promotionEditorRequest = PromotionEditorRequest(definition: definition, isNew: isNew)
-    }
-
-    private func refreshPromotionCatalog() {
-        Task {
-            let catalog = await Task.detached(priority: .utility) {
-                PromotionStore.load()
-            }.value
-            promotionCatalog = catalog
-        }
+        PromotionSettingsSection()
     }
 
     private var categoriesSection: some View {
@@ -991,8 +946,9 @@ struct SettingsView: View {
             defer { access.stopAccessing() }
             do {
                 let strategy: RestoreStrategy = hasFinancialRows ? .mergeKeepingNewer : .replaceAll
-                try await BackupArchive.restore(from: summary.url, into: modelContext, strategy: strategy)
+                let warnings = try await BackupArchive.restore(from: summary.url, into: modelContext, strategy: strategy)
                 backupStatus = "Respaldo restaurado: \(summary.createdAt.formattedMX(date: .abbreviated, time: .shortened))"
+                if !warnings.isEmpty { backupStatus += " · " + warnings.joined(separator: " · ") }
                 dataHealthRefreshToken += 1
                 onSpendRequirementChanged()
             } catch {

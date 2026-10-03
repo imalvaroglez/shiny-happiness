@@ -40,29 +40,4 @@ struct CategoryPickerPerformanceTests {
         #expect(incomeOnly.flatMap(\.rows).map(\.category.id) == [salary.id])
     }
 
-    @Test("Promotion preview key follows only transaction candidate inputs")
-    func previewKeyTracksCandidateInputs() {
-        let accountID = UUID()
-        let date = Date(timeIntervalSince1970: 1_000)
-        let base = ManualPromotionPreviewKey(
-            accountID: accountID,
-            kind: .charge,
-            date: date,
-            amount: -10,
-            description: "Merchant"
-        )
-
-        #expect(base == ManualPromotionPreviewKey(
-            accountID: accountID,
-            kind: .charge,
-            date: date,
-            amount: -10,
-            description: "Merchant"
-        ))
-        #expect(base != ManualPromotionPreviewKey(accountID: UUID(), kind: .charge, date: date, amount: -10, description: "Merchant"))
-        #expect(base != ManualPromotionPreviewKey(accountID: accountID, kind: .expense, date: date, amount: -10, description: "Merchant"))
-        #expect(base != ManualPromotionPreviewKey(accountID: accountID, kind: .charge, date: date.addingTimeInterval(1), amount: -10, description: "Merchant"))
-        #expect(base != ManualPromotionPreviewKey(accountID: accountID, kind: .charge, date: date, amount: -11, description: "Merchant"))
-        #expect(base != ManualPromotionPreviewKey(accountID: accountID, kind: .charge, date: date, amount: -10, description: "Other merchant"))
-    }
 }

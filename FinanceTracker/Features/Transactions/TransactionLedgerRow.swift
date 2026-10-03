@@ -8,12 +8,23 @@ struct TransactionLedgerRow: View {
     var onToggleSelection: () -> Void = {}
     var wideLayout = false
     var showsAccount = true
+    var promotionCount = 0
     let onOpenDetail: () -> Void
     let onOpenCategoryPicker: () -> Void
     let onDelete: () -> Void
     let onRestore: () -> Void
     let onApplyToSimilar: () -> Void
     var onToggleHousehold: () -> Void = {}
+
+    @ViewBuilder
+    private var promotionBadge: some View {
+        if promotionCount > 0 {
+            Text("◆\(promotionCount)")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.blue)
+                .help("Adjudicada a \(promotionCount) promoción(\(promotionCount == 1 ? "" : "es"))")
+        }
+    }
 
     var body: some View {
         Group {
@@ -92,6 +103,8 @@ struct TransactionLedgerRow: View {
             householdIndicator
                 .frame(width: 24)
 
+            promotionBadge
+
             amountLabel
                 .frame(width: 142, alignment: .trailing)
         }
@@ -117,6 +130,7 @@ struct TransactionLedgerRow: View {
                     if let card = transaction.cardLast4 {
                         Text("••••\(card)").lineLimit(1)
                     }
+                    promotionBadge
                     if transaction.expenseAssignment != .user {
                         Text(transaction.expenseAssignment.displayName).lineLimit(1)
                     }
