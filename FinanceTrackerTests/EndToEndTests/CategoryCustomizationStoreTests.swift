@@ -103,3 +103,27 @@ struct CategoryCustomizationStoreTests {
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 }
+
+
+extension CategoryCustomizationStoreTests {
+    @Test("Rapid tint changes and clearing survive newer-backup merge")
+    func rapidTintChangesSurviveMerge() throws {
+        try CategoryCustomizationStore.setSeedName(categoryID: categoryID, seedName: "Food & Drink", at: url)
+        try CategoryCustomizationStore.setTint(categoryID: categoryID, hex: "#111111", at: url)
+        let older = try CategoryCustomizationStore.read(fileURL: url)
+        try CategoryCustomizationStore.setTint(categoryID: categoryID, hex: "#222222", at: url)
+        let newer = try CategoryCustomizationStore.read(fileURL: url)
+        #expect(newer.entries[0].updatedAt > older.entries[0].updatedAt)
+        try CategoryCustomizationStore.replace(with: older, at: url)
+        try CategoryCustomizationStore.merge(newer, at: url)
+        #expect(try CategoryCustomizationStore.read(fileURL: url).entries[0].tintHex == "#222222")
+        try CategoryCustomizationStore.setSeedName(categoryID: categoryID, seedName: "Salary", at: url)
+        #expect(try CategoryCustomizationStore.read(fileURL: url).entries[0].seedName == "Food & Drink")
+        let active = try CategoryCustomizationStore.read(fileURL: url)
+        try CategoryCustomizationStore.clearTint(categoryID: categoryID, at: url)
+        let cleared = try CategoryCustomizationStore.read(fileURL: url)
+        try CategoryCustomizationStore.replace(with: active, at: url)
+        try CategoryCustomizationStore.merge(cleared, at: url)
+        #expect(try CategoryCustomizationStore.read(fileURL: url).entries[0].tintHex == nil)
+    }
+}

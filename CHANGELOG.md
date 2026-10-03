@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Category renames preserve seed identities, salary/interest semantics and rule aliases. Rapid color edits remain ordered; failed renames recover both stores, and corrupt customization files show a recoverable startup warning.
+- Restore validates and stages category customization alongside promotions and spending requirements before committing financial data.
+
+- Transaction headers and rows share column widths, including empty promotion badges, and keep one-line titles while respecting enlarged text.
+
+- Manual date suggestions remember the last successful capture per account; editing older movements no longer changes the next suggested date.
+
+- Promotion editing preserves targets and independent window bounds; invalid amounts and inverted windows show an error.
+- Rapid promotion mutations remain ordered in backups. Restore stages sidecars and model changes, compensates failures visibly, and preserves original JSON bytes.
+- Promotion totals refresh after transaction saves; unavailable transaction data is reported instead of displayed as zero. Orphan removal errors offer retry, and normalization diagnostics remain visible.
+- Transaction promotion badges use a cached index rather than rebuilding it for every rendered row.
+
 ## [0.16.1] - 2026-09-29
 
 ### Fixed

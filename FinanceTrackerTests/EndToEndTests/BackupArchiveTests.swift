@@ -1168,16 +1168,14 @@ struct BackupArchiveTests {
         localLedger.updatedAt = baseTime.addingTimeInterval(60)
         try PromotionLedgerStore.replace(with: localLedger, at: targetStore)
 
-        // Gasto mínimo apunta a un DIRECTORIO: la escritura falla DESPUÉS de que
-        // el restore ya aplicó el merge del ledger → el catch debe restaurar el JSON previo.
-        let brokenSpendURL = root.appendingPathComponent("broken/SpendRequirements.json")
-        try FileManager.default.createDirectory(at: brokenSpendURL, withIntermediateDirectories: true)
+        let spendURL = root.appendingPathComponent("local/SpendRequirements.json")
 
         let target = try makeContainer()
         await #expect(throws: Error.self) {
             try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
                                             promotionLedgerURL: targetStore,
-                                            spendRequirementsURL: brokenSpendURL)
+                                            spendRequirementsURL: spendURL,
+                                            checkpoint: { if $0 == .ledgerPublished { throw CocoaError(.fileWriteUnknown) } })
         }
         let after = try PromotionLedgerStore.read(fileURL: targetStore)
         #expect(after.promotions.count == 1)
@@ -1239,5 +1237,89 @@ struct BackupArchiveTests {
                                         categoryCustomizationURL: targetStore)
         #expect(try CategoryCustomizationStore.read(fileURL: targetStore).entries.count == 1,
                 "merge con backup ≤10 conserva la personalización local")
+    }
+}
+
+
+extension BackupArchiveTests {
+    @Test("Compensation failure reports and keeps original recovery bytes")
+    func compensationFailureRetainsRecoveryMaterial() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("compensation-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("PromotionLedger.json")
+        let original = Data("original bytes".utf8)
+        try original.write(to: url)
+        let files = try SidecarFileTransaction(urls: [url])
+        defer { files.discard() }
+        try Data("new bytes".utf8).write(to: files.stagedURL(for: url))
+        try files.publish(url)
+        // Force recovery to fail after publication, rather than failing the
+        // initial read before any work has taken place.
+        try FileManager.default.removeItem(at: url)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        do {
+            try files.rollback()
+            Issue.record("Recovery should fail with a directory replacing its destination")
+        } catch let error as SidecarFileTransaction.RecoveryError {
+            #expect(error.path == files.directory.path)
+            #expect(!error.failures.isEmpty)
+            #expect(try Data(contentsOf: files.directory.appendingPathComponent("original-0-PromotionLedger.json")) == original)
+        }
+    }
+
+    @Test("Restore failure preserves disk data and exact sidecar bytes", arguments: BackupArchive.RestoreCheckpoint.allCases, [false, true])
+    func restoreFailurePreservesDisk(_ failure: BackupArchive.RestoreCheckpoint, _ merge: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("restore-fault-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makePopulatedContainer()
+        let bundle = root.appendingPathComponent("backup.ftbackup")
+        let ledger = root.appendingPathComponent("local/PromotionLedger.json")
+        let spend = root.appendingPathComponent("local/SpendRequirements.json")
+        let custom = root.appendingPathComponent("local/CategoryCustomization.json")
+        try CategoryCustomizationStore.setTint(categoryID: UUID(), hex: "#112233", at: custom)
+        let customBytes = try Data(contentsOf: custom)
+        let statementsSource = root.appendingPathComponent("source/Statements")
+        try FileManager.default.createDirectory(at: statementsSource, withIntermediateDirectories: true)
+        try Data("Synthetic statement".utf8).write(to: statementsSource.appendingPathComponent("fixture.pdf"))
+        try PromotionLedgerStore.replace(with: PromotionLedger(), at: ledger)
+        try await BackupArchive.export(to: bundle, from: source.mainContext,
+                                      promotionLedgerURL: root.appendingPathComponent("source/PromotionLedger.json"),
+                                      spendRequirementsURL: root.appendingPathComponent("source/SpendRequirements.json"),
+                                      categoryCustomizationURL: root.appendingPathComponent("source/CategoryCustomization.json"),
+                                      statementsSource: statementsSource)
+        let originalBytes = try Data(contentsOf: ledger)
+        let diskURL = root.appendingPathComponent("default.store")
+        let config = ModelConfiguration(schema: AppSchema.schema, url: diskURL)
+        var container: ModelContainer? = try ModelContainer(for: AppSchema.schema, configurations: [config])
+        let localID: UUID
+        do {
+            let context = try #require(container).mainContext
+            let local = Account(institution: "Local", type: .checking, currency: "MXN", nickname: "Keep me")
+            localID = local.id
+            context.insert(local)
+            try context.save()
+            await #expect(throws: Error.self) {
+                try await BackupArchive.restore(from: bundle, into: context, strategy: merge ? .mergeKeepingNewer : .replaceAll,
+                    promotionLedgerURL: ledger, spendRequirementsURL: spend, categoryCustomizationURL: custom,
+                    statementsDestination: root.appendingPathComponent("Statements"),
+                    checkpoint: { if $0 == failure && failure != .beforeSave { throw CocoaError(.fileWriteUnknown) } },
+                    saveContext: { stagedContext in
+                        #expect(!stagedContext.autosaveEnabled)
+                        if failure == .beforeSave { throw CocoaError(.fileWriteUnknown) }
+                        try stagedContext.save()
+                    })
+            }
+            #expect(!context.hasChanges)
+            #expect(try context.fetch(FetchDescriptor<Account>()).map(\.id) == [localID])
+        }
+        container = nil
+        let reopened = try ModelContainer(for: AppSchema.schema, configurations: [config])
+        #expect(try reopened.mainContext.fetch(FetchDescriptor<Account>()).map(\.id) == [localID])
+        #expect(try Data(contentsOf: ledger) == originalBytes)
+        #expect(try Data(contentsOf: custom) == customBytes)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Statements/fixture.pdf").path))
+        #expect(!FileManager.default.fileExists(atPath: spend.path))
     }
 }

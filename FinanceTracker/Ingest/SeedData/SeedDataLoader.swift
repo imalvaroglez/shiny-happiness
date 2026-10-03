@@ -3,12 +3,14 @@ import SwiftData
 import os
 
 struct SeedDataLoader {
-    private enum BootstrapError: LocalizedError {
+    enum BootstrapError: LocalizedError {
         case missingResource(String)
+        case customizationUnavailable(String)
 
         var errorDescription: String? {
             switch self {
             case .missingResource(let name): "Required seed file is missing: \(name)"
+            case .customizationUnavailable(let detail): "Personalización no disponible: \(detail). Reparación de seeds suspendida."
             }
         }
     }
@@ -51,16 +53,55 @@ struct SeedDataLoader {
         return names
     }()
 
+    static func seedOrigin(for category: Category, customizations: [CategoryCustomization]) throws
+        -> (name: String, parentName: String?, kindRaw: String)? {
+        if let entry = customizations.first(where: { $0.categoryID == category.id && $0.deletedAt == nil }),
+           let name = entry.seedName {
+            return (name, entry.seedParentName, entry.seedKindRaw ?? category.kind.rawValue)
+        }
+        guard let url = Bundle.main.url(forResource: "categories", withExtension: "json") else {
+            throw BootstrapError.missingResource("categories.json")
+        }
+        let seed = try JSONDecoder().decode(CategorySeedFile.self, from: Data(contentsOf: url))
+        if let parent = category.parent {
+            let parentName = customizations.first { $0.categoryID == parent.id && $0.deletedAt == nil }?.seedName ?? parent.name
+            if let definition = seed.categories.first(where: {
+                $0.name == parentName && $0.kind == category.kind.rawValue && $0.subcategories.contains(category.name)
+            }) { return (category.name, definition.name, definition.kind) }
+        } else if let definition = seed.categories.first(where: { $0.name == category.name && $0.kind == category.kind.rawValue }) {
+            return (definition.name, nil, definition.kind)
+        }
+        return nil
+    }
+
     static func bootstrapIfNeeded(context: ModelContext, customizationURL: URL? = nil) throws {
-        try context.transaction {
-            let customizations = try CategoryCustomizationStore.read(fileURL: customizationURL).entries
-            var categoriesByName = try buildExistingMap(context: context, customizations: customizations)
-            try loadCategoriesIfNeeded(context: context, categoriesByName: &categoriesByName)
-            try repairStaleCategoryKinds(context: context, categoriesByName: &categoriesByName)
-            try repairDuplicateActiveCategories(context: context)
-            try repairDanglingCategoryLinks(context: context)
-            categoriesByName = try buildExistingMap(context: context)
-            try syncRules(context: context, categoriesByName: categoriesByName)
+        let url = try customizationURL ?? CategoryCustomizationStore.defaultURL()
+        let original: CategoryCustomizationCatalog
+        do { original = try CategoryCustomizationStore.read(fileURL: url) }
+        catch { throw BootstrapError.customizationUnavailable(error.localizedDescription) }
+        var catalog = original
+        let files = try SidecarFileTransaction(urls: [url])
+        do {
+            try context.transaction {
+                var categoriesByName = try buildExistingMap(context: context, customizations: catalog.entries)
+                try loadCategoriesIfNeeded(context: context, categoriesByName: &categoriesByName)
+                try repairStaleCategoryKinds(context: context, categoriesByName: &categoriesByName)
+                try repairDuplicateActiveCategories(context: context, customizations: &catalog)
+                try repairDanglingCategoryLinks(context: context)
+                categoriesByName = try buildExistingMap(context: context, customizations: catalog.entries)
+                try syncRules(context: context, categoriesByName: categoriesByName)
+                if catalog != original {
+                    try CategoryCustomizationStore.replace(with: catalog, at: files.stagedURL(for: url), notify: false)
+                    try files.publish(url)
+                }
+            }
+            files.discard()
+            if catalog != original { NotificationCenter.default.post(name: CategoryCustomizationStore.didChangeNotification, object: url) }
+        } catch {
+            let originalError = error
+            do { try files.rollback() }
+            catch { throw CategoryCustomizationStore.StoreError.invalid([originalError.localizedDescription, error.localizedDescription]) }
+            throw originalError
         }
     }
 
@@ -71,29 +112,28 @@ struct SeedDataLoader {
         // Alias por id: categorías renombradas que provenían del seed indexan
         // SUS claves bajo el nombre original — el loader las encuentra y no
         // re-crea el nombre de fábrica como duplicado.
-        var seedNameByCategoryID = Dictionary(
-            customizations.compactMap { entry in
-                entry.seedName.map { (entry.categoryID, $0) }
-            }, uniquingKeysWith: { first, _ in first })
-        for cat in existing.sorted(by: categoryMapSort) {
-            if let parent = cat.parent {
-                map[lookupKey(parentID: parent.id, name: cat.name, kind: cat.kind)] = cat
-                let path = "\(parent.name).\(cat.name)"
-                if map[path] == nil { map[path] = cat }
-                if let seedName = seedNameByCategoryID.removeValue(forKey: cat.id) {
-                    map[lookupKey(parentID: parent.id, name: seedName, kind: cat.kind)] = cat
-                }
-            } else {
-                if map[rootKey(name: cat.name, kind: cat.kind)] == nil {
-                    map[rootKey(name: cat.name, kind: cat.kind)] = cat
-                }
-                if let seedName = seedNameByCategoryID.removeValue(forKey: cat.id) {
-                    map[rootKey(name: seedName, kind: cat.kind)] = cat
-                    if map[seedName] == nil { map[seedName] = cat }
-                }
+        let byID = Dictionary(customizations.filter { $0.deletedAt == nil }.map { ($0.categoryID, $0) },
+                              uniquingKeysWith: { first, _ in first })
+        func insert(_ key: String, _ category: Category) {
+            if let existing = map[key] {
+                if existing.deletedAt == nil { return }
+                if category.deletedAt != nil { return }
             }
-            if cat.parent == nil, map[cat.name] == nil {
-                map[cat.name] = cat
+            map[key] = category
+        }
+        for cat in existing.sorted(by: categoryMapSort) {
+            let origin = byID[cat.id]?.seedName ?? cat.name
+            if let parent = cat.parent {
+                let parentOrigin = byID[parent.id]?.seedName ?? parent.name
+                insert(lookupKey(parentID: parent.id, name: cat.name, kind: cat.kind), cat)
+                insert(lookupKey(parentID: parent.id, name: origin, kind: cat.kind), cat)
+                insert("\(parent.name).\(cat.name)", cat)
+                insert("\(parentOrigin).\(origin)", cat)
+            } else {
+                insert(rootKey(name: cat.name, kind: cat.kind), cat)
+                insert(rootKey(name: origin, kind: cat.kind), cat)
+                insert(cat.name, cat)
+                insert(origin, cat)
             }
         }
         return map
@@ -210,7 +250,7 @@ struct SeedDataLoader {
         Logger.app.info("Category repair: canonicalized Credit Card Payments (kind=\(canonical.kind.rawValue)), soft-deleted \(duplicates.count) duplicate(s)")
     }
 
-    private static func repairDuplicateActiveCategories(context: ModelContext) throws {
+    private static func repairDuplicateActiveCategories(context: ModelContext, customizations: inout CategoryCustomizationCatalog) throws {
         var softDeletedCount = 0
         let allTransactions = try context.fetch(FetchDescriptor<Transaction>())
         let allRules = try context.fetch(FetchDescriptor<CategoryRule>())
@@ -237,6 +277,26 @@ struct SeedDataLoader {
             }
 
             for duplicate in duplicates {
+                if let source = customizations.entries.first(where: { $0.categoryID == duplicate.id && $0.deletedAt == nil }) {
+                    let index = customizations.entries.firstIndex { $0.categoryID == canonical.id }
+                    var target = index.map { customizations.entries[$0] }
+                        ?? CategoryCustomization(categoryID: canonical.id, seedName: nil, tintHex: nil,
+                                                 updatedAt: .distantPast, deletedAt: nil)
+                    target.seedName = target.seedName ?? source.seedName
+                    target.seedParentName = target.seedParentName ?? source.seedParentName
+                    target.seedKindRaw = target.seedKindRaw ?? source.seedKindRaw
+                    target.tintHex = target.tintHex ?? source.tintHex
+                    target.deletedAt = nil
+                    target.updatedAt = PersistedMutationClock.next(after: max(target.updatedAt, source.updatedAt))
+                    customizations.entries.removeAll { $0.categoryID == canonical.id }
+                    customizations.entries.append(target)
+                    if let sourceIndex = customizations.entries.firstIndex(where: { $0.categoryID == duplicate.id }) {
+                        let stamp = PersistedMutationClock.next(after: source.updatedAt)
+                        customizations.entries[sourceIndex].deletedAt = stamp
+                        customizations.entries[sourceIndex].updatedAt = stamp
+                    }
+                    customizations.updatedAt = max(customizations.updatedAt, target.updatedAt)
+                }
                 for child in allCategories where child.parent?.id == duplicate.id {
                     child.parent = canonical
                     child.touch()

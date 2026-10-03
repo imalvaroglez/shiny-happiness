@@ -99,9 +99,9 @@ struct TransactionDetailSheet: View {
                 draftCustomFerAmount = (abs(displayAmount) / 2).currencyRounded
             }
         }
-        .task { promotionsModel.reload(context: modelContext) }
+        .task { promotionsModel.reload(context: modelContext, includeTransactions: false) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
-            promotionsModel.reload(context: modelContext)
+            promotionsModel.scheduleReload(context: modelContext, includeTransactions: false)
         }
         .onReceive(NotificationCenter.default.publisher(for: CategoryCustomizationStore.didChangeNotification)) { _ in
             categoryTintTick &+= 1
@@ -279,6 +279,9 @@ struct TransactionDetailSheet: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             VStack(alignment: .leading, spacing: 4) {
+                if let error = promotionsModel.loadError {
+                    Text("Promociones no disponibles: \(error)").font(.caption2).foregroundStyle(.orange)
+                }
                 ForEach(selectablePromotions) { promo in
                     Toggle(promo.name, isOn: Binding(
                         get: { attributedPromotionIDs.contains(promo.id) },

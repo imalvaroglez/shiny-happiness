@@ -10,6 +10,8 @@ struct CategoryCustomization: Codable, Equatable, Identifiable, Sendable {
     /// Nombre original si la categoría provenía del seed: evita que el
     /// bootstrap re-cree la categoría con su nombre de fábrica tras un rename.
     var seedName: String?
+    var seedParentName: String? = nil
+    var seedKindRaw: String? = nil
     /// Tinte del badge en formato "#RRGGBB"; nil = color automático por nombre.
     var tintHex: String?
     var updatedAt: Date
@@ -53,16 +55,22 @@ enum CategoryCustomizationStore {
 
     // MARK: Escritura
 
-    static func replace(with catalog: CategoryCustomizationCatalog, at fileURL: URL? = nil) throws {
+    static func replace(with catalog: CategoryCustomizationCatalog, at fileURL: URL? = nil, notify: Bool = true) throws {
         guard catalog.schemaVersion == 1 else {
             throw StoreError.invalid(["versión de archivo desconocida (\(catalog.schemaVersion))"])
         }
-        try write(normalized(catalog), to: try fileURL ?? defaultURL())
+        try write(normalized(catalog), to: try fileURL ?? defaultURL(), notify: notify)
     }
 
-    static func setSeedName(categoryID: UUID, seedName: String, at fileURL: URL? = nil) throws {
-        try mutate(categoryID: categoryID, at: fileURL) { entry in
+    static func setSeedName(categoryID: UUID, seedName: String, parentName: String? = nil,
+                            kindRaw: String? = nil, at fileURL: URL? = nil, notify: Bool = true) throws {
+        try mutate(categoryID: categoryID, at: fileURL, notify: notify) { entry in
+            // A visible name that later happens to match another seed is not
+            // a new identity. Origin is immutable once recorded.
+            guard entry.seedName == nil else { return }
             entry.seedName = seedName
+            entry.seedParentName = parentName
+            entry.seedKindRaw = kindRaw
         }
     }
 
@@ -80,29 +88,40 @@ enum CategoryCustomizationStore {
 
     // MARK: Merge / reset
 
-    static func merge(_ incoming: CategoryCustomizationCatalog, at fileURL: URL? = nil) throws {
+    @discardableResult
+    static func merge(_ incoming: CategoryCustomizationCatalog, at fileURL: URL? = nil, notify: Bool = true) throws -> [String] {
         guard incoming.schemaVersion == 1 else {
             throw StoreError.invalid(["versión de archivo desconocida (\(incoming.schemaVersion))"])
         }
         let url = try fileURL ?? defaultURL()
         var current = try read(fileURL: url)
+        var conflicts = 0
         var byCategory = Dictionary(current.entries.map { ($0.categoryID, $0) },
                                     uniquingKeysWith: { first, _ in first })
         for candidate in incoming.entries {
-            if let existing = byCategory[candidate.categoryID],
-               !displaces(candidate, existing) { continue }
-            byCategory[candidate.categoryID] = candidate
+            if let existing = byCategory[candidate.categoryID] {
+                if candidate.updatedAt == existing.updatedAt && candidate != existing { conflicts += 1 }
+                guard displaces(candidate, existing) else { continue }
+                var winner = candidate
+                // A newer tint cannot erase an established seed identity.
+                winner.seedName = existing.seedName ?? candidate.seedName
+                winner.seedParentName = existing.seedParentName ?? candidate.seedParentName
+                winner.seedKindRaw = existing.seedKindRaw ?? candidate.seedKindRaw
+                byCategory[candidate.categoryID] = winner
+            } else { byCategory[candidate.categoryID] = candidate }
         }
         current.entries = byCategory.values.sorted { $0.categoryID.uuidString < $1.categoryID.uuidString }
         current.updatedAt = max(current.updatedAt, incoming.updatedAt)
-        try write(current, to: url)
+        try write(current, to: url, notify: notify)
+        return conflicts == 0 ? [] : ["\(conflicts) conflictos de categorías con fecha idéntica: se conservó la versión local."]
     }
 
-    static func reset(fileURL: URL? = nil) throws {
+    static func reset(fileURL: URL? = nil, notify: Bool = true) throws {
         let url = try fileURL ?? defaultURL()
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
+        if notify { NotificationCenter.default.post(name: didChangeNotification, object: url) }
     }
 
     // MARK: Ubicación
@@ -126,20 +145,22 @@ enum CategoryCustomizationStore {
 
     // MARK: Privado
 
-    private static func mutate(categoryID: UUID, at fileURL: URL?,
+    private static func mutate(categoryID: UUID, at fileURL: URL?, notify: Bool = true,
                                change: (inout CategoryCustomization) -> Void) throws {
         let url = try fileURL ?? defaultURL()
         var catalog = try read(fileURL: url)
         var entry = catalog.entries.first { $0.categoryID == categoryID }
             ?? CategoryCustomization(categoryID: categoryID, seedName: nil, tintHex: nil,
                                      updatedAt: Date.distantPast, deletedAt: nil)
+        let previous = entry
         change(&entry)
-        entry.updatedAt = .now
+        guard entry != previous || entry.deletedAt != nil else { return }
+        entry.updatedAt = PersistedMutationClock.next(after: entry.updatedAt)
         entry.deletedAt = nil
         catalog.entries.removeAll { $0.categoryID == categoryID }
         catalog.entries.append(entry)
-        catalog.updatedAt = .now
-        try write(catalog, to: url)
+        catalog.updatedAt = max(catalog.updatedAt, entry.updatedAt)
+        try write(catalog, to: url, notify: notify)
     }
 
     private static func normalized(_ catalog: CategoryCustomizationCatalog) -> CategoryCustomizationCatalog {
@@ -161,13 +182,13 @@ enum CategoryCustomizationStore {
         return candidate.categoryID.uuidString > existing.categoryID.uuidString
     }
 
-    private static func write(_ catalog: CategoryCustomizationCatalog, to url: URL) throws {
+    private static func write(_ catalog: CategoryCustomizationCatalog, to url: URL, notify: Bool = true) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
         try encoder.encode(truncatingDatesToWholeSeconds(catalog)).write(to: url, options: .atomic)
-        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        if notify { NotificationCenter.default.post(name: didChangeNotification, object: url) }
     }
 
     /// Segundos enteros en archivo local y bundle (paridad de precisión al

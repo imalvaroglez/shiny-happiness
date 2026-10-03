@@ -148,7 +148,13 @@ def load_dataset(bundle: Optional[Path] = None) -> Dict[str, Any]:
     models["CategoryCustomization"] = _load_model(bundle, "CategoryCustomization")
 
     accounts = {a["id"]: a for a in models["Account"]}
-    categories = {c["id"]: c for c in models["Category"]}
+    customizations = (
+        models["CategoryCustomization"][0].get("entries", []) if models["CategoryCustomization"] else []
+    )
+    origins = {c["categoryID"]: c["seedName"] for c in customizations
+               if c.get("seedName") and not c.get("deletedAt")}
+    categories = {c["id"]: {**c, "semanticName": origins.get(c["id"], c.get("name", ""))}
+                  for c in models["Category"]}
     plans = {p["id"]: p for p in models["InstallmentPlan"]}
 
     return {

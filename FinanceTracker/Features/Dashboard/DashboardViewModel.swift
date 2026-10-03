@@ -594,10 +594,10 @@ final class DashboardViewModel {
             }
 
             if !tx.isDuplicate {
-                if tx.category?.name == "Interest", tx.amount > 0, !classification.countsAsInvestmentReturn {
+                if CategorySemanticIdentity.matches(tx.category, name: "Interest"), tx.amount > 0, !classification.countsAsInvestmentReturn {
                     interestEarned += tx.amount
                 }
-                if tx.category?.name == "Interest Charges", tx.amount < 0 {
+                if CategorySemanticIdentity.matches(tx.category, name: "Interest Charges"), tx.amount < 0 {
                     interestCharged += abs(tx.amount)
                 }
             }

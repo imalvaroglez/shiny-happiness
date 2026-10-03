@@ -58,10 +58,11 @@ struct AppDataResetService {
         try deletePersistentModels(from: context)
         try context.save()
         try verifyCleanSlate(context: context)
-        try SeedDataLoader.bootstrapIfNeeded(context: context)
+        ManualCaptureDateStore.reset()
         try SpendRequirementStore.reset(fileURL: spendRequirementsURL)
         try PromotionLedgerStore.reset(fileURL: promotionLedgerURL)
         try CategoryCustomizationStore.reset(fileURL: categoryCustomizationURL)
+        try SeedDataLoader.bootstrapIfNeeded(context: context, customizationURL: categoryCustomizationURL)
     }
 
     static func repairIncompleteResetIfNeeded(context: ModelContext) throws -> ResetRepairOutcome {

@@ -1,5 +1,17 @@
 import SwiftUI
 
+/// One column contract for headers and rows, including an empty promotion slot.
+private enum TransactionLedgerLayout {
+    static let spacing: CGFloat = 10
+    static let leading: CGFloat = 54
+    static let movement: CGFloat = 120
+    static let account: CGFloat = 142
+    static let category: CGFloat = 148
+    static let household: CGFloat = 24
+    static let promotion: CGFloat = 36
+    static let amount: CGFloat = 142
+}
+
 struct TransactionLedgerRow: View {
     let transaction: Transaction
     let isDeletedMode: Bool
@@ -71,9 +83,9 @@ struct TransactionLedgerRow: View {
     }
 
     private var wideRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: TransactionLedgerLayout.spacing) {
             leadingMark
-                .frame(width: 54, alignment: .leading)
+                .frame(width: TransactionLedgerLayout.leading, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(primaryLabel)
@@ -87,26 +99,27 @@ struct TransactionLedgerRow: View {
                         .lineLimit(1)
                 }
             }
-            .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: TransactionLedgerLayout.movement, maxWidth: .infinity, alignment: .leading)
 
             if showsAccount {
                 Text(transaction.account?.displayName ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .frame(width: 142, alignment: .leading)
+                    .frame(width: TransactionLedgerLayout.account, alignment: .leading)
             }
 
             categoryChip
-                .frame(width: 148, alignment: .leading)
+                .frame(width: TransactionLedgerLayout.category, alignment: .leading)
 
             householdIndicator
-                .frame(width: 24)
+                .frame(width: TransactionLedgerLayout.household)
 
             promotionBadge
+                .frame(width: TransactionLedgerLayout.promotion)
 
             amountLabel
-                .frame(width: 142, alignment: .trailing)
+                .frame(width: TransactionLedgerLayout.amount, alignment: .trailing)
         }
     }
 
@@ -238,38 +251,53 @@ struct TransactionLedgerColumnHeader: View {
     var showsAccount: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            Color.clear.frame(width: 54)
+        HStack(spacing: TransactionLedgerLayout.spacing) {
+            Color.clear.frame(width: TransactionLedgerLayout.leading)
             Text("Movement")
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: TransactionLedgerLayout.movement, maxWidth: .infinity, alignment: .leading)
             if showsAccount {
                 Text("Account")
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(width: 142, alignment: .leading)
+                .frame(width: TransactionLedgerLayout.account, alignment: .leading)
             }
             Text("Category")
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(width: 148, alignment: .leading)
+                .frame(width: TransactionLedgerLayout.category, alignment: .leading)
             Image(systemName: "house")
                 .accessibilityLabel("Household")
-                .frame(width: 24)
+                .frame(width: TransactionLedgerLayout.household)
             // Placeholder del badge de promoción (◆N) para mantener «Amount»
             // alineada con las filas adjudicadas.
-            Color.clear.frame(width: 36)
+            Color.clear.frame(width: TransactionLedgerLayout.promotion)
             Text("Amount")
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(width: 142, alignment: .trailing)
+                .frame(width: TransactionLedgerLayout.amount, alignment: .trailing)
         }
-        .dynamicTypeSize(...(.large))
         .font(.caption2.weight(.medium))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .background(.bar)
     }
+}
+
+
+#Preview("Mixed promotion badges, large text") {
+    VStack(spacing: 0) {
+        TransactionLedgerColumnHeader(showsAccount: true)
+        ForEach([0, 1, 12], id: \.self) { count in
+            TransactionLedgerRow(transaction: Transaction(postedAt: .now, amount: -1234,
+                descriptionRaw: "Compra con badge \(count)"), isDeletedMode: false,
+                wideLayout: true, promotionCount: count,
+                onOpenDetail: {}, onOpenCategoryPicker: {}, onDelete: {}, onRestore: {}, onApplyToSimilar: {})
+        }
+    }
+    .dynamicTypeSize(.accessibility2)
+    .frame(width: 1050)
+    .padding()
 }

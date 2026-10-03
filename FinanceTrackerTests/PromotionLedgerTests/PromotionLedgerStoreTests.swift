@@ -384,3 +384,27 @@ struct PromotionLedgerStoreTests {
         #expect(pair[0].updatedAt == date("2026-09-20T00:00:00"))
     }
 }
+
+
+extension PromotionLedgerStoreTests {
+    @Test("Rapid edits and tombstones survive a merge of a newer backup")
+    func rapidEditsSurviveMerge() throws {
+        let id = UUID()
+        let initial = promo(id: id, name: "Old", updatedAt: .now)
+        try PromotionLedgerStore.save(promotion: initial, at: url)
+        let old = try PromotionLedgerStore.read(fileURL: url)
+        var edited = initial
+        edited.name = "New"
+        try PromotionLedgerStore.save(promotion: edited, at: url)
+        let newer = try PromotionLedgerStore.read(fileURL: url)
+        #expect(newer.promotions[0].updatedAt > old.promotions[0].updatedAt)
+        try PromotionLedgerStore.replace(with: old, at: url)
+        try PromotionLedgerStore.merge(newer, at: url)
+        #expect(try PromotionLedgerStore.read(fileURL: url).promotions[0].name == "New")
+        try PromotionLedgerStore.deletePromotion(id: id, at: url)
+        let tombstone = try PromotionLedgerStore.read(fileURL: url)
+        try PromotionLedgerStore.replace(with: newer, at: url)
+        try PromotionLedgerStore.merge(tombstone, at: url)
+        #expect(try PromotionLedgerStore.read(fileURL: url).promotions[0].deletedAt != nil)
+    }
+}

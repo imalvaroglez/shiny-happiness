@@ -129,15 +129,16 @@ struct TransactionsView: View {
     /// Cuántas promos vivas tiene cada tx (badge discreto en la fila). Las
     /// adjudicaciones a promos eliminadas son huérfanas: no cuentan aquí
     /// (se retiran desde Settings → Adjudicaciones huérfanas).
-    private var promotionCountsByTransaction: [UUID: Int] {
-        let livePromotionIDs = Set(promotionsModel.ledger.promotions
-            .filter { $0.deletedAt == nil }.map(\.id))
-        var counts: [UUID: Int] = [:]
-        for attribution in promotionsModel.ledger.attributions
-        where attribution.deletedAt == nil && livePromotionIDs.contains(attribution.promotionID) {
-            counts[attribution.transactionID, default: 0] += 1
+    @State private var promotionCountsByTransaction: [UUID: Int] = [:]
+
+    private func refreshPromotionCounts() {
+        promotionsModel.reload(context: modelContext, includeTransactions: false)
+        let live = Set(promotionsModel.ledger.promotions.filter { $0.deletedAt == nil }.map(\.id))
+        promotionCountsByTransaction = promotionsModel.ledger.attributions.reduce(into: [:]) { counts, attribution in
+            if attribution.deletedAt == nil && live.contains(attribution.promotionID) {
+                counts[attribution.transactionID, default: 0] += 1
+            }
         }
-        return counts
     }
 
     private func ledgerRow(for tx: Transaction, wideLayout: Bool) -> some View {
@@ -381,10 +382,10 @@ struct TransactionsView: View {
             consumePresetIfNeeded()
             fetchTransactions()
             recomputeDisplay()
-            promotionsModel.reload(context: modelContext)
+            refreshPromotionCounts()
         }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
-            promotionsModel.reload(context: modelContext)
+            refreshPromotionCounts()
         }
         .onReceive(NotificationCenter.default.publisher(for: CategoryCustomizationStore.didChangeNotification)) { _ in
             categoryTintTick &+= 1

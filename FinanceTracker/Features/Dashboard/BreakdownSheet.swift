@@ -370,7 +370,7 @@ extension BreakdownSheet {
     static func includesInInterestBreakdown(_ tx: Transaction) -> Bool {
         !tx.isDuplicate
             && !classifier.classify(transaction: tx).countsAsInvestmentReturn
-            && tx.category?.name == "Interest"
+            && CategorySemanticIdentity.matches(tx.category, name: "Interest")
             && tx.amount > 0
     }
 

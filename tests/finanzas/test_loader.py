@@ -152,3 +152,14 @@ def test_writeback_rejects_unsupported_schema(tmp_path: Path) -> None:
 
     with pytest.raises(writeback.WritebackError, match="schemaVersion=8"):
         writeback.apply_recategorizations(dataset, [{"id": "transaction-1", "categoryId": None}])
+
+
+def test_renamed_category_keeps_semantic_identity_without_mutating_snapshots(tmp_path: Path) -> None:
+    bundle = make_backup(tmp_path, 11)
+    category_path = bundle / "models" / "Category.json"
+    raw = [{"id": "category-1", "name": "Comida", "kind": "expense"}]
+    category_path.write_text(json.dumps(raw), encoding="utf-8")
+    dataset = load.load_dataset(bundle)
+    assert dataset["categories"]["category-1"]["name"] == "Comida"
+    assert dataset["categories"]["category-1"]["semanticName"] == "Food & Drink"
+    assert dataset["models"]["Category"] == raw

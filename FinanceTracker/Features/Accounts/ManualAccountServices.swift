@@ -264,6 +264,7 @@ enum ManualTransactionService {
         )
         context.insert(tx)
         try context.save()
+        ManualCaptureDateStore.recordSuccessfulCapture(accountID: account.id, date: date)
         return tx
     }
 
@@ -336,6 +337,8 @@ enum ManualTransferService {
         context.insert(outflow)
         context.insert(inflow)
         try context.save()
+        ManualCaptureDateStore.recordSuccessfulCapture(accountID: source.id, date: date)
+        ManualCaptureDateStore.recordSuccessfulCapture(accountID: destination.id, date: date)
         return (outflow, inflow)
     }
 
@@ -460,24 +463,5 @@ extension AccountType {
         case .retirement: String(localized: "Retirement")
         case .other: String(localized: "Other")
         }
-    }
-}
-
-
-/// UX de captura consecutiva (petición del dueño, 2026-09-30): al añadir
-/// transacciones de días pasados hacia el presente, la siguiente en la misma
-/// cuenta hereda la fecha de la última manual guardada en vez de volver a hoy.
-enum ManualTransactionDateSuggestion {
-    /// `postedAt` de la última transacción manual viva de la cuenta (por
-    /// `lastModifiedAt`); nil si no hay ninguna — la hoja cae a `Date.now`.
-    /// Deriva de datos guardados: persiste entre aperturas y reinicios, y
-    /// solo avanza tras un guardado exitoso (una cancelación no cambia nada).
-    static func suggestedDate(accountID: UUID, in transactions: [Transaction]) -> Date? {
-        transactions
-            .filter {
-                $0.account?.id == accountID && $0.source == .manual && $0.deletedAt == nil
-            }
-            .max { $0.lastModifiedAt < $1.lastModifiedAt }?
-            .postedAt
     }
 }

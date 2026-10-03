@@ -289,7 +289,7 @@ enum HouseholdSettlementReportService {
         let monthStart = HouseholdPartnerIncomeService.monthStart(for: month)
         let input = reportInput(for: monthStart, context: context)
         let setup = overrideSetup ?? HouseholdSettlementSetup(HouseholdPartnerIncomeService.estimate(for: monthStart, context: context))
-        return HouseholdSettlementCalculator.build(monthStart: monthStart, transactions: input.transactions, dueDates: input.dueDates, setup: setup)
+        return HouseholdSettlementCalculator.build(monthStart: monthStart, transactions: input.transactions, dueDates: input.dueDates, setup: setup, seedNames: CategoryCustomizationState.shared.seedNames)
     }
 
     /// Full report input: posted-in-month transactions PLUS older Fer transactions
@@ -383,16 +383,17 @@ enum HouseholdSettlementReportService {
             monthStart: monthStart,
             transactions: transactions,
             dueDates: [:],
-            setup: HouseholdSettlementSetup(partnerIncomeEstimate: partnerIncomeEstimate)
+            setup: HouseholdSettlementSetup(partnerIncomeEstimate: partnerIncomeEstimate),
+            seedNames: CategoryCustomizationState.shared.seedNames
         )
     }
 
     static func build(monthStart: Date, transactions: [Transaction], setup: HouseholdSettlementSetup) -> HouseholdSettlementReport {
-        HouseholdSettlementCalculator.build(monthStart: monthStart, transactions: transactions, dueDates: [:], setup: setup)
+        HouseholdSettlementCalculator.build(monthStart: monthStart, transactions: transactions, dueDates: [:], setup: setup, seedNames: CategoryCustomizationState.shared.seedNames)
     }
 
     static func build(monthStart: Date, transactions: [Transaction], dueDates: [UUID: Date], setup: HouseholdSettlementSetup) -> HouseholdSettlementReport {
-        HouseholdSettlementCalculator.build(monthStart: monthStart, transactions: transactions, dueDates: dueDates, setup: setup)
+        HouseholdSettlementCalculator.build(monthStart: monthStart, transactions: transactions, dueDates: dueDates, setup: setup, seedNames: CategoryCustomizationState.shared.seedNames)
     }
 
     static func isSettlementEligible(_ transaction: Transaction) -> Bool {
@@ -459,10 +460,10 @@ enum HouseholdAllocationRepairService {
 }
 
 enum HouseholdSettlementCalculator {
-    static func build(monthStart: Date, transactions: [Transaction], dueDates: [UUID: Date], setup: HouseholdSettlementSetup) -> HouseholdSettlementReport {
+    static func build(monthStart: Date, transactions: [Transaction], dueDates: [UUID: Date], setup: HouseholdSettlementSetup, seedNames: [UUID: String] = [:]) -> HouseholdSettlementReport {
         let classifier = TransactionClassifier()
         let detectedSalary = transactions
-            .filter { classifier.classify(transaction: $0).countsAsRegularIncome && isSalaryIncome($0) }
+            .filter { classifier.classify(transaction: $0).countsAsRegularIncome && isSalaryIncome($0, seedNames: seedNames) }
             .reduce(Decimal.zero) { $0 + $1.amount }
         let userSalary = setup.useUserIncomeManualOverride ? max(0, setup.userIncomeManualOverride ?? 0) : detectedSalary
         let monthlyShares = shares(
@@ -626,10 +627,10 @@ enum HouseholdSettlementCalculator {
         )
     }
 
-    private static func isSalaryIncome(_ transaction: Transaction) -> Bool {
+    private static func isSalaryIncome(_ transaction: Transaction, seedNames: [UUID: String]) -> Bool {
         guard let category = transaction.category,
               category.kind == .income else { return false }
-        let normalized = category.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalized = (seedNames[category.id] ?? category.name).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalized == "salary" || normalized == "compensation"
     }
 }

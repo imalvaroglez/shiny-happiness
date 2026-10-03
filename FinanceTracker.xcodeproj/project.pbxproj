@@ -33,6 +33,8 @@
 		1F2CF76C2BFFDCB46B9B4D84 /* Transaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1B2E8CD13E70631FA2725B /* Transaction.swift */; };
 		1F88CCE63E444338CA94C571 /* NetWorthComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B3DB4EFC9D0A19A507E597C /* NetWorthComposition.swift */; };
 		1F8B12CA89D3CA8BCA7DD553 /* SPEIDestinationRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA788084B77DC6E285F0C75B /* SPEIDestinationRulesTests.swift */; };
+		2527210191B21A7F8E3D1F3E /* ManualCaptureDateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3F63CCAA9EDC7AEF84A84B /* ManualCaptureDateStore.swift */; };
+		25D763B153115C01306ACCBA /* PromotionEditorInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1FD10AA79270231875467FE /* PromotionEditorInput.swift */; };
 		26C6365B1AA0E59F0AB5DF02 /* DashboardSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7205046DB5CF280B9AEB4B0C /* DashboardSnapshot.swift */; };
 		28CFB65427CC278E70D2B69A /* CategoryCustomizationStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C89404D9A5CEE8DAE00A4B9 /* CategoryCustomizationStoreTests.swift */; };
 		2B21908308E34E24128725C8 /* amount_conventions.json in Resources */ = {isa = PBXBuildFile; fileRef = A43EB1070F820ABB2DD25DF6 /* amount_conventions.json */; };
@@ -87,12 +89,14 @@
 		5EA6CD0FEDA323E96AD71541 /* PromotionLedgerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919E81C62A36EA3C2FCA286A /* PromotionLedgerStore.swift */; };
 		5FC71C112BCE91D414AEEC14 /* SignRecoveryHint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD9346479E8E084E76AE432 /* SignRecoveryHint.swift */; };
 		60A228E6A9826A4844F8B199 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 4A93E730E5933EB299BC6D93 /* Localizable.strings */; };
+		60DC122E6E47C0E7879ED964 /* SidecarFileTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337B47820C2F3739E832D88B /* SidecarFileTransaction.swift */; };
 		6383BECC39BB996521430044 /* PaymentMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1209A83421ACFB92621BC0 /* PaymentMetadataTests.swift */; };
 		63AA955FDFE1C8C6C5D48E60 /* AssetAccountDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D680EB20FEC4BA16E9DFE371 /* AssetAccountDashboard.swift */; };
 		64095A65C6715474C195E757 /* PromotionLedgerEntryMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2A35E30B5B49887652A3D7 /* PromotionLedgerEntryMappingTests.swift */; };
 		66B3D86239B373D1126F9E10 /* ColumnDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180C8C80B7814CCAC01438A1 /* ColumnDetectorTests.swift */; };
 		67C2E17E0F840DEB49B58867 /* Category.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5968E2E2BFBEF7C9DA25BE07 /* Category.swift */; };
 		68A4A8A4C4531FC28A47D40A /* CategoryPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B57D80A4E755ED722BD76906 /* CategoryPickerView.swift */; };
+		6B00DE94E960345D1DF08086 /* PRChainPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A342F54687785E5240D68370 /* PRChainPerformanceTests.swift */; };
 		6B10DFBF6B32F7DB37BB4991 /* RawTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 084ECD2379C85611D120A356 /* RawTransaction.swift */; };
 		6C2466F189D75B6D915712E6 /* CategoryChartPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8034482DD34FC902C348F89 /* CategoryChartPaletteTests.swift */; };
 		6C536F153D2CE8B50657000A /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8573C4DA0BD52C0E219ABFF9 /* Logger.swift */; };
@@ -106,6 +110,7 @@
 		798FE5D9B436BD3A4752FE70 /* CategoryRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8CAC530D7C3B6C3DC4CA9F1 /* CategoryRecoveryTests.swift */; };
 		7A1E46965211B5E0D5E54976 /* PDFTextExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EB1B45283865642475E879C /* PDFTextExtractor.swift */; };
 		7C109427A17BB355869F89ED /* CategoryBadgeColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DD59B22E4D0D8F119D3DFD8 /* CategoryBadgeColor.swift */; };
+		7C34A8AD5ECF3A9D3159D237 /* CategoryCustomizationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9E50E2730A222AAB7A85809 /* CategoryCustomizationState.swift */; };
 		7CB1F81CCB8BFCF3415EA9A5 /* CashFlowExclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6413C1BCA04D30478DFBF64C /* CashFlowExclusionTests.swift */; };
 		7CD3B4515A778A0374791688 /* IngestReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32404A690D984E7DF6570FE /* IngestReport.swift */; };
 		7D0E96AE5660552618295297 /* SectionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABEDFC6BADAB0B0639C63F9A /* SectionCard.swift */; };
@@ -146,6 +151,7 @@
 		A7B77FBB5DFE9B4F07E0CF2B /* ManualTransactionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F8ED358579DEC7AE7B694B /* ManualTransactionSheet.swift */; };
 		A80162D0C239BF1AE0375EC1 /* CategoryKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BAE6FB9D105F2781DB4D41F /* CategoryKind.swift */; };
 		A8673BA78E81CC0A7D259408 /* ClipboardWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43941B090D8E417AEB4B7417 /* ClipboardWriter.swift */; };
+		A9CA503A3F12EE3B8A8F5E3E /* CategoryIdentityRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 908D325A91CE03ABAE28A870 /* CategoryIdentityRegressionTests.swift */; };
 		ACB807F4D353F26FD4B4624F /* BackupFolderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF0477323AE5619EFA584E0E /* BackupFolderStore.swift */; };
 		ACFEAAED6B529403CCDD9B4F /* Deduplicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2C79047686612150D874D7 /* Deduplicator.swift */; };
 		ADDAE0B5F66AF87B9D3BD7E9 /* PortfolioDashboardCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F029C5D7B128344514829E38 /* PortfolioDashboardCopyTests.swift */; };
@@ -160,6 +166,7 @@
 		B9EABF2891A45A74F37B3BA0 /* BreakdownSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2628B229834D66AE814FB1EF /* BreakdownSheet.swift */; };
 		BEFBD7ED5803C6E6E3AEB32B /* AmexMetadataParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5388DFE498560A674C872D8 /* AmexMetadataParserTests.swift */; };
 		BF07D5A0AA6A639CB64E46BD /* PaymentDueDisplayStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B30AF1EAA22404F0B2B8511 /* PaymentDueDisplayStateTests.swift */; };
+		BF3EF732B10F7A3697E31262 /* PromotionEditorInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668B857C695AFCDF59EE2D2E /* PromotionEditorInputTests.swift */; };
 		C0501C40578DEB2AEFD05C44 /* AccountLiquidity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CDEB8E37703194B433674EE /* AccountLiquidity.swift */; };
 		C0CFAF4A4EC674DC54253F0D /* LiabilityAccountDashboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC84686681848248F854973E /* LiabilityAccountDashboard.swift */; };
 		C154ACF836F15C44334268FC /* TransactionDayGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28BAFAC3B3593F82B409FC15 /* TransactionDayGroup.swift */; };
@@ -263,6 +270,7 @@
 		3174AC8C2A5CBCCE2AB122D8 /* SpendRequirementStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendRequirementStore.swift; sourceTree = "<group>"; };
 		31E69074CC39EE81C9890E73 /* DashboardPeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardPeriod.swift; sourceTree = "<group>"; };
 		333B96563F77F1263638F894 /* MultiHSBCAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiHSBCAccountTests.swift; sourceTree = "<group>"; };
+		337B47820C2F3739E832D88B /* SidecarFileTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarFileTransaction.swift; sourceTree = "<group>"; };
 		351E33DCF6AA0B9CD19A5F6D /* SpendRequirementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendRequirementTests.swift; sourceTree = "<group>"; };
 		36341C3C6BDFE7D5721CAF6C /* PastedHsbc2NowParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastedHsbc2NowParser.swift; sourceTree = "<group>"; };
 		38B807CA5F0B3CAB0EBF0024 /* NormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NormalizerTests.swift; sourceTree = "<group>"; };
@@ -290,6 +298,7 @@
 		5E31BC464A71CD5263D32CFD /* DataHealthSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataHealthSummary.swift; sourceTree = "<group>"; };
 		62C7D882BEF6682B5A31ADDE /* FinanceTracker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FinanceTracker.entitlements; sourceTree = "<group>"; };
 		6413C1BCA04D30478DFBF64C /* CashFlowExclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CashFlowExclusionTests.swift; sourceTree = "<group>"; };
+		668B857C695AFCDF59EE2D2E /* PromotionEditorInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromotionEditorInputTests.swift; sourceTree = "<group>"; };
 		672775DA320EEBEDEF167921 /* TransactionClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionClassifier.swift; sourceTree = "<group>"; };
 		67DCEB0832ADA26837DC4401 /* RetirementDashboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetirementDashboardTests.swift; sourceTree = "<group>"; };
 		6813D29124C05045CEDD6125 /* StructuralParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralParserTests.swift; sourceTree = "<group>"; };
@@ -325,6 +334,7 @@
 		8D6CF100B0E88A7CD064C9C1 /* CategoryManagementViewStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryManagementViewStateTests.swift; sourceTree = "<group>"; };
 		8DD59B22E4D0D8F119D3DFD8 /* CategoryBadgeColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryBadgeColor.swift; sourceTree = "<group>"; };
 		8E285B0E8F12DCECA19A8F97 /* MetricChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricChip.swift; sourceTree = "<group>"; };
+		908D325A91CE03ABAE28A870 /* CategoryIdentityRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryIdentityRegressionTests.swift; sourceTree = "<group>"; };
 		911C0B681D74C9CCC271C0CA /* StatementBalanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementBalanceTests.swift; sourceTree = "<group>"; };
 		919E81C62A36EA3C2FCA286A /* PromotionLedgerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromotionLedgerStore.swift; sourceTree = "<group>"; };
 		9246E2DCF146303197C41581 /* PaymentDetailsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaymentDetailsSheet.swift; sourceTree = "<group>"; };
@@ -341,6 +351,7 @@
 		9E4BE0266F3DA957DDA0B8E0 /* DataBursatilClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataBursatilClientTests.swift; sourceTree = "<group>"; };
 		9F208E365E81EBE4E7DD2591 /* BackupScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupScheduler.swift; sourceTree = "<group>"; };
 		A24A6CE11C6370FEE1842953 /* BackupArchiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupArchiveTests.swift; sourceTree = "<group>"; };
+		A342F54687785E5240D68370 /* PRChainPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PRChainPerformanceTests.swift; sourceTree = "<group>"; };
 		A43EB1070F820ABB2DD25DF6 /* amount_conventions.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = amount_conventions.json; sourceTree = "<group>"; };
 		A4A44210612FDD708268A9C6 /* OpenbankMultiAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenbankMultiAccountTests.swift; sourceTree = "<group>"; };
 		A597EF9FEFE3473730377F78 /* CategoryManagementActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryManagementActions.swift; sourceTree = "<group>"; };
@@ -370,11 +381,13 @@
 		BB808F813CAADB72059B7BF1 /* FixtureLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureLoader.swift; sourceTree = "<group>"; };
 		BBCFB99BB78FEEA517AB0DED /* ImportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportViewModel.swift; sourceTree = "<group>"; };
 		C0664C67C3365097C1B6135A /* PromotionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromotionViews.swift; sourceTree = "<group>"; };
+		C1FD10AA79270231875467FE /* PromotionEditorInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromotionEditorInput.swift; sourceTree = "<group>"; };
 		C23123DADD25D7251F027568 /* Date+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Date+Presentation.swift"; sourceTree = "<group>"; };
 		C365A42008157D3C59E87ED2 /* CategoryCustomizationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryCustomizationStore.swift; sourceTree = "<group>"; };
 		C377B11E49DF2A1F59DF0A87 /* PasteImportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteImportSheet.swift; sourceTree = "<group>"; };
 		C5819A4B49AB20A4F7212123 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C993AEDD0F93127B9F78877C /* HouseholdSettlementKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HouseholdSettlementKind.swift; sourceTree = "<group>"; };
+		C9E50E2730A222AAB7A85809 /* CategoryCustomizationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryCustomizationState.swift; sourceTree = "<group>"; };
 		CAEDCA80068E4D32773C1FBF /* IncomingTransferRulesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncomingTransferRulesTests.swift; sourceTree = "<group>"; };
 		CBEE57BBEEF51DA2B47A58CC /* NetWorthCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetWorthCompositionTests.swift; sourceTree = "<group>"; };
 		CC84686681848248F854973E /* LiabilityAccountDashboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiabilityAccountDashboard.swift; sourceTree = "<group>"; };
@@ -408,6 +421,7 @@
 		EBCEED18EE482D8BB987BA43 /* CategoryRuleSourceTrackingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRuleSourceTrackingTests.swift; sourceTree = "<group>"; };
 		EC1B2E8CD13E70631FA2725B /* Transaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transaction.swift; sourceTree = "<group>"; };
 		ED26F454D1983B2A8414793D /* DateRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateRange.swift; sourceTree = "<group>"; };
+		ED3F63CCAA9EDC7AEF84A84B /* ManualCaptureDateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualCaptureDateStore.swift; sourceTree = "<group>"; };
 		EDCDD5AE41D0B0EF0DF03224 /* GlassCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassCard.swift; sourceTree = "<group>"; };
 		EE428DF09B8C498ED13287B0 /* Categorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Categorizer.swift; sourceTree = "<group>"; };
 		EECF81337602AAC245C6B517 /* CategoryPickerPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryPickerPerformanceTests.swift; sourceTree = "<group>"; };
@@ -456,6 +470,7 @@
 				9AC623F46B394D3223EDF31B /* AttributionSaverTests.swift */,
 				6FDCC1E1EA4B587691BFE65F /* PromotionAccumulatorTests.swift */,
 				0B02D96C14A4CFE070BA8CBF /* PromotionBoardTests.swift */,
+				668B857C695AFCDF59EE2D2E /* PromotionEditorInputTests.swift */,
 				6D2A35E30B5B49887652A3D7 /* PromotionLedgerEntryMappingTests.swift */,
 				9D08C409DEF2357BA340F345 /* PromotionLedgerStoreTests.swift */,
 				A89D2C43CCB22948FC84D7B7 /* PromotionWindowStateLabelTests.swift */,
@@ -571,11 +586,15 @@
 			children = (
 				1AE3A402ECAC8EDC5B7D22E7 /* AppDataResetService.swift */,
 				8DD59B22E4D0D8F119D3DFD8 /* CategoryBadgeColor.swift */,
+				C9E50E2730A222AAB7A85809 /* CategoryCustomizationState.swift */,
 				C365A42008157D3C59E87ED2 /* CategoryCustomizationStore.swift */,
 				C23123DADD25D7251F027568 /* Date+Presentation.swift */,
 				AAD06CB6E6BFF5D2DF2B332D /* KeychainTokenStore.swift */,
 				8573C4DA0BD52C0E219ABFF9 /* Logger.swift */,
+				ED3F63CCAA9EDC7AEF84A84B /* ManualCaptureDateStore.swift */,
+				C1FD10AA79270231875467FE /* PromotionEditorInput.swift */,
 				919E81C62A36EA3C2FCA286A /* PromotionLedgerStore.swift */,
+				337B47820C2F3739E832D88B /* SidecarFileTransaction.swift */,
 				3174AC8C2A5CBCCE2AB122D8 /* SpendRequirementStore.swift */,
 				D86529E2EA3D87647109F8D7 /* StoreFileResetService.swift */,
 			);
@@ -690,6 +709,7 @@
 				A24A6CE11C6370FEE1842953 /* BackupArchiveTests.swift */,
 				D8034482DD34FC902C348F89 /* CategoryChartPaletteTests.swift */,
 				5C89404D9A5CEE8DAE00A4B9 /* CategoryCustomizationStoreTests.swift */,
+				908D325A91CE03ABAE28A870 /* CategoryIdentityRegressionTests.swift */,
 				92E3281262428E4DA9DEBC6D /* CategoryManagementActionsTests.swift */,
 				8D6CF100B0E88A7CD064C9C1 /* CategoryManagementViewStateTests.swift */,
 				EECF81337602AAC245C6B517 /* CategoryPickerPerformanceTests.swift */,
@@ -706,6 +726,7 @@
 				807AA00A55D09F5CEFB799FB /* PortfolioPriceRefresherTests.swift */,
 				F9119EC0B299B814BC2A32E8 /* PortfolioResolverTests.swift */,
 				AF95B7EEEEE105DC5FD764E6 /* PortfolioServiceTests.swift */,
+				A342F54687785E5240D68370 /* PRChainPerformanceTests.swift */,
 				67DCEB0832ADA26837DC4401 /* RetirementDashboardTests.swift */,
 				0E18E82681373C8C536CE560 /* SettingsDataHealthTests.swift */,
 				351E33DCF6AA0B9CD19A5F6D /* SpendRequirementTests.swift */,
@@ -1085,6 +1106,7 @@
 				5A66C861137A24400C347A29 /* Categorizer.swift in Sources */,
 				67C2E17E0F840DEB49B58867 /* Category.swift in Sources */,
 				7C109427A17BB355869F89ED /* CategoryBadgeColor.swift in Sources */,
+				7C34A8AD5ECF3A9D3159D237 /* CategoryCustomizationState.swift in Sources */,
 				B35B2350B40D725BAA6AD74C /* CategoryCustomizationStore.swift in Sources */,
 				A80162D0C239BF1AE0375EC1 /* CategoryKind.swift in Sources */,
 				D81D3721DF4E349BB6094C14 /* CategoryManagementActions.swift in Sources */,
@@ -1132,6 +1154,7 @@
 				6C536F153D2CE8B50657000A /* Logger.swift in Sources */,
 				CEBCC41FFC6CD5B63B21A840 /* ManualAccountServices.swift in Sources */,
 				9585EEB8730553DB0A6F1BD1 /* ManualAccountSheet.swift in Sources */,
+				2527210191B21A7F8E3D1F3E /* ManualCaptureDateStore.swift in Sources */,
 				A7B77FBB5DFE9B4F07E0CF2B /* ManualTransactionSheet.swift in Sources */,
 				36F18F50AAB4C06BA8324702 /* MerchantExtractor.swift in Sources */,
 				098C90493B0CB3D2AEA48DD7 /* MetricChip.swift in Sources */,
@@ -1151,6 +1174,7 @@
 				3003ED18333E1D8232B783BF /* PortfolioService.swift in Sources */,
 				56597D61DB6C2B5B2EECAD42 /* PortfolioViewData.swift in Sources */,
 				71F615C11AC008A48311B679 /* PositionsEditSheet.swift in Sources */,
+				25D763B153115C01306ACCBA /* PromotionEditorInput.swift in Sources */,
 				D9DFC9FEC0241BC65CE1569D /* PromotionLedger.swift in Sources */,
 				5EA6CD0FEDA323E96AD71541 /* PromotionLedgerStore.swift in Sources */,
 				F95096E697E16A4F79228386 /* PromotionViews.swift in Sources */,
@@ -1162,6 +1186,7 @@
 				B01D3278C6D08E0511C69B09 /* SettingsView.swift in Sources */,
 				80DF556CC720CB606DF5E4E4 /* SettlementDueDateOverride.swift in Sources */,
 				1CF7CE6C48C20334EC74CD8E /* SettlementDueDateService.swift in Sources */,
+				60DC122E6E47C0E7879ED964 /* SidecarFileTransaction.swift in Sources */,
 				5FC71C112BCE91D414AEEC14 /* SignRecoveryHint.swift in Sources */,
 				EAA5F82ACA2104BB533A8E05 /* SpendRequirement.swift in Sources */,
 				40DBFF89632FF62D977B7A6A /* SpendRequirementEditorSheet.swift in Sources */,
@@ -1203,6 +1228,7 @@
 				6C2466F189D75B6D915712E6 /* CategoryChartPaletteTests.swift in Sources */,
 				97D1DF44D2A183EF1CD7D0D4 /* CategoryCorrectionTests.swift in Sources */,
 				28CFB65427CC278E70D2B69A /* CategoryCustomizationStoreTests.swift in Sources */,
+				A9CA503A3F12EE3B8A8F5E3E /* CategoryIdentityRegressionTests.swift in Sources */,
 				47307965BFF0C7242344F031 /* CategoryManagementActionsTests.swift in Sources */,
 				6DFE2DB85B4920EF6E018B70 /* CategoryManagementViewStateTests.swift in Sources */,
 				A165B4BB551EB7C129664652 /* CategoryPickerPerformanceTests.swift in Sources */,
@@ -1234,6 +1260,7 @@
 				2B541DA9B52145C4D8CE7533 /* NormalizerTests.swift in Sources */,
 				3218EB269C821EE5C6F62552 /* OpenbankMexicoParserTests.swift in Sources */,
 				E0B7636C75F0385A4FBB3534 /* OpenbankMultiAccountTests.swift in Sources */,
+				6B00DE94E960345D1DF08086 /* PRChainPerformanceTests.swift in Sources */,
 				374CBFF23B507C4FFB9E333B /* PastedHsbc2NowParserTests.swift in Sources */,
 				BF07D5A0AA6A639CB64E46BD /* PaymentDueDisplayStateTests.swift in Sources */,
 				6383BECC39BB996521430044 /* PaymentMetadataTests.swift in Sources */,
@@ -1244,6 +1271,7 @@
 				1D8C3F29D3E921820B600B1B /* PortfolioViewDataTests.swift in Sources */,
 				7F8BE081D1F8700D80A47DA7 /* PromotionAccumulatorTests.swift in Sources */,
 				0BED9051387B18A6F9859A54 /* PromotionBoardTests.swift in Sources */,
+				BF3EF732B10F7A3697E31262 /* PromotionEditorInputTests.swift in Sources */,
 				64095A65C6715474C195E757 /* PromotionLedgerEntryMappingTests.swift in Sources */,
 				10159DAFACB34C5ADFE78BF5 /* PromotionLedgerStoreTests.swift in Sources */,
 				1E5C960860AA1083A752C067 /* PromotionWindowStateLabelTests.swift in Sources */,
