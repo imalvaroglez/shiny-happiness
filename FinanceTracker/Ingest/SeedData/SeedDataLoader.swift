@@ -34,9 +34,27 @@ struct SeedDataLoader {
         let rules: [RuleJSON]
     }
 
-    static func bootstrapIfNeeded(context: ModelContext) throws {
+    /// Nombres de fábrica de categories.json (padres y subcategorías). El
+    /// rename los consulta para saber qué categorías deben registrar su
+    /// nombre original y no resucitar en el bootstrap.
+    static let seedCategoryNames: Set<String> = {
+        guard let url = Bundle.main.url(forResource: "categories", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let seed = try? JSONDecoder().decode(CategorySeedFile.self, from: data) else {
+            return []
+        }
+        var names = Set<String>()
+        for category in seed.categories {
+            names.insert(category.name)
+            names.formUnion(category.subcategories)
+        }
+        return names
+    }()
+
+    static func bootstrapIfNeeded(context: ModelContext, customizationURL: URL? = nil) throws {
         try context.transaction {
-            var categoriesByName = try buildExistingMap(context: context)
+            let customizations = try CategoryCustomizationStore.read(fileURL: customizationURL).entries
+            var categoriesByName = try buildExistingMap(context: context, customizations: customizations)
             try loadCategoriesIfNeeded(context: context, categoriesByName: &categoriesByName)
             try repairStaleCategoryKinds(context: context, categoriesByName: &categoriesByName)
             try repairDuplicateActiveCategories(context: context)
@@ -46,16 +64,33 @@ struct SeedDataLoader {
         }
     }
 
-    private static func buildExistingMap(context: ModelContext) throws -> [String: Category] {
+    private static func buildExistingMap(context: ModelContext,
+                                         customizations: [CategoryCustomization] = []) throws -> [String: Category] {
         let existing = try context.fetch(FetchDescriptor<Category>())
         var map: [String: Category] = [:]
+        // Alias por id: categorías renombradas que provenían del seed indexan
+        // SUS claves bajo el nombre original — el loader las encuentra y no
+        // re-crea el nombre de fábrica como duplicado.
+        var seedNameByCategoryID = Dictionary(
+            customizations.compactMap { entry in
+                entry.seedName.map { (entry.categoryID, $0) }
+            }, uniquingKeysWith: { first, _ in first })
         for cat in existing.sorted(by: categoryMapSort) {
             if let parent = cat.parent {
                 map[lookupKey(parentID: parent.id, name: cat.name, kind: cat.kind)] = cat
                 let path = "\(parent.name).\(cat.name)"
                 if map[path] == nil { map[path] = cat }
-            } else if map[rootKey(name: cat.name, kind: cat.kind)] == nil {
-                map[rootKey(name: cat.name, kind: cat.kind)] = cat
+                if let seedName = seedNameByCategoryID.removeValue(forKey: cat.id) {
+                    map[lookupKey(parentID: parent.id, name: seedName, kind: cat.kind)] = cat
+                }
+            } else {
+                if map[rootKey(name: cat.name, kind: cat.kind)] == nil {
+                    map[rootKey(name: cat.name, kind: cat.kind)] = cat
+                }
+                if let seedName = seedNameByCategoryID.removeValue(forKey: cat.id) {
+                    map[rootKey(name: seedName, kind: cat.kind)] = cat
+                    if map[seedName] == nil { map[seedName] = cat }
+                }
             }
             if cat.parent == nil, map[cat.name] == nil {
                 map[cat.name] = cat

@@ -81,6 +81,31 @@ struct CategoryManagementActions {
         try context.save()
     }
 
+    /// Renombra sin perder vínculos (transacciones y reglas van por relación/id).
+    /// Si la categoría provenía del seed, registra su nombre original en el
+    /// store de personalización para que el bootstrap de cada arranque NO la
+    /// resucite como duplicado.
+    @discardableResult
+    static func rename(_ category: Category, to newName: String, context: ModelContext,
+                       customizationURL: URL? = nil) throws -> Category {
+        let trimmed = newName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { throw CategoryManagementError.emptyName }
+        guard trimmed == category.name
+            || !isDuplicate(name: trimmed, kind: category.kind, parent: category.parent,
+                            context: context) else {
+            throw CategoryManagementError.duplicateName
+        }
+        if SeedDataLoader.seedCategoryNames.contains(category.name) {
+            try CategoryCustomizationStore.setSeedName(categoryID: category.id,
+                                                       seedName: category.name,
+                                                       at: customizationURL)
+        }
+        category.name = trimmed
+        category.touch()
+        try context.save()
+        return category
+    }
+
     static func isDuplicate(name: String, kind: CategoryKind, parent: Category?, context: ModelContext) -> Bool {
         guard let active = try? activeCategories(context: context) else { return false }
         if let parent {

@@ -292,4 +292,83 @@ struct CategoryManagementActionsTests {
         let isDup = CategoryManagementActions.isDuplicate(name: "Travel", kind: .expense, parent: nil, context: context)
         #expect(isDup == false, "Deleted category should not count as duplicate")
     }
+
+    // MARK: - Rename
+
+    @Test("Rename conserva los vínculos de transacciones y reglas")
+    func renameKeepsTransactionAndRuleLinks() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let parent = try CategoryManagementActions.createParent(name: "Food", kind: .expense, context: context)
+        let sub = try CategoryManagementActions.createSubcategory(parent: parent, name: "Groceries", context: context)
+        let account = Account(institution: "Test Bank", type: .checking, currency: "MXN", nickname: "C")
+        context.insert(account)
+        let tx = Transaction(account: account, postedAt: .now, amount: -100, currency: "MXN",
+                             descriptionRaw: "Compra")
+        tx.category = sub
+        context.insert(tx)
+        let rule = CategoryRule(patternRegex: "(?i)groceries", priority: 10)
+        rule.category = sub
+        context.insert(rule)
+        try context.save()
+
+        try CategoryManagementActions.rename(sub, to: "Despensa", context: context)
+
+        #expect(sub.name == "Despensa")
+        #expect(tx.category?.id == sub.id, "la tx sigue vinculada por id")
+        #expect(rule.category?.id == sub.id, "la regla sigue vinculada por id")
+        #expect(sub.parent?.id == parent.id)
+    }
+
+    @Test("Rename rechaza vacío y duplicado; el mismo nombre es no-op")
+    func renameValidation() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let parent = try CategoryManagementActions.createParent(name: "Food", kind: .expense, context: context)
+        let a = try CategoryManagementActions.createSubcategory(parent: parent, name: "A", context: context)
+        _ = try CategoryManagementActions.createSubcategory(parent: parent, name: "B", context: context)
+
+        await #expect(throws: CategoryManagementError.emptyName) {
+            try CategoryManagementActions.rename(a, to: "  ", context: context)
+        }
+        await #expect(throws: CategoryManagementError.duplicateName) {
+            try CategoryManagementActions.rename(a, to: "B", context: context)
+        }
+        try CategoryManagementActions.rename(a, to: "A", context: context)
+        #expect(a.name == "A")
+    }
+
+    @Test("Renombrar una categoría seed no la resucita el bootstrap")
+    func renamedSeedIsNotResurrectedByBootstrap() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let customizationURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rename-seed-\(UUID()).json")
+
+        try SeedDataLoader.bootstrapIfNeeded(context: context)
+        let food = try #require(
+            try CategoryManagementActions.activeCategories(context: context)
+                .first { $0.name == "Food & Drink" && $0.parent == nil })
+        let subCountBefore = try CategoryManagementActions.activeCategories(context: context)
+            .filter { $0.parent?.id == food.id }.count
+        #expect(subCountBefore > 0)
+
+        try CategoryManagementActions.rename(food, to: "Comida", context: context,
+                                              customizationURL: customizationURL)
+
+        // El bootstrap que corre en cada arranque NO debe volver a crear el
+        // nombre original como duplicado.
+        try SeedDataLoader.bootstrapIfNeeded(context: context, customizationURL: customizationURL)
+
+        let roots = try CategoryManagementActions.activeCategories(context: context)
+            .filter { $0.parent == nil }
+        #expect(roots.contains { $0.name == "Comida" })
+        #expect(!roots.contains { $0.name == "Food & Drink" },
+                "el seed renombrado no puede resucitar como duplicado")
+        #expect(try CategoryManagementActions.activeCategories(context: context)
+            .filter { $0.parent?.id == food.id }.count == subCountBefore,
+                "las subcategorías siguen colgando de la renombrada")
+    }
 }

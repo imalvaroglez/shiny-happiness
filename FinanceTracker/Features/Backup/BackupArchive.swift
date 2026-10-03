@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    nonisolated private static let schemaVersion = 10
+    nonisolated private static let schemaVersion = 11
     nonisolated private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -86,6 +86,13 @@ enum BackupArchive {
                   let snapshots = try? decoder.decode([PromotionLedger].self, from: ledgerData),
                   snapshots.count == 1 else { return false }
         }
+        if manifest.schemaVersion >= 11 {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let customData = arrayData(for: "CategoryCustomization", in: modelsDir),
+                  let snapshots = try? decoder.decode([CategoryCustomizationCatalog].self, from: customData),
+                  snapshots.count == 1 else { return false }
+        }
         return true
     }
 
@@ -115,11 +122,12 @@ enum BackupArchive {
         if schemaVersion >= 8 && schemaVersion < 10 { names.append("PromotionOverrides") }
         if schemaVersion >= 9 { names.append("SpendRequirement") }
         if schemaVersion >= 10 { names.append("PromotionLedger") }
+        if schemaVersion >= 11 { names.append("CategoryCustomization") }
         return names
     }
 
     static func export(to bundleURL: URL, from context: ModelContext, promotionLedgerURL: URL? = nil,
-                       spendRequirementsURL: URL? = nil) async throws {
+                       spendRequirementsURL: URL? = nil, categoryCustomizationURL: URL? = nil) async throws {
         let fm = FileManager.default
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
         let statementsDir = bundleURL.appendingPathComponent(statementsSubdirectory)
@@ -205,6 +213,8 @@ enum BackupArchive {
         // que ya no se exporta.
         try writeJSON("PromotionLedger",
                       [try PromotionLedgerStore.read(fileURL: promotionLedgerURL ?? PromotionLedgerStore.defaultURL())])
+        try writeJSON("CategoryCustomization",
+                      [try CategoryCustomizationStore.read(fileURL: categoryCustomizationURL ?? CategoryCustomizationStore.defaultURL())])
         let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
         try writeJSON("SpendRequirement", [try SpendRequirementStore.read(fileURL: spendStoreURL)])
 
@@ -232,14 +242,15 @@ enum BackupArchive {
     }
 
     static func restore(from bundleURL: URL, into context: ModelContext, strategy: RestoreStrategy,
-                        promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil) async throws {
+                        promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil,
+                        categoryCustomizationURL: URL? = nil) async throws {
         let fm = FileManager.default
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard (1...10).contains(manifest.schemaVersion) else {
+        guard (1...11).contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
         guard isValidBundle(manifest, at: bundleURL) else {
@@ -289,8 +300,9 @@ enum BackupArchive {
         } else {
             dueDateOverridesSnap = try loadOptionalJSON(SettlementDueDateOverrideSnapshot.self, "SettlementDueDateOverride")
         }
-        // Schema 10 introdujo el ledger de promociones; schemas 1–9 no lo traen
-        // (replaceAll lo vacía, merge conserva el local).
+        // Schema 10 introdujo el ledger de promociones y el 11 la personalización
+        // de categorías; los schemas anteriores no los traen (replaceAll los
+        // vacía, merge conserva los locales).
         let promotionLedgerSnap: PromotionLedger?
         if manifest.schemaVersion >= 10 {
             let snapshots = try loadJSON(PromotionLedger.self, "PromotionLedger")
@@ -298,6 +310,14 @@ enum BackupArchive {
             promotionLedgerSnap = snapshots.first
         } else {
             promotionLedgerSnap = nil
+        }
+        let categoryCustomizationSnap: CategoryCustomizationCatalog?
+        if manifest.schemaVersion >= 11 {
+            let snapshots = try loadJSON(CategoryCustomizationCatalog.self, "CategoryCustomization")
+            guard snapshots.count == 1 else { throw RestoreError.invalidBundle }
+            categoryCustomizationSnap = snapshots.first
+        } else {
+            categoryCustomizationSnap = nil
         }
         let spendRequirementsSnap: SpendRequirementSettings?
         if manifest.schemaVersion >= 9 {
@@ -694,6 +714,9 @@ enum BackupArchive {
         let ledgerURL = try promotionLedgerURL ?? PromotionLedgerStore.defaultURL()
         let currentLedger = try PromotionLedgerStore.read(fileURL: ledgerURL)
         let hadLedgerFile = FileManager.default.fileExists(atPath: ledgerURL.path)
+        let customURL = try categoryCustomizationURL ?? CategoryCustomizationStore.defaultURL()
+        let currentCustomization = try CategoryCustomizationStore.read(fileURL: customURL)
+        let hadCustomizationFile = FileManager.default.fileExists(atPath: customURL.path)
         let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
         let currentSpendRequirements = try SpendRequirementStore.read(fileURL: spendStoreURL)
         let hadSpendRequirementsFile = FileManager.default.fileExists(atPath: spendStoreURL.path)
@@ -709,6 +732,18 @@ enum BackupArchive {
             case .mergeKeepingNewer:
                 // Backup ≤9 sin ledger: el local se conserva íntegro (nada que mezclar).
                 if let promotionLedgerSnap { try PromotionLedgerStore.merge(promotionLedgerSnap, at: ledgerURL) }
+            }
+            switch strategy {
+            case .replaceAll:
+                if let categoryCustomizationSnap {
+                    try CategoryCustomizationStore.replace(with: categoryCustomizationSnap, at: customURL)
+                } else {
+                    try CategoryCustomizationStore.reset(fileURL: customURL)
+                }
+            case .mergeKeepingNewer:
+                if let categoryCustomizationSnap {
+                    try CategoryCustomizationStore.merge(categoryCustomizationSnap, at: customURL)
+                }
             }
             switch strategy {
             case .replaceAll:
@@ -732,6 +767,11 @@ enum BackupArchive {
                 try? PromotionLedgerStore.replace(with: currentLedger, at: ledgerURL)
             } else {
                 try? PromotionLedgerStore.reset(fileURL: ledgerURL)
+            }
+            if hadCustomizationFile {
+                try? CategoryCustomizationStore.replace(with: currentCustomization, at: customURL)
+            } else {
+                try? CategoryCustomizationStore.reset(fileURL: customURL)
             }
             if hadSpendRequirementsFile {
                 try? SpendRequirementStore.replace(with: currentSpendRequirements, at: spendStoreURL)

@@ -28,6 +28,7 @@ struct TransactionDetailSheet: View {
     @State private var draftCategory: Category?
     @State private var showingCategoryPicker = false
     @State private var promotionsModel = PromotionLedgerViewModel()
+    @State private var categoryTintTick = 0
     @State private var attributionError: String?
     @State private var pendingAttribution: (promotionID: UUID, isOn: Bool)?
 
@@ -101,6 +102,9 @@ struct TransactionDetailSheet: View {
         .task { promotionsModel.reload(context: modelContext) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
             promotionsModel.reload(context: modelContext)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CategoryCustomizationStore.didChangeNotification)) { _ in
+            categoryTintTick &+= 1
         }
         .sheet(isPresented: $showingCategoryPicker) {
             CategoryPickerView(transaction: transaction) { category, keyword in
@@ -492,7 +496,7 @@ struct TransactionDetailSheet: View {
             return .secondary
         }
         if let category = draftCategory {
-            return CategoryPalette.color(for: category.name)
+            return CategoryBadgeColor.color(for: category)
         }
         return .secondary
     }
@@ -502,7 +506,7 @@ struct TransactionDetailSheet: View {
         if let category = draftCategory {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(CategoryPalette.color(for: category.name))
+                    .fill(CategoryBadgeColor.color(for: category))
                     .frame(width: 8, height: 8)
                 Text(category.localizedName)
                     .font(.callout)

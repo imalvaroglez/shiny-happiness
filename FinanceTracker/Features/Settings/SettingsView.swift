@@ -102,6 +102,7 @@ struct SettingsView: View {
     @State private var categoryRecoveryBackupURL: URL?
     @State private var categoryRecoveryPreview: CategoryRecoveryService.Preview?
     @State private var categoryRecoveryStatus = ""
+    @State private var categoryEditError: String?
     @State private var categoryRecoveryIsBusy = false
     @State private var categoryRecoveryAccessActive = false
     @State private var showingCategoryRecoveryConfirmation = false
@@ -353,8 +354,34 @@ struct SettingsView: View {
                     onNewCategory: prepareNewCategory,
                     onCreateSubcategory: createSubcategoryIfValid,
                     onDeleteParent: requestDeleteParent,
-                    onDeleteSubcategory: requestDeleteSubcategory
+                    onDeleteSubcategory: requestDeleteSubcategory,
+                    onRename: { category, newName in
+                        do {
+                            try CategoryManagementActions.rename(category, to: newName, context: modelContext)
+                            categoryEditError = nil
+                        } catch {
+                            categoryEditError = "No se pudo renombrar: \(error.localizedDescription)"
+                        }
+                    },
+                    onTintChange: { category, color in
+                        do {
+                            if let color {
+                                try CategoryCustomizationStore.setTint(categoryID: category.id,
+                                                                        hex: color.hexString)
+                            } else {
+                                try CategoryCustomizationStore.clearTint(categoryID: category.id)
+                            }
+                            categoryEditError = nil
+                        } catch {
+                            categoryEditError = "No se pudo guardar el color: \(error.localizedDescription)"
+                        }
+                    }
                 )
+                if let categoryEditError {
+                    Text(categoryEditError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
             SectionCard(title: "Recover categories") {
                 VStack(alignment: .leading, spacing: 10) {
@@ -1401,10 +1428,15 @@ private struct CategoryManagementPanel: View {
     let onCreateSubcategory: (Category) -> Void
     let onDeleteParent: (Category) -> Void
     let onDeleteSubcategory: (Category, Category) -> Void
+    let onRename: (Category, String) -> Void
+    let onTintChange: (Category, Color?) -> Void
 
     @FocusState private var focusedField: CategoryPanelFocus?
     @State private var tree: CategoryManagementTree
     @State private var isTreeReady = false
+    @State private var renamingSubcategoryID: UUID?
+    @State private var renameDraft = ""
+    @State private var tintTick = 0
 
     init(
         categories: [Category],
@@ -1416,7 +1448,9 @@ private struct CategoryManagementPanel: View {
         onNewCategory: @escaping () -> Void,
         onCreateSubcategory: @escaping (Category) -> Void,
         onDeleteParent: @escaping (Category) -> Void,
-        onDeleteSubcategory: @escaping (Category, Category) -> Void
+        onDeleteSubcategory: @escaping (Category, Category) -> Void,
+        onRename: @escaping (Category, String) -> Void,
+        onTintChange: @escaping (Category, Color?) -> Void
     ) {
         self.categories = categories
         self._selectedCategoryID = selectedCategoryID
@@ -1428,6 +1462,8 @@ private struct CategoryManagementPanel: View {
         self.onCreateSubcategory = onCreateSubcategory
         self.onDeleteParent = onDeleteParent
         self.onDeleteSubcategory = onDeleteSubcategory
+        self.onRename = onRename
+        self.onTintChange = onTintChange
         self._tree = State(initialValue: CategoryManagementTree(categories: []))
     }
 
@@ -1472,6 +1508,10 @@ private struct CategoryManagementPanel: View {
         }
         .onChange(of: focusRequest) { _, _ in
             focusedField = .newSubcategoryName
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CategoryCustomizationStore.didChangeNotification)) { _ in
+            CategoryBadgeColor.refresh()
+            tintTick &+= 1
         }
     }
 
@@ -1595,13 +1635,11 @@ private struct CategoryManagementPanel: View {
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .center, spacing: 12) {
                 Circle()
-                    .fill(CategoryPalette.color(for: parent.name))
+                    .fill(CategoryBadgeColor.color(for: parent))
                     .frame(width: 13, height: 13)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(parent.localizedName)
-                        .font(.title3.weight(.semibold))
-                        .lineLimit(1)
+                    editableName(for: parent, fontSize: .title3.weight(.semibold))
                     HStack(spacing: 8) {
                         Text(parent.kind.displayName)
                             .font(.caption.weight(.medium))
@@ -1615,6 +1653,8 @@ private struct CategoryManagementPanel: View {
                 }
 
                 Spacer()
+
+                tintPicker(for: parent)
 
                 Button(role: .destructive) {
                     onDeleteParent(parent)
@@ -1694,14 +1734,40 @@ private struct CategoryManagementPanel: View {
     private func subcategoryRow(_ subcategory: Category, parent: Category) -> some View {
         HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(CategoryPalette.color(for: subcategory.name))
+                .fill(CategoryBadgeColor.color(for: subcategory))
                 .frame(width: 5, height: 22)
 
-            Text(subcategory.localizedName)
-                .font(.body)
-                .lineLimit(1)
+            if renamingSubcategoryID == subcategory.id {
+                TextField("Nombre", text: $renameDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { commitRename(subcategory) }
+                Button { commitRename(subcategory) } label: { Image(systemName: "checkmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.green)
+                    .help("Guardar nombre")
+                Button { renamingSubcategoryID = nil } label: { Image(systemName: "xmark.circle") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Cancelar")
+            } else {
+                Text(subcategory.localizedName)
+                    .font(.body)
+                    .lineLimit(1)
+            }
 
             Spacer()
+
+            Button {
+                renameDraft = subcategory.name
+                renamingSubcategoryID = subcategory.id
+            } label: {
+                Image(systemName: "pencil")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Rename subcategory")
+
+            tintPicker(for: subcategory)
 
             Button(role: .destructive) {
                 onDeleteSubcategory(subcategory, parent)
@@ -1715,6 +1781,70 @@ private struct CategoryManagementPanel: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    /// Nombre del padre: texto o campo según el modo de edición.
+    @ViewBuilder
+    private func editableName(for parent: Category, fontSize: Font) -> some View {
+        if renamingSubcategoryID == parent.id {
+            HStack(spacing: 6) {
+                TextField("Nombre", text: $renameDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(fontSize)
+                    .onSubmit { commitRename(parent) }
+                Button { commitRename(parent) } label: { Image(systemName: "checkmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.green)
+                    .help("Guardar nombre")
+                Button { renamingSubcategoryID = nil } label: { Image(systemName: "xmark.circle") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Cancelar")
+            }
+        } else {
+            HStack(spacing: 6) {
+                Text(parent.localizedName)
+                    .font(fontSize)
+                    .lineLimit(1)
+                Button {
+                    renameDraft = parent.name
+                    renamingSubcategoryID = parent.id
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Rename category")
+            }
+        }
+    }
+
+    private func commitRename(_ category: Category) {
+        defer { renamingSubcategoryID = nil }
+        guard !renameDraft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        onRename(category, renameDraft)
+    }
+
+    /// ColorPicker del tinte con botón de volver al color automático.
+    private func tintPicker(for category: Category) -> some View {
+        HStack(spacing: 4) {
+            ColorPicker("", selection: Binding(
+                get: { CategoryBadgeColor.color(for: category) },
+                set: { onTintChange(category, $0) }
+            ), supportsOpacity: false)
+            .labelsHidden()
+            .frame(width: 24)
+            .help("Color del badge")
+            Button {
+                onTintChange(category, nil)
+            } label: {
+                Image(systemName: "paintpalette")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Usar color automático")
+        }
     }
 
     private func reconcileSelection() {
@@ -1740,7 +1870,7 @@ private struct CategoryParentBrowserRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Circle()
-                    .fill(CategoryPalette.color(for: category.name))
+                    .fill(CategoryBadgeColor.color(for: category))
                     .frame(width: 10, height: 10)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -1814,7 +1944,9 @@ private struct CategoryManagementPanelPreviewHost: View {
                 onNewCategory: {},
                 onCreateSubcategory: { _ in },
                 onDeleteParent: { _ in },
-                onDeleteSubcategory: { _, _ in }
+                onDeleteSubcategory: { _, _ in },
+                onRename: { _, _ in },
+                onTintChange: { _, _ in }
             )
         }
         .frame(width: 980)
