@@ -1177,6 +1177,32 @@ struct BackupArchiveTests {
 
 
 extension BackupArchiveTests {
+    @Test("Compensation failure reports and keeps original recovery bytes")
+    func compensationFailureRetainsRecoveryMaterial() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("compensation-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("PromotionLedger.json")
+        let original = Data("original bytes".utf8)
+        try original.write(to: url)
+        let files = try SidecarFileTransaction(urls: [url])
+        defer { files.discard() }
+        try Data("new bytes".utf8).write(to: files.stagedURL(for: url))
+        try files.publish(url)
+        // Force recovery to fail after publication, rather than failing the
+        // initial read before any work has taken place.
+        try FileManager.default.removeItem(at: url)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        do {
+            try files.rollback()
+            Issue.record("Recovery should fail with a directory replacing its destination")
+        } catch let error as SidecarFileTransaction.RecoveryError {
+            #expect(error.path == files.directory.path)
+            #expect(!error.failures.isEmpty)
+            #expect(try Data(contentsOf: files.directory.appendingPathComponent("original-0-PromotionLedger.json")) == original)
+        }
+    }
+
     @Test("Restore failure preserves disk data and exact sidecar bytes", arguments: BackupArchive.RestoreCheckpoint.allCases)
     func restoreFailurePreservesDisk(_ failure: BackupArchive.RestoreCheckpoint) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("restore-fault-\(UUID())")

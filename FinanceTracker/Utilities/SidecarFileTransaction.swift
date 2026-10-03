@@ -14,8 +14,11 @@ final class SidecarFileTransaction {
         }
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("FinanceTracker-restore-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        for original in originals {
-            if let data = original.data { try data.write(to: stagedURL(for: original.url), options: .atomic) }
+        for (index, original) in originals.enumerated() {
+            if let data = original.data {
+                try data.write(to: stagedURL(for: original.url), options: .atomic)
+                try data.write(to: directory.appendingPathComponent("original-\(index)-\(original.url.lastPathComponent)"), options: .atomic)
+            }
         }
     }
 
@@ -23,6 +26,8 @@ final class SidecarFileTransaction {
 
     func publish(_ url: URL) throws {
         let staged = stagedURL(for: url)
+        // Include the attempted write even when the OS reports a partial failure.
+        if !published.contains(url) { published.append(url) }
         if FileManager.default.fileExists(atPath: staged.path) {
             let data = try Data(contentsOf: staged)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -30,7 +35,6 @@ final class SidecarFileTransaction {
         } else if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
-        published.append(url)
     }
 
     func prepareStatements(from source: URL, into destination: URL) throws {
@@ -49,8 +53,8 @@ final class SidecarFileTransaction {
             let target = destination.appendingPathComponent(relative)
             guard !FileManager.default.fileExists(atPath: target.path) else { continue }
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try FileManager.default.copyItem(at: file, to: target)
             addedStatements.append(target)
+            try FileManager.default.copyItem(at: file, to: target)
         }
         if let enumerationError { throw enumerationError }
     }
@@ -66,17 +70,14 @@ final class SidecarFileTransaction {
             } catch { failures.append("\(original.url.lastPathComponent): \(error.localizedDescription)") }
         }
         for file in addedStatements {
-            do { try FileManager.default.removeItem(at: file) }
+            do {
+                if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+            }
             catch { failures.append(error.localizedDescription) }
         }
         if !failures.isEmpty {
             // Keep a durable, readable recovery copy instead of suppressing a
             // compensation failure or removing the only originals.
-            for (index, original) in originals.enumerated() {
-                if let data = original.data {
-                    try data.write(to: directory.appendingPathComponent("original-\(index)-\(original.url.lastPathComponent)"), options: .atomic)
-                }
-            }
             throw RecoveryError(path: directory.path, failures: failures)
         }
         discard()
