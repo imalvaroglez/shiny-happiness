@@ -946,8 +946,9 @@ struct SettingsView: View {
             defer { access.stopAccessing() }
             do {
                 let strategy: RestoreStrategy = hasFinancialRows ? .mergeKeepingNewer : .replaceAll
-                try await BackupArchive.restore(from: summary.url, into: modelContext, strategy: strategy)
+                let warnings = try await BackupArchive.restore(from: summary.url, into: modelContext, strategy: strategy)
                 backupStatus = "Respaldo restaurado: \(summary.createdAt.formattedMX(date: .abbreviated, time: .shortened))"
+                if !warnings.isEmpty { backupStatus += " · " + warnings.joined(separator: " · ") }
                 dataHealthRefreshToken += 1
                 onSpendRequirementChanged()
             } catch {
