@@ -8,9 +8,11 @@ struct PromotionEditorInputTests {
         #expect(try PromotionEditorInput.target(from: PromotionEditorInput.editableTarget(100_000)) == 100_000)
         #expect(try PromotionEditorInput.target(from: "100,000.00") == 100_000)
         #expect(try PromotionEditorInput.target(from: " ") == nil)
+        let precise = Decimal(string: "100.001")!
+        #expect(try PromotionEditorInput.target(from: PromotionEditorInput.editableTarget(precise)) == precise)
     }
 
-    @Test(arguments: ["100abc", "$100,000.00", "1,00", "0", "-10", "NaN", "100.001"])
+    @Test(arguments: ["100abc", "$100,000.00", "1,00", "0", "-10", "NaN"])
     func invalidTargetIsNotSilentlyRemoved(_ text: String) {
         #expect(throws: PromotionEditorInput.InputError.self) { try PromotionEditorInput.target(from: text) }
     }
