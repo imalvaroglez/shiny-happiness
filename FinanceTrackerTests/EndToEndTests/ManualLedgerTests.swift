@@ -721,59 +721,46 @@ struct ManualLedgerTests {
         return try #require(try context.fetch(descriptor).first)
     }
 
-    @Test("La fecha sugerida hereda la de la última manual de la cuenta (captura consecutiva)")
-    func suggestedDateInheritsFromLastManualTransactionOfAccount() throws {
+    @Test("La fecha sugerida sigue captura exitosa; editar o fallar no la cambia")
+    func suggestedDateFollowsCaptureNotModification() throws {
         let container = try makeContainer()
         let context = container.mainContext
-
-        let checking = Account(institution: "Test Bank", type: .checking, currency: "MXN", nickname: "Checking")
-        let other = Account(institution: "Other Bank", type: .checking, currency: "MXN", nickname: "Other")
-        context.insert(checking)
-        context.insert(other)
-
-        // Una importada más reciente NO cuenta: la sugerencia sigue a las manuales.
-        let imported = Transaction(account: checking,
-                                   postedAt: Date(timeIntervalSince1970: 900),
-                                   amount: -1, currency: "MXN", descriptionRaw: "Importada reciente")
-        imported.source = .imported
-        context.insert(imported)
-
-        let olderManual = Transaction(account: checking,
-                                      postedAt: Date(timeIntervalSince1970: 100),
-                                      amount: -2, currency: "MXN", descriptionRaw: "Manual vieja")
-        olderManual.source = .manual
-        olderManual.lastModifiedAt = Date(timeIntervalSince1970: 8_000)
-        context.insert(olderManual)
-        let newerManual = Transaction(account: checking,
-                                      postedAt: Date(timeIntervalSince1970: 500),
-                                      amount: -3, currency: "MXN", descriptionRaw: "Manual reciente")
-        newerManual.source = .manual
-        newerManual.lastModifiedAt = Date(timeIntervalSince1970: 9_000)
-        context.insert(newerManual)
-
-        // Manual de OTRA cuenta: irrelevante.
-        let elsewhere = Transaction(account: other,
-                                    postedAt: Date(timeIntervalSince1970: 700),
-                                    amount: -4, currency: "MXN", descriptionRaw: "De otra cuenta")
-        elsewhere.source = .manual
-        context.insert(elsewhere)
-
-        // Soft-deleted manual: tampoco sugiere.
-        let deleted = Transaction(account: checking,
-                                  postedAt: Date(timeIntervalSince1970: 800),
-                                  amount: -5, currency: "MXN", descriptionRaw: "Eliminada")
-        deleted.source = .manual
-        deleted.deletedAt = Date.now
-        context.insert(deleted)
-
+        let account = Account(institution: "Test", type: .checking, currency: "MXN", nickname: "Capture")
+        context.insert(account)
         try context.save()
-        let transactions = try context.fetch(FetchDescriptor<Transaction>())
-
-        #expect(ManualTransactionDateSuggestion.suggestedDate(accountID: checking.id,
-                                                             in: transactions)
-                == Date(timeIntervalSince1970: 500))
-        // Sin manuales en la cuenta → nil (la hoja cae a hoy).
-        #expect(ManualTransactionDateSuggestion.suggestedDate(accountID: UUID(),
-                                                             in: transactions) == nil)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == nil)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let tx = try ManualTransactionService.create(account: account, date: date, description: "First",
+            signedAmount: -100, category: nil, context: context)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == date)
+        tx.postedAt = date.addingTimeInterval(-86_400)
+        tx.touch()
+        try context.save()
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == date)
+        #expect(throws: Error.self) {
+            try ManualTransactionService.create(account: account, date: .now, description: " ",
+                signedAmount: -100, category: nil, context: context)
+        }
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == date)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: UUID()) == nil)
+        let next = date.addingTimeInterval(86_400)
+        _ = try ManualTransactionService.create(account: account, date: next, description: "Next",
+            signedAmount: -20, category: nil, context: context)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == next)
     }
+    @Test("Preferencia de captura persiste por cuenta y el reset la elimina")
+    func capturePreferencePersistsAndResets() throws {
+        let suite = "capture-test-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let id = UUID()
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        ManualCaptureDateStore.recordSuccessfulCapture(accountID: id, date: date, defaults: defaults)
+        let reopened = try #require(UserDefaults(suiteName: suite))
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: id, defaults: reopened) == date)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: UUID(), defaults: reopened) == nil)
+        ManualCaptureDateStore.reset(defaults: reopened)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: id, defaults: defaults) == nil)
+    }
+
 }

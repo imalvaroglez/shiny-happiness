@@ -13,17 +13,43 @@ final class PromotionLedgerViewModel {
     private(set) var entries: [PromotionLedgerEntry] = []
     private(set) var loadError: String?
 
-    func reload(context: ModelContext) {
+    private(set) var diagnostics: [String] = []
+    @ObservationIgnored private var pendingReload: Task<Void, Never>?
+
+    func scheduleReload(context: ModelContext, includeTransactions: Bool = true) {
+        pendingReload?.cancel()
+        pendingReload = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            reload(context: context, includeTransactions: includeTransactions)
+        }
+    }
+
+    func reload(context: ModelContext, includeTransactions: Bool = true,
+                ledgerURL: URL? = nil, fetchEntries: (() throws -> [PromotionLedgerEntry])? = nil) {
         do {
-            ledger = try PromotionLedgerStore.read()
+            let result = try PromotionLedgerStore.readWithDiagnostics(fileURL: ledgerURL)
+            var loaded: [PromotionLedgerEntry] = []
+            if includeTransactions {
+                if let fetchEntries { loaded = try fetchEntries() }
+                else if try context.fetchCount(FetchDescriptor<Account>()) > 0 {
+                    let ids = result.ledger.attributions.filter { $0.deletedAt == nil }.map(\.transactionID)
+                    if !ids.isEmpty {
+                        let descriptor = FetchDescriptor<Transaction>(predicate: #Predicate { ids.contains($0.id) })
+                        loaded = Self.entries(from: try context.fetch(descriptor))
+                    }
+                }
+            }
+            ledger = result.ledger
+            entries = loaded
+            diagnostics = result.diagnostics
             loadError = nil
         } catch {
-            // Fail-visible: sin números inventados sobre un archivo dañado.
             ledger = PromotionLedger()
+            entries = []
+            diagnostics = []
             loadError = error.localizedDescription
         }
-        let descriptor = FetchDescriptor<Transaction>()
-        entries = (try? context.fetch(descriptor)).map(Self.entries(from:)) ?? []
     }
 
     /// SwiftData → vista ligera de evaluación (testeable sin contenedor:
@@ -130,7 +156,10 @@ struct PromotionsSummaryLine: View {
         }
         .task { model.reload(context: modelContext) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
-            model.reload(context: modelContext)
+            model.scheduleReload(context: modelContext)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+            model.scheduleReload(context: modelContext)
         }
     }
 
@@ -173,7 +202,7 @@ struct PromotionsListSheet: View {
                             .font(.caption)
                             .foregroundStyle(.orange)
                     }
-                    if active.isEmpty && archived.isEmpty {
+                    if model.loadError == nil && active.isEmpty && archived.isEmpty {
                         Text("Sin promociones para esta cuenta. Crea una para empezar a adjudicar transacciones.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -205,7 +234,10 @@ struct PromotionsListSheet: View {
         }
         .task { model.reload(context: modelContext) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
-            model.reload(context: modelContext)
+            model.scheduleReload(context: modelContext)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+            model.scheduleReload(context: modelContext)
         }
     }
 
@@ -307,7 +339,11 @@ struct ManualPromotionDetailSheet: View {
         let summary = summaries.first { $0.record.id == recordID }
 
         VStack(spacing: 0) {
-            if let summary {
+            if let error = model.loadError {
+                Text("Promociones no disponibles: \(error)").foregroundStyle(.orange).padding()
+                Button("Reintentar") { model.reload(context: modelContext) }
+                Button("Cerrar") { dismiss() }
+            } else if let summary {
                 header(summary)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
@@ -346,7 +382,10 @@ struct ManualPromotionDetailSheet: View {
         }
         .task { model.reload(context: modelContext) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
-            model.reload(context: modelContext)
+            model.scheduleReload(context: modelContext)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+            model.scheduleReload(context: modelContext)
         }
     }
 
@@ -500,6 +539,8 @@ struct PromotionEditorSheet: View {
     @State private var accountID: UUID?
     @State private var currency = "MXN"
     @State private var hasWindow = false
+    @State private var hasWindowStart = true
+    @State private var hasWindowEnd = true
     @State private var windowStart = Date.now
     @State private var windowEnd = Date.now
     @State private var targetText = ""
@@ -534,13 +575,17 @@ struct PromotionEditorSheet: View {
                     Toggle("", isOn: $hasWindow).labelsHidden()
                 }
                 if hasWindow {
-                    fieldRow("Inicia") {
-                        DatePicker("", selection: $windowStart, displayedComponents: .date)
-                            .labelsHidden()
+                    Toggle("Definir inicio", isOn: $hasWindowStart)
+                    if hasWindowStart {
+                        fieldRow("Inicia") {
+                            DatePicker("", selection: $windowStart, displayedComponents: .date).labelsHidden()
+                        }
                     }
-                    fieldRow("Termina") {
-                        DatePicker("", selection: $windowEnd, displayedComponents: .date)
-                            .labelsHidden()
+                    Toggle("Definir fin", isOn: $hasWindowEnd)
+                    if hasWindowEnd {
+                        fieldRow("Termina") {
+                            DatePicker("", selection: $windowEnd, displayedComponents: .date).labelsHidden()
+                        }
                     }
                 }
                 fieldRow("Meta (\(currency))") {
@@ -609,14 +654,12 @@ struct PromotionEditorSheet: View {
             name = existing.name
             accountID = existing.accountID
             currency = existing.currency
-            if let start = existing.windowStart {
-                hasWindow = true
-                windowStart = start
-                windowEnd = existing.windowEnd ?? start
-            }
-            if let target = existing.targetAmount {
-                targetText = MoneyFormat.string(code: existing.currency, target)
-            }
+            hasWindow = existing.windowStart != nil || existing.windowEnd != nil
+            hasWindowStart = existing.windowStart != nil
+            hasWindowEnd = existing.windowEnd != nil
+            windowStart = existing.windowStart ?? .now
+            windowEnd = existing.windowEnd ?? .now
+            targetText = PromotionEditorInput.editableTarget(existing.targetAmount)
             rewardNote = existing.rewardNote ?? ""
             notes = existing.notes ?? ""
         } else {
@@ -631,19 +674,21 @@ struct PromotionEditorSheet: View {
         guard let accountID else { return }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else { return }
-        let target = parseAmount(targetText)
-        if let target, target <= 0 {
-            errorMessage = "La meta debe ser mayor que cero."
-            return
-        }
+        let start = hasWindow && hasWindowStart ? windowStart : nil
+        let end = hasWindow && hasWindowEnd ? windowEnd : nil
+        let target: Decimal?
+        do {
+            target = try PromotionEditorInput.target(from: targetText)
+            try PromotionEditorInput.validateWindow(start: start, end: end)
+        } catch { errorMessage = error.localizedDescription; return }
         let now = Date.now
         let record = PromotionRecord(
             id: existing?.id ?? UUID(),
             name: trimmedName,
             accountID: accountID,
             currency: currency,
-            windowStart: hasWindow ? windowStart : nil,
-            windowEnd: hasWindow ? max(windowStart, windowEnd) : nil,
+            windowStart: start,
+            windowEnd: end,
             targetAmount: target,
             rewardNote: rewardNote.trimmingCharacters(in: .whitespaces).isEmpty ? nil : rewardNote,
             notes: notes.trimmingCharacters(in: .whitespaces).isEmpty ? nil : notes,
@@ -659,14 +704,7 @@ struct PromotionEditorSheet: View {
         }
     }
 
-    private func parseAmount(_ text: String) -> Decimal? {
-        let cleaned = text
-            .replacingOccurrences(of: ",", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        guard !cleaned.isEmpty else { return nil }
-        return Decimal(string: cleaned, locale: Locale(identifier: "en_US_POSIX"))
-            ?? Decimal(string: cleaned)
-    }
+
 }
 
 // MARK: - Settings
@@ -680,6 +718,8 @@ struct PromotionSettingsSection: View {
     @State private var model = PromotionLedgerViewModel()
     @State private var selected: PromotionRecord?
     @State private var showingEditor = false
+    @State private var orphanActionError: String?
+    @State private var pendingOrphan: PromotionAttribution?
 
     var body: some View {
         let calendar = model.promotionCalendar
@@ -701,14 +741,18 @@ struct PromotionSettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
-            let repairNotes = PromotionLedgerStore.validate(model.ledger)
+            let repairNotes = model.diagnostics
             if !repairNotes.isEmpty {
                 Text(repairNotes.joined(separator: " · "))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             orphanedAttributionsSection
-            if summaries.isEmpty {
+            if let orphanActionError {
+                Text(orphanActionError).font(.caption).foregroundStyle(.orange)
+                Button("Reintentar") { if let pendingOrphan { retireOrphan(pendingOrphan) } }
+            }
+            if model.loadError == nil && summaries.isEmpty {
                 Text("Sin promociones. Crea una (p. ej. «Platinum 90 días») y adjudica transacciones desde su detalle.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -735,7 +779,10 @@ struct PromotionSettingsSection: View {
         }
         .task { model.reload(context: modelContext) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
-            model.reload(context: modelContext)
+            model.scheduleReload(context: modelContext)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave)) { _ in
+            model.scheduleReload(context: modelContext)
         }
     }
 
@@ -760,8 +807,7 @@ struct PromotionSettingsSection: View {
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button("Retirar") {
-                                try? PromotionLedgerStore.unattribute(transactionID: orphan.transactionID,
-                                                                      promotionID: orphan.promotionID)
+                                retireOrphan(orphan)
                             }
                             .font(.caption2)
                         }
@@ -772,6 +818,15 @@ struct PromotionSettingsSection: View {
             .font(.caption)
             .foregroundStyle(.orange)
         }
+    }
+
+    private func retireOrphan(_ orphan: PromotionAttribution) {
+        pendingOrphan = orphan
+        do {
+            try PromotionLedgerStore.unattribute(transactionID: orphan.transactionID, promotionID: orphan.promotionID)
+            orphanActionError = nil
+            pendingOrphan = nil
+        } catch { orphanActionError = "No se pudo retirar la adjudicación: \(error.localizedDescription)" }
     }
 
     private func settingsRow(_ summary: ManualPromotionSummary, accountNames: [UUID: String]) -> some View {

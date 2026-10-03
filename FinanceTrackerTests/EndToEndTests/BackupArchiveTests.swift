@@ -1159,20 +1159,61 @@ struct BackupArchiveTests {
         localLedger.updatedAt = baseTime.addingTimeInterval(60)
         try PromotionLedgerStore.replace(with: localLedger, at: targetStore)
 
-        // Gasto mínimo apunta a un DIRECTORIO: la escritura falla DESPUÉS de que
-        // el restore ya aplicó el merge del ledger → el catch debe restaurar el JSON previo.
-        let brokenSpendURL = root.appendingPathComponent("broken/SpendRequirements.json")
-        try FileManager.default.createDirectory(at: brokenSpendURL, withIntermediateDirectories: true)
+        let spendURL = root.appendingPathComponent("local/SpendRequirements.json")
 
         let target = try makeContainer()
         await #expect(throws: Error.self) {
             try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
                                             promotionLedgerURL: targetStore,
-                                            spendRequirementsURL: brokenSpendURL)
+                                            spendRequirementsURL: spendURL,
+                                            checkpoint: { if $0 == .ledgerPublished { throw CocoaError(.fileWriteUnknown) } })
         }
         let after = try PromotionLedgerStore.read(fileURL: targetStore)
         #expect(after.promotions.count == 1)
         #expect(after.promotions.first?.name == "Local que debe sobrevivir",
                 "el rollback del ledger restaura el contenido previo")
+    }
+}
+
+
+extension BackupArchiveTests {
+    @Test("Restore failure preserves disk data and exact sidecar bytes", arguments: BackupArchive.RestoreCheckpoint.allCases)
+    func restoreFailurePreservesDisk(_ failure: BackupArchive.RestoreCheckpoint) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("restore-fault-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makePopulatedContainer()
+        let bundle = root.appendingPathComponent("backup.ftbackup")
+        let ledger = root.appendingPathComponent("local/PromotionLedger.json")
+        let spend = root.appendingPathComponent("local/SpendRequirements.json")
+        try PromotionLedgerStore.replace(with: PromotionLedger(), at: ledger)
+        try await BackupArchive.export(to: bundle, from: source.mainContext,
+                                      promotionLedgerURL: root.appendingPathComponent("source/PromotionLedger.json"),
+                                      spendRequirementsURL: root.appendingPathComponent("source/SpendRequirements.json"))
+        let originalBytes = try Data(contentsOf: ledger)
+        let diskURL = root.appendingPathComponent("default.store")
+        let config = ModelConfiguration(schema: AppSchema.schema, url: diskURL)
+        var container: ModelContainer? = try ModelContainer(for: AppSchema.schema, configurations: [config])
+        let localID: UUID
+        do {
+            let context = try #require(container).mainContext
+            let local = Account(institution: "Local", type: .checking, currency: "MXN", nickname: "Keep me")
+            localID = local.id
+            context.insert(local)
+            try context.save()
+            await #expect(throws: Error.self) {
+                try await BackupArchive.restore(from: bundle, into: context, strategy: .replaceAll,
+                    promotionLedgerURL: ledger, spendRequirementsURL: spend,
+                    statementsDestination: root.appendingPathComponent("Statements"),
+                    checkpoint: { if $0 == failure { throw CocoaError(.fileWriteUnknown) } })
+            }
+            #expect(!context.hasChanges)
+            #expect(try context.fetch(FetchDescriptor<Account>()).map(\.id) == [localID])
+        }
+        container = nil
+        let reopened = try ModelContainer(for: AppSchema.schema, configurations: [config])
+        #expect(try reopened.mainContext.fetch(FetchDescriptor<Account>()).map(\.id) == [localID])
+        #expect(try Data(contentsOf: ledger) == originalBytes)
+        #expect(!FileManager.default.fileExists(atPath: spend.path))
     }
 }
