@@ -241,16 +241,31 @@ struct TransactionLedgerColumnHeader: View {
         HStack(spacing: 10) {
             Color.clear.frame(width: 54)
             Text("Movement")
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
             if showsAccount {
-                Text("Account").frame(width: 142, alignment: .leading)
+                Text("Account")
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 142, alignment: .leading)
             }
-            Text("Category").frame(width: 148, alignment: .leading)
+            Text("Category")
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 148, alignment: .leading)
             Image(systemName: "house")
                 .accessibilityLabel("Household")
                 .frame(width: 24)
-            Text("Amount").frame(width: 142, alignment: .trailing)
+            // Placeholder del badge de promoción (◆N) para mantener «Amount»
+            // alineada con las filas adjudicadas.
+            Color.clear.frame(width: 36)
+            Text("Amount")
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 142, alignment: .trailing)
         }
+        .dynamicTypeSize(...(.large))
         .font(.caption2.weight(.medium))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
