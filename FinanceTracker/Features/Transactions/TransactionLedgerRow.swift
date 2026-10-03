@@ -218,7 +218,7 @@ struct TransactionLedgerRow: View {
 
     private var categoryColor: Color {
         if let category = transaction.category {
-            return CategoryPalette.color(for: category.name)
+            return CategoryBadgeColor.color(for: category)
         }
         return .secondary
     }
@@ -228,11 +228,11 @@ struct TransactionLedgerRow: View {
         if let category = transaction.category {
             Text(category.localizedName)
                 .font(.caption2)
-                .foregroundStyle(CategoryPalette.color(for: category.name))
+                .foregroundStyle(CategoryBadgeColor.color(for: category))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(
-                    Capsule().fill(CategoryPalette.color(for: category.name).opacity(0.12))
+                    Capsule().fill(CategoryBadgeColor.color(for: category).opacity(0.12))
                 )
         } else {
             Text("Uncategorized")

@@ -53,6 +53,13 @@ def make_backup(tmp_path: Path, schema: int, *, include_due_date_override: bool 
                          "cards": []}]),
             encoding="utf-8",
         )
+    if schema >= 11:
+        (models / "CategoryCustomization.json").write_text(
+            json.dumps([{"schemaVersion": 1, "updatedAt": "2026-10-01T00:00:00Z",
+                         "entries": [{"categoryID": "category-1", "seedName": "Food & Drink",
+                                      "tintHex": "#FF8800", "updatedAt": "2026-10-01T00:00:00Z"}]}]),
+            encoding="utf-8",
+        )
     if schema >= 10:
         (models / "PromotionLedger.json").write_text(
             json.dumps([{
@@ -67,7 +74,7 @@ def make_backup(tmp_path: Path, schema: int, *, include_due_date_override: bool 
     return bundle
 
 
-@pytest.mark.parametrize("schema", [4, 5, 6, 7, 8, 9, 10])
+@pytest.mark.parametrize("schema", [4, 5, 6, 7, 8, 9, 10, 11])
 def test_load_dataset_accepts_supported_schemas(tmp_path: Path, schema: int) -> None:
     dataset = load.load_dataset(make_backup(tmp_path, schema, include_due_date_override=schema == 7))
 
@@ -84,6 +91,14 @@ def test_load_dataset_exposes_promotion_ledger(tmp_path: Path) -> None:
     ledger = dataset["promotion_ledger"]
     assert [p["id"] for p in ledger["promotions"]] == ["promo-1"]
     assert ledger["attributions"][0]["transactionID"] == "transaction-1"
+
+
+def test_load_dataset_exposes_category_customizations(tmp_path: Path) -> None:
+    dataset = load.load_dataset(make_backup(tmp_path, 11))
+
+    entries = dataset["category_customizations"]
+    assert entries[0]["categoryID"] == "category-1"
+    assert entries[0]["seedName"] == "Food & Drink"
 
 
 def test_load_dataset_promotion_ledger_empty_on_legacy_backups(tmp_path: Path) -> None:
@@ -104,8 +119,8 @@ def test_load_dataset_exposes_synthetic_due_date_sidecar(tmp_path: Path) -> None
 
 
 def test_load_dataset_rejects_newer_schema_clearly(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="más reciente.*\\[4, 5, 6, 7, 8, 9, 10\\]"):
-        load.load_dataset(make_backup(tmp_path, 11))
+    with pytest.raises(ValueError, match="más reciente.*\\[4, 5, 6, 7, 8, 9, 10, 11\\]"):
+        load.load_dataset(make_backup(tmp_path, 12))
 
 
 def test_load_dataset_exposes_promotion_overrides_for_schema_eight(tmp_path: Path) -> None:
@@ -137,3 +152,14 @@ def test_writeback_rejects_unsupported_schema(tmp_path: Path) -> None:
 
     with pytest.raises(writeback.WritebackError, match="schemaVersion=8"):
         writeback.apply_recategorizations(dataset, [{"id": "transaction-1", "categoryId": None}])
+
+
+def test_renamed_category_keeps_semantic_identity_without_mutating_snapshots(tmp_path: Path) -> None:
+    bundle = make_backup(tmp_path, 11)
+    category_path = bundle / "models" / "Category.json"
+    raw = [{"id": "category-1", "name": "Comida", "kind": "expense"}]
+    category_path.write_text(json.dumps(raw), encoding="utf-8")
+    dataset = load.load_dataset(bundle)
+    assert dataset["categories"]["category-1"]["name"] == "Comida"
+    assert dataset["categories"]["category-1"]["semanticName"] == "Food & Drink"
+    assert dataset["models"]["Category"] == raw

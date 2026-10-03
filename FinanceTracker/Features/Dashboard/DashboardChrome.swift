@@ -1185,7 +1185,7 @@ struct DashboardTransactionRow: View {
     private var categoryColor: Color {
         if isTransferLike { return .secondary }
         if let category = transaction.category {
-            return CategoryPalette.color(for: category.name)
+            return CategoryBadgeColor.color(for: category)
         }
         return .secondary
     }
@@ -1527,7 +1527,7 @@ struct SpendingCategoryDonut: View {
                             entry: entry,
                             total: total,
                             currencyCode: currencyCode,
-                            color: categoryColors[entry.id] ?? CategoryPalette.color(for: entry.category.name),
+                            color: categoryColors[entry.id] ?? CategoryBadgeColor.color(for: entry.category),
                             isActive: activeCategoryID == entry.id,
                             hasActive: activeCategoryID != nil,
                             compact: compactRows

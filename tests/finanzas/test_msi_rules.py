@@ -99,3 +99,9 @@ def test_resolution_prefers_evidence_ids() -> None:
     # preferencia inválida (no es instancia de ese nombre): error explícito
     with pytest.raises(ValueError, match="no es una categoría"):
         msi_rules.resolve_rule_targets(msi_rules.MSI_RULES, cats, prefer_ids={"MSI Installments": "BF-A"})
+
+
+def test_rule_target_uses_immutable_origin_for_renamed_category():
+    categories = [{"id": "renamed", "name": "Pagos", "semanticName": "Credit Card Payments", "kind": "creditCardPayment"}]
+    specs = [{"patternRegex": "MSI", "priority": 105, "targetName": "Credit Card Payments"}]
+    assert msi_rules.resolve_rule_targets(specs, categories)[0]["categoryId"] == "renamed"

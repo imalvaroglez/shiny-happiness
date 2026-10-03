@@ -81,12 +81,63 @@ struct CategoryManagementActions {
         try context.save()
     }
 
+    /// Renombra sin perder vínculos (transacciones y reglas van por relación/id).
+    /// Si la categoría provenía del seed, registra su nombre original en el
+    /// store de personalización para que el bootstrap de cada arranque NO la
+    /// resucite como duplicado.
+    @discardableResult
+    static func rename(_ category: Category, to newName: String, context: ModelContext,
+                       customizationURL: URL? = nil,
+                       saveContext: ((ModelContext) throws -> Void)? = nil) throws -> Category {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw CategoryManagementError.emptyName }
+        guard trimmed != category.name else { return category }
+        let normalized = trimmed.lowercased()
+        let duplicates = try activeCategories(context: context).contains {
+            $0.id != category.id && $0.parent?.id == category.parent?.id && $0.kind == category.kind
+                && $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized
+        }
+        guard !duplicates else { throw CategoryManagementError.duplicateName }
+        let url = try customizationURL ?? CategoryCustomizationStore.defaultURL()
+        let catalog = try CategoryCustomizationStore.read(fileURL: url)
+        let origin = try SeedDataLoader.seedOrigin(for: category, customizations: catalog.entries)
+        let files = try SidecarFileTransaction(urls: [url])
+        let hadPendingChanges = context.hasChanges
+        let previousName = category.name
+        let previousModified = category.lastModifiedAt
+        let autosave = context.autosaveEnabled
+        context.autosaveEnabled = false
+        defer { context.autosaveEnabled = autosave }
+        do {
+            if let origin {
+                try CategoryCustomizationStore.setSeedName(categoryID: category.id, seedName: origin.name,
+                    parentName: origin.parentName, kindRaw: origin.kindRaw, at: files.stagedURL(for: url), notify: false)
+            }
+            category.name = trimmed
+            category.touch()
+            if origin != nil { try files.publish(url) }
+            if let saveContext { try saveContext(context) } else { try context.save() }
+            files.discard()
+            CategoryCustomizationState.shared.refresh(fileURL: url)
+            NotificationCenter.default.post(name: CategoryCustomizationStore.didChangeNotification, object: url)
+            return category
+        } catch {
+            category.name = previousName
+            category.lastModifiedAt = previousModified
+            if !hadPendingChanges { context.rollback() }
+            let originalError = error
+            do { try files.rollback() }
+            catch { throw CategoryCustomizationStore.StoreError.invalid([originalError.localizedDescription, error.localizedDescription]) }
+            throw originalError
+        }
+    }
+
     static func isDuplicate(name: String, kind: CategoryKind, parent: Category?, context: ModelContext) -> Bool {
         guard let active = try? activeCategories(context: context) else { return false }
         if let parent {
-            return active.contains { $0.parent?.id == parent.id && $0.name == name }
+            return active.contains { $0.parent?.id == parent.id && $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
         } else {
-            return active.contains { $0.parent == nil && $0.name == name && $0.kind == kind }
+            return active.contains { $0.parent == nil && $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() && $0.kind == kind }
         }
     }
 }

@@ -51,7 +51,7 @@ def resolve_rule_targets(
     prefer_ids = prefer_ids or {}
 
     def pick(name: str) -> str:
-        candidates = [c for c in categories if c.get("name") == name and not c.get("deletedAt")]
+        candidates = [c for c in categories if c.get("semanticName", c.get("name")) == name and not c.get("deletedAt")]
         if not candidates:
             raise ValueError(f"Categoría '{name}' no existe en Category.json")
         preferred = prefer_ids.get(name)
