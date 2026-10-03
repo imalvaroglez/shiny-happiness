@@ -119,7 +119,7 @@ enum BackupArchive {
     }
 
     static func export(to bundleURL: URL, from context: ModelContext, promotionLedgerURL: URL? = nil,
-                       spendRequirementsURL: URL? = nil) async throws {
+                       spendRequirementsURL: URL? = nil, statementsSource: URL? = nil) async throws {
         let fm = FileManager.default
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
         let statementsDir = bundleURL.appendingPathComponent(statementsSubdirectory)
@@ -208,8 +208,8 @@ enum BackupArchive {
         let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
         try writeJSON("SpendRequirement", [try SpendRequirementStore.read(fileURL: spendStoreURL)])
 
-        let appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-        let sourceStatements = appSupport.appendingPathComponent("FinanceTracker/Statements")
+        let sourceStatements = try statementsSource ?? PromotionLedgerStore.defaultURL()
+            .deletingLastPathComponent().appendingPathComponent("Statements")
         if fm.fileExists(atPath: sourceStatements.path) {
             let enumerator = fm.enumerator(at: sourceStatements, includingPropertiesForKeys: nil)
             while let file = enumerator?.nextObject() as? URL {
@@ -239,7 +239,8 @@ enum BackupArchive {
     static func restore(from bundleURL: URL, into callerContext: ModelContext, strategy: RestoreStrategy,
                         promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil,
                         statementsDestination: URL? = nil,
-                        checkpoint: ((RestoreCheckpoint) throws -> Void)? = nil) async throws -> [String] {
+                        checkpoint: ((RestoreCheckpoint) throws -> Void)? = nil,
+                        saveContext: ((ModelContext) throws -> Void)? = nil) async throws -> [String] {
         // Never discard unrelated drafts in the caller's context.
         guard !callerContext.hasChanges else { throw RestoreError.unsavedChanges }
         let ledgerURL = try promotionLedgerURL ?? PromotionLedgerStore.defaultURL()
@@ -263,7 +264,7 @@ enum BackupArchive {
             try checkpoint?(.spendPublished)
             try checkpoint?(.statementsPrepared)
             try checkpoint?(.beforeSave)
-            try context.save()
+            if let saveContext { try saveContext(context) } else { try context.save() }
             callerContext.rollback()
             if case .replaceAll = strategy { ManualCaptureDateStore.reset() }
             files.discard()
