@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Manual date suggestions remember the last successful capture per account; editing older movements no longer changes the next suggested date.
+
 - Promotion editing preserves targets and independent window bounds; invalid amounts and inverted windows show an error.
 - Rapid promotion mutations remain ordered in backups. Restore stages sidecars and model changes, compensates failures visibly, and preserves original JSON bytes.
 - Promotion totals refresh after transaction saves; unavailable transaction data is reported instead of displayed as zero. Orphan removal errors offer retry, and normalization diagnostics remain visible.

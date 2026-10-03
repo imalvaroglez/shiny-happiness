@@ -33,6 +33,7 @@ struct ManualTransactionSheet: View {
     @State private var promotionsModel = PromotionLedgerViewModel()
     @State private var selectedPromotionIDs: Set<UUID> = []
     @State private var attributionFailure: AttributionFailure?
+    @State private var didEditDate = false
 
     private var selectedAccount: Account? {
         accounts.first { $0.id == accountID }
@@ -104,11 +105,13 @@ struct ManualTransactionSheet: View {
             accountID = defaultAccountID ?? lockedAccountID ?? accounts.first?.id
             normalizeKindAndCategory()
             updateCounterparty()
+            applyDateSuggestion()
         }
         .onChange(of: accountID) {
             normalizeKindAndCategory()
             updateCounterparty()
             purgeStalePromotionSelection()
+            applyDateSuggestion()
         }
         .onChange(of: kind) {
             normalizeKindAndCategory()
@@ -212,6 +215,13 @@ struct ManualTransactionSheet: View {
             : "\(outCount) promociones seleccionadas están fuera de su ventana — cuentan igual; solo es un aviso."
     }
 
+    /// Fecha sugerida: la de la última manual de la cuenta. Solo se aplica si
+    /// el usuario no ha editado la fecha en esta sesión de captura.
+    private func applyDateSuggestion() {
+        guard !didEditDate, let accountID else { return }
+        date = ManualCaptureDateStore.suggestedDate(accountID: accountID) ?? .now
+    }
+
     /// PA-05: al cambiar de cuenta (o a transfer/pago) la selección no puede
     /// quedarse con promos de otra moneda.
     private func purgeStalePromotionSelection() {
@@ -278,7 +288,7 @@ struct ManualTransactionSheet: View {
             panelDivider
         }
         row("Date") {
-            DatePicker("", selection: $date, displayedComponents: .date)
+            DatePicker("", selection: Binding(get: { date }, set: { didEditDate = true; date = $0 }), displayedComponents: .date)
                 .labelsHidden()
                 .datePickerStyle(.compact)
         }
@@ -328,7 +338,7 @@ struct ManualTransactionSheet: View {
         }
         panelDivider
         row("Date") {
-            DatePicker("", selection: $date, displayedComponents: .date)
+            DatePicker("", selection: Binding(get: { date }, set: { didEditDate = true; date = $0 }), displayedComponents: .date)
                 .labelsHidden()
                 .datePickerStyle(.compact)
         }

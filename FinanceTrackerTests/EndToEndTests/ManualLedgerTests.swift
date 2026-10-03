@@ -720,4 +720,47 @@ struct ManualLedgerTests {
         )
         return try #require(try context.fetch(descriptor).first)
     }
+
+    @Test("La fecha sugerida sigue captura exitosa; editar o fallar no la cambia")
+    func suggestedDateFollowsCaptureNotModification() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Test", type: .checking, currency: "MXN", nickname: "Capture")
+        context.insert(account)
+        try context.save()
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == nil)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let tx = try ManualTransactionService.create(account: account, date: date, description: "First",
+            signedAmount: -100, category: nil, context: context)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == date)
+        tx.postedAt = date.addingTimeInterval(-86_400)
+        tx.touch()
+        try context.save()
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == date)
+        #expect(throws: Error.self) {
+            try ManualTransactionService.create(account: account, date: .now, description: " ",
+                signedAmount: -100, category: nil, context: context)
+        }
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == date)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: UUID()) == nil)
+        let next = date.addingTimeInterval(86_400)
+        _ = try ManualTransactionService.create(account: account, date: next, description: "Next",
+            signedAmount: -20, category: nil, context: context)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: account.id) == next)
+    }
+    @Test("Preferencia de captura persiste por cuenta y el reset la elimina")
+    func capturePreferencePersistsAndResets() throws {
+        let suite = "capture-test-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let id = UUID()
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        ManualCaptureDateStore.recordSuccessfulCapture(accountID: id, date: date, defaults: defaults)
+        let reopened = try #require(UserDefaults(suiteName: suite))
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: id, defaults: reopened) == date)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: UUID(), defaults: reopened) == nil)
+        ManualCaptureDateStore.reset(defaults: reopened)
+        #expect(ManualCaptureDateStore.suggestedDate(accountID: id, defaults: defaults) == nil)
+    }
+
 }

@@ -58,6 +58,7 @@ struct AppDataResetService {
         try deletePersistentModels(from: context)
         try context.save()
         try verifyCleanSlate(context: context)
+        ManualCaptureDateStore.reset()
         try SeedDataLoader.bootstrapIfNeeded(context: context)
         try SpendRequirementStore.reset(fileURL: spendRequirementsURL)
         try PromotionLedgerStore.reset(fileURL: promotionLedgerURL)
