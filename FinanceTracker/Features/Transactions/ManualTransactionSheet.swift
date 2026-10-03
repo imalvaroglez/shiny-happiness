@@ -34,7 +34,6 @@ struct ManualTransactionSheet: View {
     @State private var selectedPromotionIDs: Set<UUID> = []
     @State private var attributionFailure: AttributionFailure?
     @State private var didEditDate = false
-    @State private var lastSuggestedDate: Date?
 
     private var selectedAccount: Account? {
         accounts.first { $0.id == accountID }
@@ -113,12 +112,6 @@ struct ManualTransactionSheet: View {
             updateCounterparty()
             purgeStalePromotionSelection()
             applyDateSuggestion()
-        }
-        .onChange(of: date) { _, newDate in
-            // El usuario tocó el selector: difiere del último valor que la
-            // sugerencia asignó programáticamente (sin carreras: el handler
-            // corre después, pero compara VALORES, no banderas).
-            if newDate != lastSuggestedDate { didEditDate = true }
         }
         .onChange(of: kind) {
             normalizeKindAndCategory()
@@ -226,11 +219,7 @@ struct ManualTransactionSheet: View {
     /// el usuario no ha editado la fecha en esta sesión de captura.
     private func applyDateSuggestion() {
         guard !didEditDate, let accountID else { return }
-        let transactions = (try? modelContext.fetch(FetchDescriptor<Transaction>())) ?? []
-        let suggestion = ManualTransactionDateSuggestion.suggestedDate(accountID: accountID,
-                                                                      in: transactions) ?? Date.now
-        date = suggestion
-        lastSuggestedDate = suggestion
+        date = ManualCaptureDateStore.suggestedDate(accountID: accountID) ?? .now
     }
 
     /// PA-05: al cambiar de cuenta (o a transfer/pago) la selección no puede
@@ -299,7 +288,7 @@ struct ManualTransactionSheet: View {
             panelDivider
         }
         row("Date") {
-            DatePicker("", selection: $date, displayedComponents: .date)
+            DatePicker("", selection: Binding(get: { date }, set: { didEditDate = true; date = $0 }), displayedComponents: .date)
                 .labelsHidden()
                 .datePickerStyle(.compact)
         }
@@ -349,7 +338,7 @@ struct ManualTransactionSheet: View {
         }
         panelDivider
         row("Date") {
-            DatePicker("", selection: $date, displayedComponents: .date)
+            DatePicker("", selection: Binding(get: { date }, set: { didEditDate = true; date = $0 }), displayedComponents: .date)
                 .labelsHidden()
                 .datePickerStyle(.compact)
         }

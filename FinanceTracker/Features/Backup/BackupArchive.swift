@@ -265,6 +265,7 @@ enum BackupArchive {
             try checkpoint?(.beforeSave)
             try context.save()
             callerContext.rollback()
+            if case .replaceAll = strategy { ManualCaptureDateStore.reset() }
             files.discard()
             NotificationCenter.default.post(name: PromotionLedgerStore.didChangeNotification, object: nil)
             return warnings
