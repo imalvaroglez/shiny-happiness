@@ -17,6 +17,9 @@ struct TransactionDateGroupHeader: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        // Base opaca (se adapta al tema) para que las filas NO se vean a
+        // través del header pineado al scrollear; el tinte va encima.
         .background(Color.primary.opacity(0.045))
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 }

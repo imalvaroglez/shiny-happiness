@@ -339,6 +339,7 @@ struct ManualTransactionSheet: View {
         panelDivider
         row("Description") {
             TextField("Merchant or note", text: $description)
+                .focused($focusedField, equals: .description)
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.trailing)
         }
@@ -389,6 +390,7 @@ struct ManualTransactionSheet: View {
         panelDivider
         row("Note") {
             TextField("Transfer", text: $description)
+                .focused($focusedField, equals: .description)
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.trailing)
         }

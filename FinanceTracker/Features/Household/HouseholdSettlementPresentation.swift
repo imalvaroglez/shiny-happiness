@@ -219,7 +219,6 @@ struct HouseholdSettlementPresenter {
                 setup: setup,
                 report: report,
                 validation: validation,
-                saveStatus: saveStatus,
                 splitText: splitText
             ),
             warning: warning(report: report, validation: validation),
@@ -232,7 +231,6 @@ struct HouseholdSettlementPresenter {
         setup: HouseholdSettlementSetup,
         report: HouseholdSettlementReport,
         validation: HouseholdSettlementValidationState,
-        saveStatus: String,
         splitText: String
     ) -> HouseholdMonthlySetupState {
         let rows = [
@@ -303,19 +301,19 @@ struct HouseholdSettlementPresenter {
         if validation.missingUserSalary && validation.zeroTotalHouseholdIncome {
             messages.append(localized("No salary income detected for this month. Add a salary transaction or use a manual override to calculate a proportional split."))
         } else {
-        if validation.missingUserSalary {
-            messages.append(localized("No salary income detected for this month. Add a salary transaction or use a manual override to calculate a proportional split."))
-        }
-        if validation.zeroTotalHouseholdIncome {
-            messages.append(localized("Income assumptions are incomplete. Add your salary income or Fer's estimate to calculate the proportional split."))
-        } else {
-            if validation.missingUserSalary, report.partnerIncomeEstimate > 0 {
-                messages.append(localized("Your salary income is missing. Use a manual override, 50/50, or custom split before assigning Fer 100%."))
+            if validation.missingUserSalary {
+                messages.append(localized("No salary income detected for this month. Add a salary transaction or use a manual override to calculate a proportional split."))
             }
-            if validation.missingPartnerIncomeEstimate {
-                messages.append(localized("Fer income estimate is missing. Proportional split assigns 100% to you."))
+            if validation.zeroTotalHouseholdIncome {
+                messages.append(localized("Income assumptions are incomplete. Add your salary income or Fer's estimate to calculate the proportional split."))
+            } else {
+                if validation.missingUserSalary, report.partnerIncomeEstimate > 0 {
+                    messages.append(localized("Your salary income is missing. Use a manual override, 50/50, or custom split before assigning Fer 100%."))
+                }
+                if validation.missingPartnerIncomeEstimate {
+                    messages.append(localized("Fer income estimate is missing. Proportional split assigns 100% to you."))
+                }
             }
-        }
         }
         if validation.invalidCustomSplit {
             messages.append(localized("Custom split must total 100%."))

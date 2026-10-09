@@ -258,14 +258,19 @@ struct HouseholdSettlementView: View {
                     }
                 }
                 if state.showsManualSalaryOverrideButton {
-                    HStack {
-                        Spacer(minLength: 0)
-                        Button("Use Manual Override") {
-                            useManualSalary = true
+                    // Misma geometría que setupRow (label 200 + valor ≤320):
+                    // el botón ancla a la guía de la columna de valores.
+                    HStack(spacing: 12) {
+                        Color.clear.frame(width: 200)
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button("Use Manual Override") {
+                                useManualSalary = true
+                            }
+                            .accessibilityIdentifier("household.userSalary.overrideButton")
                         }
-                        .accessibilityIdentifier("household.userSalary.overrideButton")
+                        .frame(maxWidth: 320, alignment: .trailing)
                     }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 10)
                 }

@@ -17,8 +17,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Cuentas del hogar: tarjeta "Configuración mensual" al ancho del contenido con columnas compartidas, "Usar ajuste manual" alineado a la columna de valores, formato de moneda consistente en los campos de ingreso, un solo indicador "Guardado", "Borrar" con estilo destructivo y confirmación, y banner sin mensajes redundantes.
 - Movimientos: sin superficies blancas puras en la tabla — bandas de fecha con tinte del tema, búsqueda integrada sin caja brillante y separadores más tenues (solo en esta vista; dashboards y promociones conservan su estilo).
 
-### Fixed
-
 - Category renames preserve seed identities, salary/interest semantics and rule aliases. Rapid color edits remain ordered; failed renames recover both stores, and corrupt customization files show a recoverable startup warning.
 - Restore validates and stages category customization alongside promotions and spending requirements before committing financial data.
 
