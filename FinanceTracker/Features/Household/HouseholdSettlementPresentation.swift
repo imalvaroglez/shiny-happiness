@@ -123,7 +123,7 @@ struct HouseholdMonthlySetupState {
     let notesLabel: String
     let copyPreviousTitle: String
     let clearTitle: String
-    let setupStatusText: String
+    let setupStatusText: String?
     let showsManualSalaryOverrideButton: Bool
     let showsManualSalaryInput: Bool
 }
@@ -262,7 +262,7 @@ struct HouseholdSettlementPresenter {
             notesLabel: localized("Notes"),
             copyPreviousTitle: localized("Copy Previous Month"),
             clearTitle: localized("Clear"),
-            setupStatusText: validation.canSave ? saveStatus : localized("Fix setup to save"),
+            setupStatusText: validation.canSave ? nil : localized("Fix setup to save"),
             showsManualSalaryOverrideButton: validation.missingUserSalary,
             showsManualSalaryInput: setup.useUserIncomeManualOverride
         )
@@ -298,6 +298,11 @@ struct HouseholdSettlementPresenter {
         validation: HouseholdSettlementValidationState
     ) -> HouseholdWarningState? {
         var messages: [String] = []
+        // Cuando faltan AMBOS ingresos, los dos mensajes canónicos dicen lo
+        // mismo: se colapsan en uno.
+        if validation.missingUserSalary && validation.zeroTotalHouseholdIncome {
+            messages.append(localized("No salary income detected for this month. Add a salary transaction or use a manual override to calculate a proportional split."))
+        } else {
         if validation.missingUserSalary {
             messages.append(localized("No salary income detected for this month. Add a salary transaction or use a manual override to calculate a proportional split."))
         }
@@ -310,6 +315,7 @@ struct HouseholdSettlementPresenter {
             if validation.missingPartnerIncomeEstimate {
                 messages.append(localized("Fer income estimate is missing. Proportional split assigns 100% to you."))
             }
+        }
         }
         if validation.invalidCustomSplit {
             messages.append(localized("Custom split must total 100%."))

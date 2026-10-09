@@ -1053,9 +1053,46 @@ struct DashboardPeriodFilteringTests {
         let groups = DashboardAccountGroupBuilder.groups(from: composition, currencyCode: "MXN")
 
         #expect(groups.map(\.bucket) == [.liquidity, .patrimonial, .retirement, .liabilities, .uncategorized])
-        #expect(groups.first { $0.bucket == .liquidity }?.subtotal == 700)
+        // El bucket muestra el BRUTO (cuánto dinero hay ahora mismo); el neto
+        // tras tarjetas queda como subtítulo informativo.
+        #expect(groups.first { $0.bucket == .liquidity }?.subtotal == 1_000)
+        #expect(groups.first { $0.bucket == .liquidity }?.detail?.contains("neto") == true)
         #expect(groups.first { $0.bucket == .liabilities }?.subtotal == -300)
         #expect(groups.first { $0.bucket == .uncategorized }?.accounts.map(\.displayName) == ["Mystery"])
+    }
+
+    @Test("Liquidity bucket: deuda mayor que liquidez muestra bruto con neto negativo; sin deuda no hay subtítulo")
+    func liquidityBucketGrossEdges() {
+        let debtHeavy = NetWorthComposition.calculate(from: [
+            accountSummary("Checking", type: .checking, amount: 1_000),
+            accountSummary("Card", type: .creditCard, amount: -2_500),
+        ])
+        let groups = DashboardAccountGroupBuilder.groups(from: debtHeavy, currencyCode: "MXN")
+        let liquidity = groups.first { $0.bucket == .liquidity }
+        #expect(liquidity?.subtotal == 1_000, "el bruto no se come la deuda")
+        #expect(liquidity?.detail?.contains("neto") == true)
+        #expect(groups.first { $0.bucket == .liabilities }?.subtotal == -2_500)
+
+        // Sin deuda: sin subtítulo.
+        let noDebt = DashboardAccountGroupBuilder.groups(
+            from: NetWorthComposition.calculate(from: [
+                accountSummary("Checking", type: .checking, amount: 800),
+            ]), currencyCode: "MXN")
+        #expect(noDebt.first { $0.bucket == .liquidity }?.subtotal == 800)
+        #expect(noDebt.first { $0.bucket == .liquidity }?.detail == nil)
+        #expect(!noDebt.contains { $0.bucket == .liabilities })
+    }
+
+    @Test("Deuda sin cuentas líquicas no genera bucket Liquidity degenerado")
+    func debtWithoutLiquidAccountsSkipsLiquidityBucket() {
+        let groups = DashboardAccountGroupBuilder.groups(
+            from: NetWorthComposition.calculate(from: [
+                accountSummary("Card", type: .creditCard, amount: -300),
+                accountSummary("Brokerage", type: .investment, amount: 500, liquidity: .restricted),
+            ]), currencyCode: "MXN")
+        #expect(!groups.contains { $0.bucket == .liquidity })
+        #expect(groups.contains { $0.bucket == .liabilities })
+        #expect(groups.contains { $0.bucket == .patrimonial })
     }
 
     @Test("Net worth trend includes buckets with any known balance")

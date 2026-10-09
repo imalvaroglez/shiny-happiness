@@ -17,6 +17,6 @@ struct TransactionDateGroupHeader: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.bar)
+        .background(Color.primary.opacity(0.045))
     }
 }

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **"Guardar y nuevo"** en la hoja de captura manual: guarda el movimiento y deja el formulario listo para el siguiente (conserva cuenta y tipo; la fecha hereda la sugerencia actualizada; la asignación doméstica NO se arrastra). La intención sobrevive a fallos parciales de adjudicación: "Reintentar" y "Más tarde" honran el botón con el que empezaste.
+
+### Fixed
+
+- Categorías: los controles de color ya no quedan encimados; el editor de nombre precarga el nombre visible (es-MX) y confirmar sin cambios es una cancelación pura (sin escrituras ni personalización de seeds).
+- Overview: el bucket Liquidity de "Accounts by Bucket" muestra el bruto (cuánto dinero hay ahora mismo); el neto tras tarjetas queda como subtítulo y la deuda sin cuentas líquicas ya no genera un bucket vacío.
+- Cuentas del hogar: tarjeta "Configuración mensual" al ancho del contenido con columnas compartidas, "Usar ajuste manual" alineado a la columna de valores, formato de moneda consistente en los campos de ingreso, un solo indicador "Guardado", "Borrar" con estilo destructivo y confirmación, y banner sin mensajes redundantes.
+- Movimientos: sin superficies blancas puras en la tabla — bandas de fecha con tinte del tema, búsqueda integrada sin caja brillante y separadores más tenues (solo en esta vista; dashboards y promociones conservan su estilo).
+
 ### Fixed
 
 - Category renames preserve seed identities, salary/interest semantics and rule aliases. Rapid color edits remain ordered; failed renames recover both stores, and corrupt customization files show a recoverable startup warning.

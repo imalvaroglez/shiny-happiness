@@ -34,6 +34,8 @@ struct ManualTransactionSheet: View {
     @State private var selectedPromotionIDs: Set<UUID> = []
     @State private var attributionFailure: AttributionFailure?
     @State private var didEditDate = false
+    @State private var saveIntent: SaveAndNewFlow.Intent = .close
+    @FocusState private var focusedField: SaveAndNewFlow.Field?
 
     private var selectedAccount: Account? {
         accounts.first { $0.id == accountID }
@@ -93,10 +95,18 @@ struct ManualTransactionSheet: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(attributionFailure == nil ? "Save" : "Guardada ✓") { save() }
-                    .buttonStyle(.glassProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(accounts.isEmpty || attributionFailure != nil)
+                Button("Guardar y nuevo") {
+                    saveIntent = .addAnother
+                    save()
+                }
+                .disabled(accounts.isEmpty || attributionFailure != nil)
+                Button(attributionFailure == nil ? "Save" : "Guardada ✓") {
+                    saveIntent = .close
+                    save()
+                }
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(accounts.isEmpty || attributionFailure != nil)
             }
         }
         .padding(24)
@@ -239,19 +249,53 @@ struct ManualTransactionSheet: View {
         guard let failure = attributionFailure else { return }
         let failed = AttributionSaver.retry(transactionID: failure.transactionID,
                                             failedPromotionIDs: failure.failedIDs)
-        if failed.isEmpty {
-            attributionFailure = nil
-            onSaved()
-            dismiss()
-        } else {
-            attributionFailure = AttributionFailure(transactionID: failure.transactionID, failedIDs: failed)
+        guard let resolution = SaveAndNewFlow.resolve(intent: saveIntent,
+                                                      attributionFailureResolved: failed.isEmpty)
+        else {
+            attributionFailure = AttributionFailure(transactionID: failure.transactionID,
+                                                    failedIDs: failed)
+            return
         }
+        attributionFailure = nil
+        applyResolution(resolution)
     }
 
     private func deferAttributions() {
+        // «Más tarde»: la adjudicación queda recuperable desde el detalle.
         attributionFailure = nil
-        onSaved()
-        dismiss()
+        applyResolution(SaveAndNewFlow.resolve(intent: saveIntent))
+    }
+
+    private func finishAfterSuccess() {
+        applyResolution(SaveAndNewFlow.resolve(intent: saveIntent))
+    }
+
+    private func applyResolution(_ resolution: SaveAndNewFlow.Resolution) {
+        switch resolution {
+        case .dismiss:
+            onSaved()
+            dismiss()
+        case .resetForm:
+            onSaved()
+            resetForNextEntry()
+        }
+    }
+
+    /// Reset COMPLETO tras un «Guardar y nuevo»: nada de arrastrar semántica
+    /// doméstica (expenseAssignment/includeInHousehold) al siguiente movimiento.
+    /// Conserva cuenta, tipo y contraparte; la fecha vuelve a la sugerencia
+    /// (que ya hereda la de la tx recién guardada).
+    private func resetForNextEntry() {
+        description = ""
+        amount = 0
+        categoryID = nil
+        selectedPromotionIDs = []
+        expenseAssignment = .user
+        includeInHousehold = false
+        errorMessage = nil
+        didEditDate = false
+        applyDateSuggestion()
+        focusedField = .description
     }
 
     /// La tx ya se guardó; un fallo del ledger deja la hoja abierta con Reintentar/Más tarde.
@@ -523,10 +567,47 @@ struct ManualTransactionSheet: View {
                 applyAttributions(to: createdTransaction)
             }
             guard attributionFailure == nil else { return }
-            onSaved()
-            dismiss()
+            finishAfterSuccess()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
+}
+
+// MARK: - Flujo Guardar y nuevo (core puro, testeable)
+
+/// Resuelve qué hace la hoja tras cada desenlace, honrando la intención del
+/// botón pulsado (`.close` | `.addAnother`) AUN con fallo parcial de
+/// adjudicación: «Reintentar» y «Más tarde» nunca la descartan.
+enum SaveAndNewFlow {
+    enum Intent: Equatable {
+        case close
+        case addAnother
+    }
+
+    enum Field: Hashable {
+        case description
+    }
+
+    enum Resolution: Equatable {
+        case dismiss
+        case resetForm
+    }
+
+    /// Éxito completo (tx + adjudicaciones).
+    static func resolve(intent: Intent) -> Resolution {
+        intent == .addAnother ? .resetForm : .dismiss
+    }
+
+    /// Resolución del banner de fallo de adjudicación.
+    /// - Reintento exitoso → intención original.
+    /// - Reintento aún fallido → nil: seguir esperando (la hoja NO cierra ni
+    ///   resetea con un fallo sin resolver).
+    /// - «Más tarde» (deferred) → intención original; la adjudicación queda
+    ///   recuperable desde el detalle.
+    static func resolve(intent: Intent, attributionFailureResolved: Bool) -> Resolution? {
+        guard attributionFailureResolved else { return nil }
+        return resolve(intent: intent)
+    }
+
 }
