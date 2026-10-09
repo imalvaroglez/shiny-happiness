@@ -85,7 +85,11 @@ struct HouseholdSettlementPresenterTests {
             setup: HouseholdSettlementSetup(partnerIncomeEstimate: 0)
         )
         let zeroIncome = state(setup: HouseholdSettlementSetup(partnerIncomeEstimate: 0), report: zeroReport)
-        #expect(zeroIncome.warning?.messages.contains { $0.contains("Faltan supuestos de ingresos") } == true)
+        // Faltan AMBOS ingresos: los dos mensajes canónicos decían lo mismo y
+        // se colapsan en uno solo (sin redundancia en el banner).
+        #expect(zeroIncome.warning?.messages.count == 1)
+        #expect(zeroIncome.warning?.messages.contains { $0.contains("No se detectó ingreso por sueldo") } == true)
+        #expect(zeroIncome.warning?.messages.contains { $0.contains("Faltan supuestos de ingresos") } == false)
     }
 
     @Test("Split labels use injected percent formatter")

@@ -1741,11 +1741,22 @@ enum DashboardAccountGroupBuilder {
     static func groups(from composition: NetWorthComposition, currencyCode: String) -> [DashboardAccountGroup] {
         var groups: [DashboardAccountGroup] = []
 
-        if !composition.liquidAssetAccounts.isEmpty || composition.netLiquidity != 0 {
+        // El bucket muestra CUÁNTO DINERO HAY ahora mismo en esas cuentas
+        // (bruto); la deuda de tarjetas ya vive en su propia tarjeta y bucket.
+        // El neto queda como subtítulo informativo.
+        if !composition.liquidAssetAccounts.isEmpty {
+            let detail: String?
+            if composition.totalLiabilities != 0 {
+                let cardDebt = MoneyFormat.string(code: currencyCode, composition.totalLiabilities)
+                let net = MoneyFormat.string(code: currencyCode, composition.netLiquidity)
+                detail = "−\(cardDebt) en tarjetas · neto \(net)"
+            } else {
+                detail = nil
+            }
             groups.append(DashboardAccountGroup(
                 bucket: .liquidity,
-                subtotal: composition.netLiquidity,
-                detail: "Gross \(MoneyFormat.string(code: currencyCode, composition.grossLiquidity)) after cards",
+                subtotal: composition.grossLiquidity,
+                detail: detail,
                 accounts: composition.liquidAssetAccounts
             ))
         }
@@ -1813,8 +1824,13 @@ struct DashboardListCard<Content: View>: View {
 }
 
 struct DashboardSeparator: View {
+    /// Variante más tenue para tablas densas (Movimientos); el default
+    /// preserva el estilo de dashboards, promociones y demás consumidores.
+    var soft = false
+
     var body: some View {
         Divider()
             .padding(.leading, 52)
+            .opacity(soft ? 0.45 : 1)
     }
 }

@@ -123,7 +123,7 @@ struct HouseholdMonthlySetupState {
     let notesLabel: String
     let copyPreviousTitle: String
     let clearTitle: String
-    let setupStatusText: String
+    let setupStatusText: String?
     let showsManualSalaryOverrideButton: Bool
     let showsManualSalaryInput: Bool
 }
@@ -219,7 +219,6 @@ struct HouseholdSettlementPresenter {
                 setup: setup,
                 report: report,
                 validation: validation,
-                saveStatus: saveStatus,
                 splitText: splitText
             ),
             warning: warning(report: report, validation: validation),
@@ -232,7 +231,6 @@ struct HouseholdSettlementPresenter {
         setup: HouseholdSettlementSetup,
         report: HouseholdSettlementReport,
         validation: HouseholdSettlementValidationState,
-        saveStatus: String,
         splitText: String
     ) -> HouseholdMonthlySetupState {
         let rows = [
@@ -262,7 +260,7 @@ struct HouseholdSettlementPresenter {
             notesLabel: localized("Notes"),
             copyPreviousTitle: localized("Copy Previous Month"),
             clearTitle: localized("Clear"),
-            setupStatusText: validation.canSave ? saveStatus : localized("Fix setup to save"),
+            setupStatusText: validation.canSave ? nil : localized("Fix setup to save"),
             showsManualSalaryOverrideButton: validation.missingUserSalary,
             showsManualSalaryInput: setup.useUserIncomeManualOverride
         )
@@ -298,17 +296,23 @@ struct HouseholdSettlementPresenter {
         validation: HouseholdSettlementValidationState
     ) -> HouseholdWarningState? {
         var messages: [String] = []
-        if validation.missingUserSalary {
+        // Cuando faltan AMBOS ingresos, los dos mensajes canónicos dicen lo
+        // mismo: se colapsan en uno.
+        if validation.missingUserSalary && validation.zeroTotalHouseholdIncome {
             messages.append(localized("No salary income detected for this month. Add a salary transaction or use a manual override to calculate a proportional split."))
-        }
-        if validation.zeroTotalHouseholdIncome {
-            messages.append(localized("Income assumptions are incomplete. Add your salary income or Fer's estimate to calculate the proportional split."))
         } else {
-            if validation.missingUserSalary, report.partnerIncomeEstimate > 0 {
-                messages.append(localized("Your salary income is missing. Use a manual override, 50/50, or custom split before assigning Fer 100%."))
+            if validation.missingUserSalary {
+                messages.append(localized("No salary income detected for this month. Add a salary transaction or use a manual override to calculate a proportional split."))
             }
-            if validation.missingPartnerIncomeEstimate {
-                messages.append(localized("Fer income estimate is missing. Proportional split assigns 100% to you."))
+            if validation.zeroTotalHouseholdIncome {
+                messages.append(localized("Income assumptions are incomplete. Add your salary income or Fer's estimate to calculate the proportional split."))
+            } else {
+                if validation.missingUserSalary, report.partnerIncomeEstimate > 0 {
+                    messages.append(localized("Your salary income is missing. Use a manual override, 50/50, or custom split before assigning Fer 100%."))
+                }
+                if validation.missingPartnerIncomeEstimate {
+                    messages.append(localized("Fer income estimate is missing. Proportional split assigns 100% to you."))
+                }
             }
         }
         if validation.invalidCustomSplit {

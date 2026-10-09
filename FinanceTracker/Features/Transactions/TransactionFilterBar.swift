@@ -40,7 +40,17 @@ struct TransactionFilterBar: View {
             sortMenu
 
             TextField("Search transactions", text: $searchText)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
                 .frame(minWidth: 90, maxWidth: 260)
                 .layoutPriority(1)
 

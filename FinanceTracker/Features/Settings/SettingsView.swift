@@ -1437,6 +1437,7 @@ private struct CategoryManagementPanel: View {
     @State private var isTreeReady = false
     @State private var renamingSubcategoryID: UUID?
     @State private var renameDraft = ""
+    @State private var renameOriginal = ""
     @State private var tintTick = 0
 
     init(
@@ -1759,7 +1760,8 @@ private struct CategoryManagementPanel: View {
             Spacer()
 
             Button {
-                renameDraft = subcategory.name
+                renameDraft = subcategory.localizedName
+                renameOriginal = subcategory.localizedName
                 renamingSubcategoryID = subcategory.id
             } label: {
                 Image(systemName: "pencil")
@@ -1808,7 +1810,8 @@ private struct CategoryManagementPanel: View {
                     .font(fontSize)
                     .lineLimit(1)
                 Button {
-                    renameDraft = parent.name
+                    renameDraft = parent.localizedName
+                    renameOriginal = parent.localizedName
                     renamingSubcategoryID = parent.id
                 } label: {
                     Image(systemName: "pencil")
@@ -1823,19 +1826,24 @@ private struct CategoryManagementPanel: View {
 
     private func commitRename(_ category: Category) {
         defer { renamingSubcategoryID = nil }
-        guard !renameDraft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        onRename(category, renameDraft)
+        let trimmed = renameDraft.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        // Confirmar sin cambios es CANCELACIÓN: sin write, sin touch(), sin
+        // registrar seedName — un seed no se personaliza por abrir el editor.
+        guard trimmed != renameOriginal else { return }
+        onRename(category, trimmed)
     }
 
     /// ColorPicker del tinte con botón de volver al color automático.
     private func tintPicker(for category: Category) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 10) {
             ColorPicker("", selection: Binding(
                 get: { CategoryBadgeColor.color(for: category) },
                 set: { onTintChange(category, $0) }
             ), supportsOpacity: false)
             .labelsHidden()
-            .frame(width: 24)
+            .fixedSize()
+            .frame(width: 44)
             .help("Color del badge")
             Button {
                 onTintChange(category, nil)
