@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    nonisolated private static let schemaVersion = 9
+    nonisolated private static let schemaVersion = 10
     nonisolated private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -79,6 +79,13 @@ enum BackupArchive {
             }
             guard snapshots[0].validate(accountIDs: Set(currencies.keys), accountCurrencies: currencies).isEmpty else { return false }
         }
+        if manifest.schemaVersion >= 10 {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let ledgerData = arrayData(for: "PromotionLedger", in: modelsDir),
+                  let snapshots = try? decoder.decode([PromotionLedger].self, from: ledgerData),
+                  snapshots.count == 1 else { return false }
+        }
         return true
     }
 
@@ -104,13 +111,15 @@ enum BackupArchive {
         if schemaVersion >= 3 { names.append("StockPosition") }
         if schemaVersion >= 4 { names.append("HouseholdPartnerIncomeEstimate") }
         if schemaVersion >= 7 { names.append("SettlementDueDateOverride") }
-        if schemaVersion >= 8 { names.append("PromotionOverrides") }
+        // Schema 10 retiró el store del V1: sus overrides solo se exigen en backups 8..<10.
+        if schemaVersion >= 8 && schemaVersion < 10 { names.append("PromotionOverrides") }
         if schemaVersion >= 9 { names.append("SpendRequirement") }
+        if schemaVersion >= 10 { names.append("PromotionLedger") }
         return names
     }
 
-    static func export(to bundleURL: URL, from context: ModelContext, promotionOverridesURL: URL? = nil,
-                       spendRequirementsURL: URL? = nil) async throws {
+    static func export(to bundleURL: URL, from context: ModelContext, promotionLedgerURL: URL? = nil,
+                       spendRequirementsURL: URL? = nil, statementsSource: URL? = nil) async throws {
         let fm = FileManager.default
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
         let statementsDir = bundleURL.appendingPathComponent(statementsSubdirectory)
@@ -192,13 +201,15 @@ enum BackupArchive {
         }
         try writeJSON("SettlementDueDateOverride", newestByTx.values.map { SettlementDueDateOverrideSnapshot($0) })
 
-        let promotionStoreURL = try promotionOverridesURL ?? PromotionStore.defaultURL()
-        try writeJSON("PromotionOverrides", [try PromotionStore.read(fileURL: promotionStoreURL)])
+        // Schema 10: el ledger de adjudicación manual reemplaza al store del V1,
+        // que ya no se exporta.
+        try writeJSON("PromotionLedger",
+                      [try PromotionLedgerStore.read(fileURL: promotionLedgerURL ?? PromotionLedgerStore.defaultURL())])
         let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
         try writeJSON("SpendRequirement", [try SpendRequirementStore.read(fileURL: spendStoreURL)])
 
-        let appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-        let sourceStatements = appSupport.appendingPathComponent("FinanceTracker/Statements")
+        let sourceStatements = try statementsSource ?? PromotionLedgerStore.defaultURL()
+            .deletingLastPathComponent().appendingPathComponent("Statements")
         if fm.fileExists(atPath: sourceStatements.path) {
             let enumerator = fm.enumerator(at: sourceStatements, includingPropertiesForKeys: nil)
             while let file = enumerator?.nextObject() as? URL {
@@ -220,15 +231,64 @@ enum BackupArchive {
         try manifestData.write(to: bundleURL.appendingPathComponent("manifest.json"))
     }
 
-    static func restore(from bundleURL: URL, into context: ModelContext, strategy: RestoreStrategy,
-                        promotionOverridesURL: URL? = nil, spendRequirementsURL: URL? = nil) async throws {
+    enum RestoreCheckpoint: String, CaseIterable {
+        case modelsStaged, ledgerPublished, spendPublished, statementsPrepared, beforeSave
+    }
+
+    @discardableResult
+    static func restore(from bundleURL: URL, into callerContext: ModelContext, strategy: RestoreStrategy,
+                        promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil,
+                        statementsDestination: URL? = nil,
+                        checkpoint: ((RestoreCheckpoint) throws -> Void)? = nil,
+                        saveContext: ((ModelContext) throws -> Void)? = nil) async throws -> [String] {
+        // Never discard unrelated drafts in the caller's context.
+        guard !callerContext.hasChanges else { throw RestoreError.unsavedChanges }
+        let ledgerURL = try promotionLedgerURL ?? PromotionLedgerStore.defaultURL()
+        let spendURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
+        _ = try PromotionLedgerStore.read(fileURL: ledgerURL)
+        _ = try SpendRequirementStore.read(fileURL: spendURL)
+        let files = try SidecarFileTransaction(urls: [ledgerURL, spendURL])
+        let context = ModelContext(callerContext.container)
+        context.autosaveEnabled = false
+        let destination = try statementsDestination ?? PromotionLedgerStore.defaultURL()
+            .deletingLastPathComponent().appendingPathComponent("Statements")
+        do {
+            let warnings = try await restoreStaged(from: bundleURL, into: context, strategy: strategy,
+                                    promotionLedgerURL: files.stagedURL(for: ledgerURL),
+                                    spendRequirementsURL: files.stagedURL(for: spendURL),
+                                    files: files, statementsDestination: destination)
+            try checkpoint?(.modelsStaged)
+            try files.publish(ledgerURL)
+            try checkpoint?(.ledgerPublished)
+            try files.publish(spendURL)
+            try checkpoint?(.spendPublished)
+            try checkpoint?(.statementsPrepared)
+            try checkpoint?(.beforeSave)
+            if let saveContext { try saveContext(context) } else { try context.save() }
+            callerContext.rollback()
+            files.discard()
+            NotificationCenter.default.post(name: PromotionLedgerStore.didChangeNotification, object: nil)
+            return warnings
+        } catch {
+            context.rollback()
+            let originalError = error
+            do { try files.rollback() }
+            catch { throw RestoreError.compensation(original: originalError.localizedDescription, recovery: error.localizedDescription) }
+            throw error
+        }
+    }
+
+    private static func restoreStaged(from bundleURL: URL, into context: ModelContext, strategy: RestoreStrategy,
+                        promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil,
+                        files: SidecarFileTransaction, statementsDestination: URL) async throws -> [String] {
+        var warnings: [String] = []
         let fm = FileManager.default
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard (1...9).contains(manifest.schemaVersion) else {
+        guard (1...10).contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
         guard isValidBundle(manifest, at: bundleURL) else {
@@ -278,13 +338,15 @@ enum BackupArchive {
         } else {
             dueDateOverridesSnap = try loadOptionalJSON(SettlementDueDateOverrideSnapshot.self, "SettlementDueDateOverride")
         }
-        let promotionOverridesSnap: PromotionOverrides?
-        if manifest.schemaVersion >= 8 {
-            let snapshots = try loadJSON(PromotionOverrides.self, "PromotionOverrides")
-            guard snapshots.count == 1 else { throw RestoreError.invalidBundle }
-            promotionOverridesSnap = snapshots.first
+        // Schema 10 introdujo el ledger de promociones; schemas 1–9 no lo traen
+        // (replaceAll lo vacía, merge conserva el local).
+        let promotionLedgerSnap: PromotionLedger?
+        if manifest.schemaVersion >= 10 {
+            let snapshots = try loadJSON(PromotionLedger.self, "PromotionLedger")
+            guard snapshots.count == 1, snapshots[0].schemaVersion == 1 else { throw RestoreError.invalidBundle }
+            promotionLedgerSnap = snapshots.first
         } else {
-            promotionOverridesSnap = nil
+            promotionLedgerSnap = nil
         }
         let spendRequirementsSnap: SpendRequirementSettings?
         if manifest.schemaVersion >= 9 {
@@ -678,62 +740,39 @@ enum BackupArchive {
         }
 
         _ = HouseholdAllocationRepairService.repair(transactions: Array(transactionMap.values))
-        let promotionStoreURL = try promotionOverridesURL ?? PromotionStore.defaultURL()
-        let currentPromotionOverrides = try PromotionStore.read(fileURL: promotionStoreURL)
+        let ledgerURL = try promotionLedgerURL ?? PromotionLedgerStore.defaultURL()
         let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
-        let currentSpendRequirements = try SpendRequirementStore.read(fileURL: spendStoreURL)
-        let hadSpendRequirementsFile = FileManager.default.fileExists(atPath: spendStoreURL.path)
-        do {
-            switch strategy {
-            case .replaceAll:
-                if let promotionOverridesSnap {
-                    try PromotionStore.replace(with: promotionOverridesSnap, at: promotionStoreURL)
-                }
-            case .mergeKeepingNewer:
-                if let promotionOverridesSnap { try PromotionStore.merge(promotionOverridesSnap, at: promotionStoreURL) }
-            }
-            switch strategy {
-            case .replaceAll:
-                if let spendRequirementsSnap {
-                    try SpendRequirementStore.replace(with: spendRequirementsSnap, at: spendStoreURL,
-                        accountIDs: Set(accountMap.keys),
-                        accountCurrencies: Dictionary(uniqueKeysWithValues: accountMap.map { ($0.key, $0.value.currency) }))
-                } else {
-                    try SpendRequirementStore.reset(fileURL: spendStoreURL)
-                }
-            case .mergeKeepingNewer:
-                if let spendRequirementsSnap {
-                    try SpendRequirementStore.merge(spendRequirementsSnap, at: spendStoreURL,
-                        accountIDs: Set(accountMap.keys),
-                        accountCurrencies: Dictionary(uniqueKeysWithValues: accountMap.map { ($0.key, $0.value.currency) }))
-                }
-            }
-            try context.save()
-        } catch {
-            try? PromotionStore.replace(with: currentPromotionOverrides, at: promotionStoreURL)
-            if hadSpendRequirementsFile {
-                try? SpendRequirementStore.replace(with: currentSpendRequirements, at: spendStoreURL)
+        switch strategy {
+        case .replaceAll:
+            if let promotionLedgerSnap {
+                try PromotionLedgerStore.replace(with: promotionLedgerSnap, at: ledgerURL, notify: false)
             } else {
-                try? SpendRequirementStore.reset(fileURL: spendStoreURL)
+                // Backup ≤9 sin ledger: replaceAll deja el ledger vacío (explícito).
+                try PromotionLedgerStore.reset(fileURL: ledgerURL, notify: false)
             }
-            throw error
+        case .mergeKeepingNewer:
+            // Backup ≤9 sin ledger: el local se conserva íntegro (nada que mezclar).
+            if let promotionLedgerSnap { warnings += try PromotionLedgerStore.merge(promotionLedgerSnap, at: ledgerURL, notify: false) }
         }
-
-        let statementsSource = bundleURL.appendingPathComponent(statementsSubdirectory)
-        if fm.fileExists(atPath: statementsSource.path) {
-            let appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-            let dest = appSupport.appendingPathComponent("FinanceTracker/Statements")
-            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
-            let enumerator = fm.enumerator(at: statementsSource, includingPropertiesForKeys: nil)
-            while let file = enumerator?.nextObject() as? URL {
-                let relative = file.path.replacingOccurrences(of: statementsSource.path + "/", with: "")
-                let target = dest.appendingPathComponent(relative)
-                try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                if !fm.fileExists(atPath: target.path) {
-                    try fm.copyItem(at: file, to: target)
-                }
+        switch strategy {
+        case .replaceAll:
+            if let spendRequirementsSnap {
+                try SpendRequirementStore.replace(with: spendRequirementsSnap, at: spendStoreURL,
+                    accountIDs: Set(accountMap.keys),
+                    accountCurrencies: Dictionary(uniqueKeysWithValues: accountMap.map { ($0.key, $0.value.currency) }))
+            } else {
+                try SpendRequirementStore.reset(fileURL: spendStoreURL)
+            }
+        case .mergeKeepingNewer:
+            if let spendRequirementsSnap {
+                try SpendRequirementStore.merge(spendRequirementsSnap, at: spendStoreURL,
+                    accountIDs: Set(accountMap.keys),
+                    accountCurrencies: Dictionary(uniqueKeysWithValues: accountMap.map { ($0.key, $0.value.currency) }))
             }
         }
+        try files.prepareStatements(from: bundleURL.appendingPathComponent(statementsSubdirectory),
+                                    into: statementsDestination)
+        return warnings
     }
 
     private static func deleteAll(from context: ModelContext) throws {
@@ -770,11 +809,15 @@ enum BackupArchive {
 private enum RestoreError: LocalizedError {
     case unsupportedSchema(Int)
     case invalidBundle
+    case unsavedChanges
+    case compensation(original: String, recovery: String)
 
     var errorDescription: String? {
         switch self {
         case .unsupportedSchema(let v): "Unsupported backup schema version: \(v)"
         case .invalidBundle: "Backup bundle is incomplete or has invalid model data."
+        case .unsavedChanges: "Guarda o cancela los cambios pendientes antes de restaurar."
+        case .compensation(let original, let recovery): "Restore falló: \(original). \(recovery)"
         }
     }
 }

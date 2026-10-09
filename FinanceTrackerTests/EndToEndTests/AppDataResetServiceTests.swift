@@ -160,19 +160,6 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()) == 0)
     }
 
-    @Test("resetAllData clears local promotion overrides")
-    func resetClearsPromotionOverrides() throws {
-        let container = try makeContainer()
-        let context = container.mainContext
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("reset-promos-\(UUID())", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let url = root.appendingPathComponent("PromotionOverrides.json")
-        try PromotionStore.replace(with: PromotionOverrides(), at: url)
-
-        try AppDataResetService.resetAllData(context: context, promotionOverridesURL: url)
-
-        #expect(!FileManager.default.fileExists(atPath: url.path))
-    }
 
     @Test("resetAllData clears spend requirement settings")
     func resetClearsSpendRequirements() throws {
@@ -366,5 +353,23 @@ struct AppDataResetServiceTests {
             atPath: quarantined.appendingPathComponent("default.store").path))
         #expect(FileManager.default.fileExists(
             atPath: quarantined.appendingPathComponent("default.store-wal").path))
+    }
+
+    @Test("resetAllData elimina el ledger de promociones")
+    func resetAllDataRemovesPromotionLedger() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("reset-ledger-\(UUID()).json")
+        try PromotionLedgerStore.save(
+            promotion: PromotionRecord(id: UUID(), name: "Promo", accountID: UUID(), currency: "MXN",
+                                       windowStart: nil, windowEnd: nil, targetAmount: nil,
+                                       rewardNote: nil, notes: nil, archivedAt: nil,
+                                       createdAt: .now, updatedAt: .now, deletedAt: nil),
+            at: storeURL)
+
+        try AppDataResetService.resetAllData(context: context, promotionLedgerURL: storeURL)
+
+        #expect(!FileManager.default.fileExists(atPath: storeURL.path))
     }
 }

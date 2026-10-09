@@ -122,17 +122,20 @@ struct BackupArchiveTests {
         )).write(to: bundle.appendingPathComponent("manifest.json"))
     }
 
-    private func promotionOverridesURL(for bundle: URL) -> URL {
-        bundle.appendingPathComponent("test-app-support/PromotionOverrides.json")
+    private func promotionLedgerURL(for bundle: URL) -> URL {
+        bundle.appendingPathComponent("test-app-support/PromotionLedger.json")
     }
 
-    private func exportBackup(to bundle: URL, from context: ModelContext) async throws {
-        try await BackupArchive.export(to: bundle, from: context, promotionOverridesURL: promotionOverridesURL(for: bundle))
+    private func exportBackup(to bundle: URL, from context: ModelContext,
+                              ledgerURL: URL? = nil) async throws {
+        try await BackupArchive.export(to: bundle, from: context,
+                                       promotionLedgerURL: ledgerURL ?? promotionLedgerURL(for: bundle))
     }
 
-    private func restoreBackup(from bundle: URL, into context: ModelContext, strategy: RestoreStrategy) async throws {
+    private func restoreBackup(from bundle: URL, into context: ModelContext, strategy: RestoreStrategy,
+                               ledgerURL: URL? = nil) async throws {
         try await BackupArchive.restore(from: bundle, into: context, strategy: strategy,
-                                        promotionOverridesURL: promotionOverridesURL(for: bundle))
+                                        promotionLedgerURL: ledgerURL ?? promotionLedgerURL(for: bundle))
     }
 
     private func updateManifestHash(for modelName: String, in bundle: URL) throws {
@@ -459,7 +462,7 @@ struct BackupArchiveTests {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
 
-        #expect(manifest.schemaVersion == 9)
+        #expect(manifest.schemaVersion == 10)
         #expect(!manifest.contentHashes.isEmpty, "Manifest should have content hashes")
 
         for (name, _) in manifest.contentHashes {
@@ -471,67 +474,147 @@ struct BackupArchiveTests {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    @Test("Promotion overrides round-trip on replace and preserve newer state on merge")
-    func promotionOverridesRoundTrip() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("promo-backup-\(UUID())", isDirectory: true)
+    @Test("El ledger de promociones round-tripea en replaceAll y preserva lo más nuevo en merge")
+    func promotionLedgerRoundTrip() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("promo-ledger-backup-\(UUID())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
-        let sourceStore = root.appendingPathComponent("source/PromotionOverrides.json")
-        let targetStore = root.appendingPathComponent("target/PromotionOverrides.json")
-        var backupOverrides = PromotionOverrides()
-        backupOverrides.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
-        backupOverrides.definitions = [try #require(PromotionCatalog.load().definitions.first)]
-        backupOverrides.deletedIDs = ["deleted-promo"]
-        try PromotionStore.replace(with: backupOverrides, at: sourceStore)
+        let sourceStore = root.appendingPathComponent("source/PromotionLedger.json")
+        let targetStore = root.appendingPathComponent("target/PromotionLedger.json")
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let backupPromoID = UUID()
+        var backupLedger = PromotionLedger()
+        backupLedger.promotions = [
+            PromotionRecord(id: backupPromoID, name: "Platinum 90 días", accountID: UUID(),
+                            currency: "MXN", windowStart: nil, windowEnd: nil,
+                            targetAmount: 100_000, rewardNote: nil, notes: nil, archivedAt: nil,
+                            createdAt: baseTime, updatedAt: baseTime, deletedAt: nil)
+        ]
+        backupLedger.attributions = [
+            PromotionAttribution(id: UUID(), promotionID: backupPromoID, transactionID: UUID(),
+                                 createdAt: baseTime, updatedAt: baseTime, deletedAt: nil)
+        ]
+        backupLedger.updatedAt = baseTime
+        try PromotionLedgerStore.replace(with: backupLedger, at: sourceStore)
 
         let source = try makeContainer()
-        try await BackupArchive.export(to: bundle, from: source.mainContext, promotionOverridesURL: sourceStore)
+        try await BackupArchive.export(to: bundle, from: source.mainContext, promotionLedgerURL: sourceStore)
 
-        var newerOverrides = PromotionOverrides()
-        newerOverrides.updatedAt = backupOverrides.updatedAt.addingTimeInterval(60)
-        newerOverrides.deletedIDs = ["newer-local-change"]
-        try PromotionStore.replace(with: newerOverrides, at: targetStore)
-        let target = try makeContainer()
-        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
-                                        promotionOverridesURL: targetStore)
-        #expect(try PromotionStore.read(fileURL: targetStore) == backupOverrides)
-
-        newerOverrides.updatedAt = backupOverrides.updatedAt.addingTimeInterval(120)
-        try PromotionStore.replace(with: newerOverrides, at: targetStore)
-        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
-                                        promotionOverridesURL: targetStore)
-        #expect(try PromotionStore.read(fileURL: targetStore) == newerOverrides)
-    }
-
-    @Test("Restoring a legacy backup without promotion data preserves local promotion edits")
-    func legacyRestorePreservesPromotionOverrides() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-promo-backup-\(UUID())", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
-        let storeURL = promotionOverridesURL(for: bundle)
-        var local = PromotionOverrides()
-        local.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
-        local.deletedIDs = ["locally-deleted"]
-        try PromotionStore.replace(with: local, at: storeURL)
-
-        let source = try makeContainer()
-        try await BackupArchive.export(to: bundle, from: source.mainContext, promotionOverridesURL: storeURL)
-        try FileManager.default.removeItem(at: bundle.appendingPathComponent("models/PromotionOverrides.json"))
         let manifestURL = bundle.appendingPathComponent("manifest.json")
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        var manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
-        manifest.schemaVersion = 7
-        manifest.modelCounts.removeValue(forKey: "PromotionOverrides")
-        manifest.contentHashes.removeValue(forKey: "PromotionOverrides")
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(manifest).write(to: manifestURL)
+        let manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
+        #expect(manifest.schemaVersion == 10)
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("models/PromotionLedger.json").path))
+        #expect(!FileManager.default.fileExists(atPath: bundle.appendingPathComponent("models/PromotionOverrides.json").path),
+                "El manifest 10 ya no exporta el store retirado del V1")
+
+        // replaceAll: el ledger local distinto se reemplaza por el del backup.
+        var localLedger = PromotionLedger()
+        localLedger.promotions = [
+            PromotionRecord(id: UUID(), name: "Promo local que desaparece", accountID: UUID(),
+                            currency: "MXN", windowStart: nil, windowEnd: nil, targetAmount: nil,
+                            rewardNote: nil, notes: nil, archivedAt: nil,
+                            createdAt: baseTime.addingTimeInterval(60), updatedAt: baseTime.addingTimeInterval(60),
+                            deletedAt: nil)
+        ]
+        localLedger.updatedAt = baseTime.addingTimeInterval(60)
+        try PromotionLedgerStore.replace(with: localLedger, at: targetStore)
 
         let target = try makeContainer()
         try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
-                                        promotionOverridesURL: storeURL)
-        #expect(try PromotionStore.read(fileURL: storeURL) == local)
+                                        promotionLedgerURL: targetStore)
+        let restored = try PromotionLedgerStore.read(fileURL: targetStore)
+        let expected = try PromotionLedgerStore.read(fileURL: sourceStore)
+        #expect(restored == expected)
+
+        // mergeKeepingNewer: la promo local más nueva se conserva y la del backup se agrega.
+        let newerTime = baseTime.addingTimeInterval(600)
+        localLedger.promotions[0].updatedAt = newerTime
+        localLedger.promotions[0].name = "Promo local editada después"
+        try PromotionLedgerStore.replace(with: localLedger, at: targetStore)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+                                        promotionLedgerURL: targetStore)
+        let merged = try PromotionLedgerStore.read(fileURL: targetStore)
+        #expect(merged.promotions.count == 2)
+        #expect(merged.promotions.contains { $0.id == backupPromoID })
+        #expect(merged.promotions.contains { $0.name == "Promo local editada después" && $0.updatedAt == newerTime })
+    }
+
+    @Test("Backup v9 sin ledger: replaceAll vacía el ledger local y merge lo conserva")
+    func legacyBackupWithoutLedgerFollowsStrategy() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-v9-no-ledger-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        try writeLegacyBundle(schemaVersion: 9, to: bundle)
+
+        let storeURL = root.appendingPathComponent("local/PromotionLedger.json")
+        let seedTime = Date(timeIntervalSince1970: 1_700_000_000)
+        var local = PromotionLedger()
+        local.promotions = [
+            PromotionRecord(id: UUID(), name: "Promo local", accountID: UUID(), currency: "MXN",
+                            windowStart: nil, windowEnd: nil, targetAmount: nil, rewardNote: nil,
+                            notes: nil, archivedAt: nil, createdAt: seedTime, updatedAt: seedTime,
+                            deletedAt: nil)
+        ]
+        local.attributions = [
+            PromotionAttribution(id: UUID(), promotionID: local.promotions[0].id, transactionID: UUID(),
+                                 createdAt: seedTime, updatedAt: seedTime, deletedAt: nil)
+        ]
+        local.updatedAt = seedTime
+
+        let target = try makeContainer()
+        try PromotionLedgerStore.replace(with: local, at: storeURL)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+                                        promotionLedgerURL: storeURL)
+        let emptied = try PromotionLedgerStore.read(fileURL: storeURL)
+        #expect(emptied.promotions.isEmpty && emptied.attributions.isEmpty,
+                "replaceAll con backup ≤9 deja el ledger vacío")
+
+        try PromotionLedgerStore.replace(with: local, at: storeURL)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+                                        promotionLedgerURL: storeURL)
+        let preserved = try PromotionLedgerStore.read(fileURL: storeURL)
+        #expect(preserved.promotions.count == 1)
+        #expect(preserved.promotions.first?.name == "Promo local")
+        #expect(preserved.attributions.count == 1)
+    }
+
+    /// Bundle legacy 8/9 completo: base + archivos requeridos por 7/8 (due-date
+    /// overrides, promotion overrides del V1) y 9 (spend requirements); sin
+    /// PromotionLedger (introducido en 10).
+    private func writeLegacyBundle(schemaVersion: Int, to tmp: URL) throws {
+        let modelsDir = tmp.appendingPathComponent("models", isDirectory: true)
+        try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        func write<T: Encodable>(_ name: String, _ value: T) throws {
+            try encoder.encode(value).write(to: modelsDir.appendingPathComponent("\(name).json"))
+        }
+
+        try write("Account", [AccountSnapshot]())
+        try write("AccountBalanceSnapshot", [AccountBalanceSnapshotSnapshot]())
+        try write("Statement", [StatementSnapshot]())
+        try write("Transaction", [TransactionSnapshot]())
+        try write("Category", [CategorySnapshot]())
+        try write("CategoryRule", [CategoryRuleSnapshot]())
+        try write("InstallmentPlan", [InstallmentPlanSnapshot]())
+        try write("PendingImport", [PendingImportSnapshot]())
+        try write("SignRecoveryHint", [SignRecoveryHintSnapshot]())
+        try write("StockPosition", [StockPositionSnapshot]())
+        try write("HouseholdPartnerIncomeEstimate", [HouseholdPartnerIncomeEstimateSnapshot]())
+        try write("SettlementDueDateOverride", [SettlementDueDateOverrideSnapshot]())
+        // El store del V1 ya no existe; los backups 8..<10 solo exigen que el
+        // archivo sea un arreglo JSON válido (verificación de hashes/presencia).
+        try Data("[]".utf8).write(to: modelsDir.appendingPathComponent("PromotionOverrides.json"))
+        if schemaVersion >= 9 {
+            try write("SpendRequirement", [SpendRequirementSettings()])
+        }
+        try encoder.encode(BackupManifest(schemaVersion: schemaVersion, createdAt: Date(), appVersion: "test",
+                                           modelCounts: [:], contentHashes: [:]))
+            .write(to: tmp.appendingPathComponent("manifest.json"))
     }
 
     @Test("Spend requirements restore exactly, merge by account timestamp, and old backups follow strategy")
@@ -553,9 +636,9 @@ struct BackupArchiveTests {
         let sourceSettings = SpendRequirementSettings(updatedAt: timestamp, requirements: [requirement])
         try SpendRequirementStore.replace(with: sourceSettings, at: sourceStore, accountIDs: [account.id])
         try await BackupArchive.export(to: bundle, from: source.mainContext,
-                                       promotionOverridesURL: root.appendingPathComponent("source/PromotionOverrides.json"),
+                                       promotionLedgerURL: root.appendingPathComponent("source/PromotionLedger.json"),
                                        spendRequirementsURL: sourceStore)
-        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 9)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 10)
 
         let target = try makeContainer()
         var newer = requirement
@@ -564,36 +647,30 @@ struct BackupArchiveTests {
         let newerSettings = SpendRequirementSettings(updatedAt: newer.lastModifiedAt, requirements: [newer])
         try SpendRequirementStore.replace(with: newerSettings, at: targetStore)
         try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
-                                       promotionOverridesURL: root.appendingPathComponent("target/PromotionOverrides.json"),
+                                       promotionLedgerURL: root.appendingPathComponent("target/PromotionLedger.json"),
                                        spendRequirementsURL: targetStore)
         #expect(try SpendRequirementStore.read(fileURL: targetStore) == sourceSettings)
 
         try SpendRequirementStore.replace(with: newerSettings, at: targetStore)
         try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
-                                       promotionOverridesURL: root.appendingPathComponent("target/PromotionOverrides.json"),
+                                       promotionLedgerURL: root.appendingPathComponent("target/PromotionLedger.json"),
                                        spendRequirementsURL: targetStore)
         #expect(try SpendRequirementStore.read(fileURL: targetStore) == newerSettings)
 
-        let manifestURL = bundle.appendingPathComponent("manifest.json")
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        var manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
-        try FileManager.default.removeItem(at: bundle.appendingPathComponent("models/SpendRequirement.json"))
-        manifest.schemaVersion = 8
-        manifest.modelCounts.removeValue(forKey: "SpendRequirement")
-        manifest.contentHashes.removeValue(forKey: "SpendRequirement")
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(manifest).write(to: manifestURL)
+        // Downgrade real a v8: un bundle v8 legítimo incluye PromotionOverrides
+        // (requerido en 8..<10) pero no SpendRequirement. Fabricarlo completo es
+        // más fiel que degradar el manifest de un export v10.
+        try FileManager.default.removeItem(at: bundle)
+        try writeLegacyBundle(schemaVersion: 8, to: bundle)
         #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 8)
 
         try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
-                                       promotionOverridesURL: root.appendingPathComponent("target/PromotionOverrides.json"),
+                                       promotionLedgerURL: root.appendingPathComponent("target/PromotionLedger.json"),
                                        spendRequirementsURL: targetStore)
         #expect(!FileManager.default.fileExists(atPath: targetStore.path))
         try SpendRequirementStore.replace(with: newerSettings, at: targetStore)
         try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
-                                       promotionOverridesURL: root.appendingPathComponent("target/PromotionOverrides.json"),
+                                       promotionLedgerURL: root.appendingPathComponent("target/PromotionLedger.json"),
                                        spendRequirementsURL: targetStore)
         #expect(try SpendRequirementStore.read(fileURL: targetStore) == newerSettings)
     }
@@ -1035,5 +1112,134 @@ struct BackupArchiveTests {
                 "Orphan override (no matching transaction) must be removed on merge")
 
         try? FileManager.default.removeItem(at: tmp)
+    }
+    @Test("Un bundle v10 sin PromotionLedger.json es inválido para restore")
+    func v10BundleWithoutLedgerIsRejected() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("v10-no-ledger-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        try writeLegacyBundle(schemaVersion: 10, to: bundle)
+
+        let target = try makeContainer()
+        await #expect(throws: Error.self) {
+            try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+                                            promotionLedgerURL: root.appendingPathComponent("local/PromotionLedger.json"))
+        }
+    }
+
+    @Test("El fallo de restore tras tocar el ledger restaura el JSON previo")
+    func restoreFailureRollsBackLedger() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("rollback-ledger-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        let sourceStore = root.appendingPathComponent("source/PromotionLedger.json")
+        let targetStore = root.appendingPathComponent("target/PromotionLedger.json")
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+        var backupLedger = PromotionLedger()
+        backupLedger.promotions = [
+            PromotionRecord(id: UUID(), name: "Platinum 90 días", accountID: UUID(), currency: "MXN",
+                            windowStart: nil, windowEnd: nil, targetAmount: 100_000, rewardNote: nil,
+                            notes: nil, archivedAt: nil, createdAt: baseTime, updatedAt: baseTime,
+                            deletedAt: nil)
+        ]
+        backupLedger.updatedAt = baseTime
+        try PromotionLedgerStore.replace(with: backupLedger, at: sourceStore)
+        let source = try makeContainer()
+        try await BackupArchive.export(to: bundle, from: source.mainContext, promotionLedgerURL: sourceStore)
+
+        var localLedger = PromotionLedger()
+        localLedger.promotions = [
+            PromotionRecord(id: UUID(), name: "Local que debe sobrevivir", accountID: UUID(),
+                            currency: "MXN", windowStart: nil, windowEnd: nil, targetAmount: nil,
+                            rewardNote: nil, notes: nil, archivedAt: nil,
+                            createdAt: baseTime.addingTimeInterval(60), updatedAt: baseTime.addingTimeInterval(60),
+                            deletedAt: nil)
+        ]
+        localLedger.updatedAt = baseTime.addingTimeInterval(60)
+        try PromotionLedgerStore.replace(with: localLedger, at: targetStore)
+
+        let spendURL = root.appendingPathComponent("local/SpendRequirements.json")
+
+        let target = try makeContainer()
+        await #expect(throws: Error.self) {
+            try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+                                            promotionLedgerURL: targetStore,
+                                            spendRequirementsURL: spendURL,
+                                            checkpoint: { if $0 == .ledgerPublished { throw CocoaError(.fileWriteUnknown) } })
+        }
+        let after = try PromotionLedgerStore.read(fileURL: targetStore)
+        #expect(after.promotions.count == 1)
+        #expect(after.promotions.first?.name == "Local que debe sobrevivir",
+                "el rollback del ledger restaura el contenido previo")
+    }
+}
+
+
+extension BackupArchiveTests {
+    @Test("Compensation failure reports and keeps original recovery bytes")
+    func compensationFailureRetainsRecoveryMaterial() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("compensation-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("PromotionLedger.json")
+        let original = Data("original bytes".utf8)
+        try original.write(to: url)
+        let files = try SidecarFileTransaction(urls: [url])
+        defer { files.discard() }
+        try Data("new bytes".utf8).write(to: files.stagedURL(for: url))
+        try files.publish(url)
+        // Force recovery to fail after publication, rather than failing the
+        // initial read before any work has taken place.
+        try FileManager.default.removeItem(at: url)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        do {
+            try files.rollback()
+            Issue.record("Recovery should fail with a directory replacing its destination")
+        } catch let error as SidecarFileTransaction.RecoveryError {
+            #expect(error.path == files.directory.path)
+            #expect(!error.failures.isEmpty)
+            #expect(try Data(contentsOf: files.directory.appendingPathComponent("original-0-PromotionLedger.json")) == original)
+        }
+    }
+
+    @Test("Restore failure preserves disk data and exact sidecar bytes", arguments: BackupArchive.RestoreCheckpoint.allCases)
+    func restoreFailurePreservesDisk(_ failure: BackupArchive.RestoreCheckpoint) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("restore-fault-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try makePopulatedContainer()
+        let bundle = root.appendingPathComponent("backup.ftbackup")
+        let ledger = root.appendingPathComponent("local/PromotionLedger.json")
+        let spend = root.appendingPathComponent("local/SpendRequirements.json")
+        try PromotionLedgerStore.replace(with: PromotionLedger(), at: ledger)
+        try await BackupArchive.export(to: bundle, from: source.mainContext,
+                                      promotionLedgerURL: root.appendingPathComponent("source/PromotionLedger.json"),
+                                      spendRequirementsURL: root.appendingPathComponent("source/SpendRequirements.json"))
+        let originalBytes = try Data(contentsOf: ledger)
+        let diskURL = root.appendingPathComponent("default.store")
+        let config = ModelConfiguration(schema: AppSchema.schema, url: diskURL)
+        var container: ModelContainer? = try ModelContainer(for: AppSchema.schema, configurations: [config])
+        let localID: UUID
+        do {
+            let context = try #require(container).mainContext
+            let local = Account(institution: "Local", type: .checking, currency: "MXN", nickname: "Keep me")
+            localID = local.id
+            context.insert(local)
+            try context.save()
+            await #expect(throws: Error.self) {
+                try await BackupArchive.restore(from: bundle, into: context, strategy: .replaceAll,
+                    promotionLedgerURL: ledger, spendRequirementsURL: spend,
+                    statementsDestination: root.appendingPathComponent("Statements"),
+                    checkpoint: { if $0 == failure { throw CocoaError(.fileWriteUnknown) } })
+            }
+            #expect(!context.hasChanges)
+            #expect(try context.fetch(FetchDescriptor<Account>()).map(\.id) == [localID])
+        }
+        container = nil
+        let reopened = try ModelContainer(for: AppSchema.schema, configurations: [config])
+        #expect(try reopened.mainContext.fetch(FetchDescriptor<Account>()).map(\.id) == [localID])
+        #expect(try Data(contentsOf: ledger) == originalBytes)
+        #expect(!FileManager.default.fileExists(atPath: spend.path))
     }
 }

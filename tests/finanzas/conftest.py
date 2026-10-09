@@ -1,4 +1,4 @@
-"""Fixtures para tests de writeback/promo — bundles sintéticos con manifest estilo app.
+"""Fixtures para tests de writeback/msi_rules — bundles sintéticos con manifest estilo app.
 
 Replica lo que BackupArchive.export escribe: manifest.json con schemaVersion,
 contentHashes (SHA-256 hex de los bytes de cada models/*.json) y modelCounts.
@@ -18,7 +18,7 @@ import pytest
 SKILL_DIR = Path(__file__).resolve().parents[2] / ".claude" / "skills" / "finanzas"
 # OJO: solo _shared va al sys.path global (load/writeback/accounting_gates son únicos).
 # NO agregar habits/scripts ni wealth/scripts: ambos tienen un aggregate.py y se
-# sombrearían entre sí. promo se carga por ruta explícita donde se usa.
+# sombrearían entre sí. msi_rules se carga por ruta explícita donde se usa.
 if str(SKILL_DIR / "_shared") not in sys.path:
     sys.path.insert(0, str(SKILL_DIR / "_shared"))
 

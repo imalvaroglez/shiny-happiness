@@ -86,13 +86,6 @@ final class DashboardViewModel {
     private var spendRequirementCache: [UUID: (start: Date, closing: Date, evaluatedOn: Date,
                                                modified: Date, value: SpendRequirementCardData)] = [:]
     private var periodNow: Date = .now
-    private let promotionCatalogOverride: PromotionCatalog?
-    private let promotionEvaluationDate: Date?
-
-    init(promotionCatalog: PromotionCatalog? = nil, promotionEvaluationDate: Date? = nil) {
-        self.promotionCatalogOverride = promotionCatalog
-        self.promotionEvaluationDate = promotionEvaluationDate
-    }
 
     func setPeriod(_ kind: DashboardPeriodKind, customRange: DateRange? = nil, now: Date = .now) {
         periodKind = kind
@@ -455,9 +448,8 @@ final class DashboardViewModel {
 
         let plans = fetchActiveInstallmentPlans(context: context, accountId: account.id)
         let sourceStatements = fetchSourceStatements(context: context, accountId: account.id)
-        let promotions = evaluatePromotions(context: context, account: account)
         let spendRequirementCard = account.type == .creditCard
-            ? evaluateSpendRequirement(context: context, account: account, asOf: promotionEvaluationDate ?? .now)
+            ? evaluateSpendRequirement(context: context, account: account, asOf: .now)
             : nil
 
         return LiabilityAccountSnapshot(
@@ -477,7 +469,6 @@ final class DashboardViewModel {
             sourceStatements: sourceStatements,
             recentTransactions: transactions,
             totalTransactions: transactions.count,
-            promotions: promotions,
             spendRequirementCard: spendRequirementCard
         )
     }
@@ -553,37 +544,6 @@ final class DashboardViewModel {
             return SpendRequirementCardData(requirement: requirement,
                 calculation: .unavailable("Datos no disponibles; no se pudo leer el historial."), reviewTransactions: [])
         }
-    }
-
-    /// Promociones: capa de reporte (AD-022) evaluada on-demand sobre el historial COMPLETO
-    /// de la cuenta — la conciliación MSI/refunds necesita movimientos fuera del periodo del
-    /// dashboard y reembolsos tardíos (spec G). Solo se evalúan las definiciones vinculadas
-    /// por UUID a ESTA cuenta (las desvinculadas viven en la salud de configuración).
-    private func evaluatePromotions(context: ModelContext, account: Account) -> [PromotionProgress] {
-        let catalog = promotionCatalogOverride ?? PromotionStore.load()
-        let bound = catalog.definitions.filter { $0.accountUUID == account.id }
-        guard !bound.isEmpty else { return [] }
-        // ponytail: fetch de todas las vivas + filtro en Swift (906 tx) en lugar de
-        // #Predicate con recorrido de relación; si crece a 50k+, predicado por cuenta.
-        let descriptor = FetchDescriptor<Transaction>(
-            predicate: #Predicate<Transaction> { tx in tx.deletedAt == nil },
-            sortBy: [SortDescriptor(\.postedAt)])
-        let allLive: [Transaction]
-        do {
-            allLive = try context.fetch(descriptor)
-        } catch {
-            return bound.map {
-                PromotionProgress(definitionID: $0.id, displayName: $0.displayName,
-                    calculability: .notCalculable("datos no disponibles — no se pudo leer el historial"),
-                    eligibleFirm: 0, rows: [])
-            }
-        }
-        let accountHistory = allLive.filter { $0.account?.id == account.id }
-        return PromotionEvaluator().evaluate(definitions: bound, account: account,
-                                             transactions: accountHistory,
-                                             channelTable: catalog.channelTable,
-                                             asOf: promotionEvaluationDate ?? .now,
-                                             channelTableAvailable: catalog.channelTableAvailable)
     }
 
     // MARK: - Computations (kept compatible with the old VM)

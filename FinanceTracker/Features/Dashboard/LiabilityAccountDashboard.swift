@@ -21,10 +21,7 @@ struct LiabilityAccountDashboard: View {
             } else {
                 headerRow
             }
-            if !snapshot.promotions.isEmpty {
-                PromoSummaryLine(promotions: snapshot.promotions, currencyCode: snapshot.currencyCode,
-                                 accountName: snapshot.account.displayName, accountID: snapshot.account.id)
-            }
+            PromotionsSummaryLine(accountID: snapshot.account.id)
             chartsSection
             if snapshot.account.type == .creditCard, !snapshot.activeInstallmentPlans.isEmpty {
                 installmentsCard

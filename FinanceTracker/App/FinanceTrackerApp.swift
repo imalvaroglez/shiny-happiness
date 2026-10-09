@@ -8,6 +8,12 @@ struct FinanceTrackerApp: App {
     init() {
         let isRunningTests = StoreFileResetService.isRunningTests
         StoreFileResetService.performHardResetIfNeeded()
+        if !isRunningTests {
+            // Migración única del V1 de promociones: el store de overrides del
+            // evaluador automático se retira a una copia legible; nunca se
+            // reinterpreta como adjudicaciones (AD-025).
+            try? PromotionLedgerStore.retireLegacyOverridesIfNeeded()
+        }
         do {
             modelContainer = try AppSchema.makeContainer(isStoredInMemoryOnly: isRunningTests)
         } catch {

@@ -53,10 +53,21 @@ def make_backup(tmp_path: Path, schema: int, *, include_due_date_override: bool 
                          "cards": []}]),
             encoding="utf-8",
         )
+    if schema >= 10:
+        (models / "PromotionLedger.json").write_text(
+            json.dumps([{
+                "schemaVersion": 1, "updatedAt": "2026-09-30T00:00:00Z",
+                "promotions": [{"id": "promo-1", "name": "Platinum 90 días",
+                                "accountID": "account-1", "currency": "MXN"}],
+                "attributions": [{"id": "attr-1", "promotionID": "promo-1",
+                                  "transactionID": "transaction-1"}],
+            }]),
+            encoding="utf-8",
+        )
     return bundle
 
 
-@pytest.mark.parametrize("schema", [4, 5, 6, 7, 8, 9])
+@pytest.mark.parametrize("schema", [4, 5, 6, 7, 8, 9, 10])
 def test_load_dataset_accepts_supported_schemas(tmp_path: Path, schema: int) -> None:
     dataset = load.load_dataset(make_backup(tmp_path, schema, include_due_date_override=schema == 7))
 
@@ -65,6 +76,20 @@ def test_load_dataset_accepts_supported_schemas(tmp_path: Path, schema: int) -> 
     assert dataset["settlement_due_date_overrides"] == (
         dataset["models"]["SettlementDueDateOverride"]
     )
+
+
+def test_load_dataset_exposes_promotion_ledger(tmp_path: Path) -> None:
+    dataset = load.load_dataset(make_backup(tmp_path, 10))
+
+    ledger = dataset["promotion_ledger"]
+    assert [p["id"] for p in ledger["promotions"]] == ["promo-1"]
+    assert ledger["attributions"][0]["transactionID"] == "transaction-1"
+
+
+def test_load_dataset_promotion_ledger_empty_on_legacy_backups(tmp_path: Path) -> None:
+    dataset = load.load_dataset(make_backup(tmp_path, 9))
+
+    assert dataset["promotion_ledger"] == {"promotions": [], "attributions": []}
 
 
 def test_load_dataset_exposes_synthetic_due_date_sidecar(tmp_path: Path) -> None:
@@ -79,8 +104,8 @@ def test_load_dataset_exposes_synthetic_due_date_sidecar(tmp_path: Path) -> None
 
 
 def test_load_dataset_rejects_newer_schema_clearly(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="más reciente.*\\[4, 5, 6, 7, 8, 9\\]"):
-        load.load_dataset(make_backup(tmp_path, 10))
+    with pytest.raises(ValueError, match="más reciente.*\\[4, 5, 6, 7, 8, 9, 10\\]"):
+        load.load_dataset(make_backup(tmp_path, 11))
 
 
 def test_load_dataset_exposes_promotion_overrides_for_schema_eight(tmp_path: Path) -> None:
