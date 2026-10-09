@@ -264,6 +264,7 @@ enum ManualTransactionService {
         )
         context.insert(tx)
         try context.save()
+        ManualCaptureDateStore.recordSuccessfulCapture(accountID: account.id, date: date)
         return tx
     }
 
@@ -336,6 +337,8 @@ enum ManualTransferService {
         context.insert(outflow)
         context.insert(inflow)
         try context.save()
+        ManualCaptureDateStore.recordSuccessfulCapture(accountID: source.id, date: date)
+        ManualCaptureDateStore.recordSuccessfulCapture(accountID: destination.id, date: date)
         return (outflow, inflow)
     }
 
