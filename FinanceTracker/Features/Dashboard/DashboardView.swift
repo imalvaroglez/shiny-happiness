@@ -7,6 +7,7 @@ struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = DashboardViewModel()
+    @State private var startupWarning: String?
     @State private var selectedRange: DashboardPeriodKind = .all
     @State private var customStart = Date().addingTimeInterval(-90 * 86400)
     @State private var customEnd = Date()
@@ -71,11 +72,28 @@ struct DashboardView: View {
             detailPane
         }
         .environment(\.scopedTint, scopedTint)
+        .safeAreaInset(edge: .top) {
+            if let startupWarning {
+                HStack {
+                    Text(startupWarning).font(.caption).foregroundStyle(.orange)
+                    Button("Reintentar") {
+                        do {
+                            try SeedDataLoader.bootstrapIfNeeded(context: modelContext)
+                            self.startupWarning = nil
+                            viewModel.refresh()
+                        } catch { self.startupWarning = error.localizedDescription }
+                    }
+                }.padding(8)
+            }
+        }
         .task {
             do {
                 let outcome = try AppDataResetService.repairIncompleteResetIfNeeded(context: modelContext)
                 guard outcome != .hardResetRequested else { return }
-                try SeedDataLoader.bootstrapIfNeeded(context: modelContext)
+                do { try SeedDataLoader.bootstrapIfNeeded(context: modelContext) }
+                catch SeedDataLoader.BootstrapError.customizationUnavailable(let detail) {
+                    startupWarning = "Personalización de categorías no disponible: \(detail). Seeds suspendidos; tus datos se conservan."
+                }
             } catch {
                 Logger.app.error("Category bootstrap failed; dashboard refresh skipped: \(error.localizedDescription)")
                 return

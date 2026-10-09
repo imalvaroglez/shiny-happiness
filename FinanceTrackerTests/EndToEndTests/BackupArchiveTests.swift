@@ -462,7 +462,7 @@ struct BackupArchiveTests {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
 
-        #expect(manifest.schemaVersion == 10)
+        #expect(manifest.schemaVersion == 11)
         #expect(!manifest.contentHashes.isEmpty, "Manifest should have content hashes")
 
         for (name, _) in manifest.contentHashes {
@@ -505,7 +505,7 @@ struct BackupArchiveTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
-        #expect(manifest.schemaVersion == 10)
+        #expect(manifest.schemaVersion == 11)
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("models/PromotionLedger.json").path))
         #expect(!FileManager.default.fileExists(atPath: bundle.appendingPathComponent("models/PromotionOverrides.json").path),
                 "El manifest 10 ya no exporta el store retirado del V1")
@@ -581,9 +581,9 @@ struct BackupArchiveTests {
         #expect(preserved.attributions.count == 1)
     }
 
-    /// Bundle legacy 8/9 completo: base + archivos requeridos por 7/8 (due-date
-    /// overrides, promotion overrides del V1) y 9 (spend requirements); sin
-    /// PromotionLedger (introducido en 10).
+    /// Bundle legacy 8+ completo: base + archivos requeridos por 7/8 (due-date
+    /// overrides, promotion overrides del V1), 9 (spend requirements),
+    /// 10 (PromotionLedger) y 11 (CategoryCustomization).
     private func writeLegacyBundle(schemaVersion: Int, to tmp: URL) throws {
         let modelsDir = tmp.appendingPathComponent("models", isDirectory: true)
         try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
@@ -612,6 +612,12 @@ struct BackupArchiveTests {
         if schemaVersion >= 9 {
             try write("SpendRequirement", [SpendRequirementSettings()])
         }
+        if schemaVersion >= 10 {
+            try write("PromotionLedger", [PromotionLedger()])
+        }
+        if schemaVersion >= 11 {
+            try write("CategoryCustomization", [CategoryCustomizationCatalog()])
+        }
         try encoder.encode(BackupManifest(schemaVersion: schemaVersion, createdAt: Date(), appVersion: "test",
                                            modelCounts: [:], contentHashes: [:]))
             .write(to: tmp.appendingPathComponent("manifest.json"))
@@ -638,7 +644,7 @@ struct BackupArchiveTests {
         try await BackupArchive.export(to: bundle, from: source.mainContext,
                                        promotionLedgerURL: root.appendingPathComponent("source/PromotionLedger.json"),
                                        spendRequirementsURL: sourceStore)
-        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 10)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 11)
 
         let target = try makeContainer()
         var newer = requirement
@@ -1119,6 +1125,9 @@ struct BackupArchiveTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
         try writeLegacyBundle(schemaVersion: 10, to: bundle)
+        // El helper ya incluye el ledger desde v10: fabricar el caso inválido
+        // quitándolo.
+        try FileManager.default.removeItem(at: bundle.appendingPathComponent("models/PromotionLedger.json"))
 
         let target = try makeContainer()
         await #expect(throws: Error.self) {
@@ -1173,6 +1182,62 @@ struct BackupArchiveTests {
         #expect(after.promotions.first?.name == "Local que debe sobrevivir",
                 "el rollback del ledger restaura el contenido previo")
     }
+
+    @Test("La personalización de categorías round-tripea en v11 y respeta estrategia en ≤10")
+    func categoryCustomizationRoundTrip() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cat-custom-backup-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        let sourceStore = root.appendingPathComponent("source/CategoryCustomization.json")
+        let targetStore = root.appendingPathComponent("target/CategoryCustomization.json")
+
+        let seedTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let renamedCategory = UUID()
+        var catalog = CategoryCustomizationCatalog()
+        catalog.entries = [
+            CategoryCustomization(categoryID: renamedCategory, seedName: "Food & Drink",
+                                  tintHex: "#FF8800", updatedAt: seedTime, deletedAt: nil),
+        ]
+        catalog.updatedAt = seedTime
+        try CategoryCustomizationStore.replace(with: catalog, at: sourceStore)
+
+        let source = try makeContainer()
+        try await BackupArchive.export(to: bundle, from: source.mainContext,
+                                       categoryCustomizationURL: sourceStore)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 11)
+
+        // replaceAll: aplica el catálogo del backup.
+        let target = try makeContainer()
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+                                        categoryCustomizationURL: targetStore)
+        #expect(try CategoryCustomizationStore.read(fileURL: targetStore).entries.first?.tintHex == "#FF8800")
+
+        // merge: el tinte local más nuevo gana sobre el del backup.
+        var local = CategoryCustomizationCatalog()
+        local.entries = [
+            CategoryCustomization(categoryID: renamedCategory, seedName: nil,
+                                  tintHex: "#00AAFF", updatedAt: seedTime.addingTimeInterval(600),
+                                  deletedAt: nil),
+        ]
+        local.updatedAt = seedTime.addingTimeInterval(600)
+        try CategoryCustomizationStore.replace(with: local, at: targetStore)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+                                        categoryCustomizationURL: targetStore)
+        #expect(try CategoryCustomizationStore.read(fileURL: targetStore).entries.first?.tintHex == "#00AAFF")
+
+        // Backup v10 sin el archivo: replaceAll vacía, merge conserva.
+        try writeLegacyBundle(schemaVersion: 10, to: bundle)
+        try CategoryCustomizationStore.replace(with: local, at: targetStore)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+                                        categoryCustomizationURL: targetStore)
+        #expect(try CategoryCustomizationStore.read(fileURL: targetStore).entries.isEmpty,
+                "replaceAll con backup ≤10 deja la personalización vacía")
+        try CategoryCustomizationStore.replace(with: local, at: targetStore)
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+                                        categoryCustomizationURL: targetStore)
+        #expect(try CategoryCustomizationStore.read(fileURL: targetStore).entries.count == 1,
+                "merge con backup ≤10 conserva la personalización local")
+    }
 }
 
 
@@ -1203,8 +1268,8 @@ extension BackupArchiveTests {
         }
     }
 
-    @Test("Restore failure preserves disk data and exact sidecar bytes", arguments: BackupArchive.RestoreCheckpoint.allCases)
-    func restoreFailurePreservesDisk(_ failure: BackupArchive.RestoreCheckpoint) async throws {
+    @Test("Restore failure preserves disk data and exact sidecar bytes", arguments: BackupArchive.RestoreCheckpoint.allCases, [false, true])
+    func restoreFailurePreservesDisk(_ failure: BackupArchive.RestoreCheckpoint, _ merge: Bool) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("restore-fault-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1212,10 +1277,18 @@ extension BackupArchiveTests {
         let bundle = root.appendingPathComponent("backup.ftbackup")
         let ledger = root.appendingPathComponent("local/PromotionLedger.json")
         let spend = root.appendingPathComponent("local/SpendRequirements.json")
+        let custom = root.appendingPathComponent("local/CategoryCustomization.json")
+        try CategoryCustomizationStore.setTint(categoryID: UUID(), hex: "#112233", at: custom)
+        let customBytes = try Data(contentsOf: custom)
+        let statementsSource = root.appendingPathComponent("source/Statements")
+        try FileManager.default.createDirectory(at: statementsSource, withIntermediateDirectories: true)
+        try Data("Synthetic statement".utf8).write(to: statementsSource.appendingPathComponent("fixture.pdf"))
         try PromotionLedgerStore.replace(with: PromotionLedger(), at: ledger)
         try await BackupArchive.export(to: bundle, from: source.mainContext,
                                       promotionLedgerURL: root.appendingPathComponent("source/PromotionLedger.json"),
-                                      spendRequirementsURL: root.appendingPathComponent("source/SpendRequirements.json"))
+                                      spendRequirementsURL: root.appendingPathComponent("source/SpendRequirements.json"),
+                                      categoryCustomizationURL: root.appendingPathComponent("source/CategoryCustomization.json"),
+                                      statementsSource: statementsSource)
         let originalBytes = try Data(contentsOf: ledger)
         let diskURL = root.appendingPathComponent("default.store")
         let config = ModelConfiguration(schema: AppSchema.schema, url: diskURL)
@@ -1228,10 +1301,15 @@ extension BackupArchiveTests {
             context.insert(local)
             try context.save()
             await #expect(throws: Error.self) {
-                try await BackupArchive.restore(from: bundle, into: context, strategy: .replaceAll,
-                    promotionLedgerURL: ledger, spendRequirementsURL: spend,
+                try await BackupArchive.restore(from: bundle, into: context, strategy: merge ? .mergeKeepingNewer : .replaceAll,
+                    promotionLedgerURL: ledger, spendRequirementsURL: spend, categoryCustomizationURL: custom,
                     statementsDestination: root.appendingPathComponent("Statements"),
-                    checkpoint: { if $0 == failure { throw CocoaError(.fileWriteUnknown) } })
+                    checkpoint: { if $0 == failure && failure != .beforeSave { throw CocoaError(.fileWriteUnknown) } },
+                    saveContext: { stagedContext in
+                        #expect(!stagedContext.autosaveEnabled)
+                        if failure == .beforeSave { throw CocoaError(.fileWriteUnknown) }
+                        try stagedContext.save()
+                    })
             }
             #expect(!context.hasChanges)
             #expect(try context.fetch(FetchDescriptor<Account>()).map(\.id) == [localID])
@@ -1240,6 +1318,8 @@ extension BackupArchiveTests {
         let reopened = try ModelContainer(for: AppSchema.schema, configurations: [config])
         #expect(try reopened.mainContext.fetch(FetchDescriptor<Account>()).map(\.id) == [localID])
         #expect(try Data(contentsOf: ledger) == originalBytes)
+        #expect(try Data(contentsOf: custom) == customBytes)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Statements/fixture.pdf").path))
         #expect(!FileManager.default.fileExists(atPath: spend.path))
     }
 }

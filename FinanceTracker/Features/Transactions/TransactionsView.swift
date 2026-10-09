@@ -124,6 +124,7 @@ struct TransactionsView: View {
 
     @State private var appliedResetSignal = 0
     @State private var promotionsModel = PromotionLedgerViewModel()
+    @State private var categoryTintTick = 0
 
     /// Cuántas promos vivas tiene cada tx (badge discreto en la fila). Las
     /// adjudicaciones a promos eliminadas son huérfanas: no cuentan aquí
@@ -385,6 +386,9 @@ struct TransactionsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
             refreshPromotionCounts()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CategoryCustomizationStore.didChangeNotification)) { _ in
+            categoryTintTick &+= 1
         }
         .onChange(of: preset) {
             consumePresetIfNeeded()

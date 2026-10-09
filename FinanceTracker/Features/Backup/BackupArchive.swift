@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    nonisolated private static let schemaVersion = 10
+    nonisolated private static let schemaVersion = 11
     nonisolated private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -84,7 +84,14 @@ enum BackupArchive {
             decoder.dateDecodingStrategy = .iso8601
             guard let ledgerData = arrayData(for: "PromotionLedger", in: modelsDir),
                   let snapshots = try? decoder.decode([PromotionLedger].self, from: ledgerData),
-                  snapshots.count == 1 else { return false }
+                  snapshots.count == 1, snapshots[0].schemaVersion == 1 else { return false }
+        }
+        if manifest.schemaVersion >= 11 {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let data = arrayData(for: "CategoryCustomization", in: modelsDir),
+                  let snapshots = try? decoder.decode([CategoryCustomizationCatalog].self, from: data),
+                  snapshots.count == 1, snapshots[0].schemaVersion == 1 else { return false }
         }
         return true
     }
@@ -115,11 +122,13 @@ enum BackupArchive {
         if schemaVersion >= 8 && schemaVersion < 10 { names.append("PromotionOverrides") }
         if schemaVersion >= 9 { names.append("SpendRequirement") }
         if schemaVersion >= 10 { names.append("PromotionLedger") }
+        if schemaVersion >= 11 { names.append("CategoryCustomization") }
         return names
     }
 
     static func export(to bundleURL: URL, from context: ModelContext, promotionLedgerURL: URL? = nil,
-                       spendRequirementsURL: URL? = nil, statementsSource: URL? = nil) async throws {
+                       spendRequirementsURL: URL? = nil, categoryCustomizationURL: URL? = nil,
+                       statementsSource: URL? = nil) async throws {
         let fm = FileManager.default
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
         let statementsDir = bundleURL.appendingPathComponent(statementsSubdirectory)
@@ -205,6 +214,7 @@ enum BackupArchive {
         // que ya no se exporta.
         try writeJSON("PromotionLedger",
                       [try PromotionLedgerStore.read(fileURL: promotionLedgerURL ?? PromotionLedgerStore.defaultURL())])
+        try writeJSON("CategoryCustomization", [try CategoryCustomizationStore.read(fileURL: categoryCustomizationURL)])
         let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
         try writeJSON("SpendRequirement", [try SpendRequirementStore.read(fileURL: spendStoreURL)])
 
@@ -232,13 +242,13 @@ enum BackupArchive {
     }
 
     enum RestoreCheckpoint: String, CaseIterable {
-        case modelsStaged, ledgerPublished, spendPublished, statementsPrepared, beforeSave
+        case modelsStaged, ledgerPublished, customizationPublished, spendPublished, statementsPrepared, beforeSave
     }
 
     @discardableResult
     static func restore(from bundleURL: URL, into callerContext: ModelContext, strategy: RestoreStrategy,
                         promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil,
-                        statementsDestination: URL? = nil,
+                        categoryCustomizationURL: URL? = nil, statementsDestination: URL? = nil,
                         checkpoint: ((RestoreCheckpoint) throws -> Void)? = nil,
                         saveContext: ((ModelContext) throws -> Void)? = nil) async throws -> [String] {
         // Never discard unrelated drafts in the caller's context.
@@ -247,7 +257,9 @@ enum BackupArchive {
         let spendURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
         _ = try PromotionLedgerStore.read(fileURL: ledgerURL)
         _ = try SpendRequirementStore.read(fileURL: spendURL)
-        let files = try SidecarFileTransaction(urls: [ledgerURL, spendURL])
+        let customURL = try categoryCustomizationURL ?? CategoryCustomizationStore.defaultURL()
+        _ = try CategoryCustomizationStore.read(fileURL: customURL)
+        let files = try SidecarFileTransaction(urls: [ledgerURL, customURL, spendURL])
         let context = ModelContext(callerContext.container)
         context.autosaveEnabled = false
         let destination = try statementsDestination ?? PromotionLedgerStore.defaultURL()
@@ -256,10 +268,13 @@ enum BackupArchive {
             let warnings = try await restoreStaged(from: bundleURL, into: context, strategy: strategy,
                                     promotionLedgerURL: files.stagedURL(for: ledgerURL),
                                     spendRequirementsURL: files.stagedURL(for: spendURL),
+                                    categoryCustomizationURL: files.stagedURL(for: customURL),
                                     files: files, statementsDestination: destination)
             try checkpoint?(.modelsStaged)
             try files.publish(ledgerURL)
             try checkpoint?(.ledgerPublished)
+            try files.publish(customURL)
+            try checkpoint?(.customizationPublished)
             try files.publish(spendURL)
             try checkpoint?(.spendPublished)
             try checkpoint?(.statementsPrepared)
@@ -269,6 +284,7 @@ enum BackupArchive {
             if case .replaceAll = strategy { ManualCaptureDateStore.reset() }
             files.discard()
             NotificationCenter.default.post(name: PromotionLedgerStore.didChangeNotification, object: nil)
+            NotificationCenter.default.post(name: CategoryCustomizationStore.didChangeNotification, object: customURL)
             return warnings
         } catch {
             context.rollback()
@@ -281,6 +297,7 @@ enum BackupArchive {
 
     private static func restoreStaged(from bundleURL: URL, into context: ModelContext, strategy: RestoreStrategy,
                         promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil,
+                        categoryCustomizationURL: URL? = nil,
                         files: SidecarFileTransaction, statementsDestination: URL) async throws -> [String] {
         var warnings: [String] = []
         let fm = FileManager.default
@@ -289,7 +306,7 @@ enum BackupArchive {
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard (1...10).contains(manifest.schemaVersion) else {
+        guard (1...11).contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
         guard isValidBundle(manifest, at: bundleURL) else {
@@ -349,6 +366,12 @@ enum BackupArchive {
         } else {
             promotionLedgerSnap = nil
         }
+        let categoryCustomizationSnap: CategoryCustomizationCatalog?
+        if manifest.schemaVersion >= 11 {
+            let snapshots = try loadJSON(CategoryCustomizationCatalog.self, "CategoryCustomization")
+            guard snapshots.count == 1, snapshots[0].schemaVersion == 1 else { throw RestoreError.invalidBundle }
+            categoryCustomizationSnap = snapshots.first
+        } else { categoryCustomizationSnap = nil }
         let spendRequirementsSnap: SpendRequirementSettings?
         if manifest.schemaVersion >= 9 {
             let snapshots = try loadJSON(SpendRequirementSettings.self, "SpendRequirement")
@@ -754,6 +777,17 @@ enum BackupArchive {
         case .mergeKeepingNewer:
             // Backup ≤9 sin ledger: el local se conserva íntegro (nada que mezclar).
             if let promotionLedgerSnap { warnings += try PromotionLedgerStore.merge(promotionLedgerSnap, at: ledgerURL, notify: false) }
+        }
+        let customURL = try categoryCustomizationURL ?? CategoryCustomizationStore.defaultURL()
+        switch strategy {
+        case .replaceAll:
+            if let categoryCustomizationSnap {
+                try CategoryCustomizationStore.replace(with: categoryCustomizationSnap, at: customURL, notify: false)
+            } else { try CategoryCustomizationStore.reset(fileURL: customURL, notify: false) }
+        case .mergeKeepingNewer:
+            if let categoryCustomizationSnap {
+                warnings += try CategoryCustomizationStore.merge(categoryCustomizationSnap, at: customURL, notify: false)
+            }
         }
         switch strategy {
         case .replaceAll:

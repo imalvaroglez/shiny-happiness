@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Category renames preserve seed identities, salary/interest semantics and rule aliases. Rapid color edits remain ordered; failed renames recover both stores, and corrupt customization files show a recoverable startup warning.
+- Restore validates and stages category customization alongside promotions and spending requirements before committing financial data.
+
 - Transaction headers and rows share column widths, including empty promotion badges, and keep one-line titles while respecting enlarged text.
 
 - Manual date suggestions remember the last successful capture per account; editing older movements no longer changes the next suggested date.
