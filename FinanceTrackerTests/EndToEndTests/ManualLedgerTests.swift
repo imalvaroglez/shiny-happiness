@@ -763,4 +763,19 @@ struct ManualLedgerTests {
         #expect(ManualCaptureDateStore.suggestedDate(accountID: id, defaults: defaults) == nil)
     }
 
+
+    @Test("Guardar y nuevo: la intención sobrevive al fallo parcial de adjudicación")
+    func saveAndNewFlowHonorsIntentThroughAttributionFailure() {
+        // Éxito completo: cerrar o continuar según el botón pulsado.
+        #expect(SaveAndNewFlow.resolve(intent: .close) == .dismiss)
+        #expect(SaveAndNewFlow.resolve(intent: .addAnother) == .resetForm)
+
+        // Fallo parcial SIN resolver: la hoja no cierra ni resetea (nil).
+        #expect(SaveAndNewFlow.resolve(intent: .close, attributionFailureResolved: false) == nil)
+        #expect(SaveAndNewFlow.resolve(intent: .addAnother, attributionFailureResolved: false) == nil)
+
+        // Reintentar exitoso («Más tarde» incluido): la intención original manda.
+        #expect(SaveAndNewFlow.resolve(intent: .addAnother, attributionFailureResolved: true) == .resetForm)
+        #expect(SaveAndNewFlow.resolve(intent: .close, attributionFailureResolved: true) == .dismiss)
+    }
 }

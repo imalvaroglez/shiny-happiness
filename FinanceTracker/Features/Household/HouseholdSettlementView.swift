@@ -29,6 +29,7 @@ struct HouseholdSettlementView: View {
     @State private var dueDatePickerTxID: UUID?
     @State private var showingExporter = false
     @State private var saveStatus = "Guardado"
+    @State private var showingClearConfirmation = false
     @State private var isLoadingSetup = false
     @State private var pendingSaveTask: Task<Void, Never>?
 
@@ -257,18 +258,27 @@ struct HouseholdSettlementView: View {
                     }
                 }
                 if state.showsManualSalaryOverrideButton {
-                    Button("Use Manual Override") {
-                        useManualSalary = true
+                    // Misma geometría que setupRow (label 200 + valor ≤320):
+                    // el botón ancla a la guía de la columna de valores.
+                    HStack(spacing: 12) {
+                        Color.clear.frame(width: 200)
+                        HStack {
+                            Spacer(minLength: 0)
+                            Button("Use Manual Override") {
+                                useManualSalary = true
+                            }
+                            .accessibilityIdentifier("household.userSalary.overrideButton")
+                        }
+                        .frame(maxWidth: 320, alignment: .trailing)
                     }
                     .padding(.horizontal, 14)
                     .padding(.bottom, 10)
-                    .accessibilityIdentifier("household.userSalary.overrideButton")
                 }
                 if state.showsManualSalaryInput {
                     divider
                     setupRow(state.manualSalaryLabel) {
                         VStack(alignment: .trailing, spacing: 3) {
-                            TextField("0.00", value: $manualSalary, format: .number)
+                            TextField("$0.00", value: $manualSalary, format: .currency(code: "MXN"))
                                 .textFieldStyle(.plain)
                                 .multilineTextAlignment(.trailing)
                                 .monospacedDigit()
@@ -281,7 +291,7 @@ struct HouseholdSettlementView: View {
                 divider
                 setupRow(state.partnerIncomeLabel) {
                     VStack(alignment: .trailing, spacing: 3) {
-                        TextField("0.00", value: $partnerIncome, format: .number)
+                        TextField("$0.00", value: $partnerIncome, format: .currency(code: "MXN"))
                             .textFieldStyle(.plain)
                             .multilineTextAlignment(.trailing)
                             .monospacedDigit()
@@ -337,19 +347,25 @@ struct HouseholdSettlementView: View {
                 HStack {
                     Button(state.copyPreviousTitle) { copyPreviousMonth() }
                         .accessibilityIdentifier("household.partnerIncome.copyPrevious")
-                    Button(state.clearTitle) { clearSetup() }
+                    Button(state.clearTitle, role: .destructive) { showingClearConfirmation = true }
+                        .foregroundStyle(.red)
                         .accessibilityIdentifier("household.partnerIncome.clear")
                     Spacer()
-                    Text(state.setupStatusText)
-                        .font(.caption)
-                        .foregroundStyle(setupIsValid ? Color.secondary : Color.red)
+                    if let setupError = state.setupStatusText {
+                        Text(setupError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
                 }
                 .padding(14)
             }
         }
         .accessibilityIdentifier("household.setup.card")
-        .frame(maxWidth: 580)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .confirmationDialog(state.clearTitle, isPresented: $showingClearConfirmation, titleVisibility: .visible) {
+            Button(state.clearTitle, role: .destructive) { clearSetup() }
+        } message: {
+            Text("Se borrará la configuración de este mes; los movimientos no se tocan.")
+        }
     }
 
     @ViewBuilder
@@ -612,20 +628,22 @@ struct HouseholdSettlementView: View {
     }
 
     private func setupRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        // Columnas compartidas: la etiqueta ancla a la izquierda y el valor a
+        // la MISMA guía vertical derecha en todas las filas; el fallback
+        // vertical cubre ventanas angostas.
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 12) {
                 Text(label)
-                    .frame(width: 145, alignment: .leading)
+                    .frame(width: 200, alignment: .leading)
                 content()
-                    .frame(width: 350, alignment: .trailing)
+                    .frame(maxWidth: 320, alignment: .trailing)
             }
             VStack(alignment: .leading, spacing: 7) {
                 Text(label).foregroundStyle(.secondary)
                 content().frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .frame(maxWidth: 507)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
     }

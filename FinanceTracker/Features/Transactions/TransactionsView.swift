@@ -458,7 +458,7 @@ struct TransactionsView: View {
                                 ForEach(Array(group.transactions.enumerated()), id: \.element.id) { index, tx in
                                     ledgerRow(for: tx, wideLayout: wideLayout)
                                     if index < group.transactions.count - 1 {
-                                        DashboardSeparator()
+                                        DashboardSeparator(soft: true)
                                     }
                                 }
                             } header: {
