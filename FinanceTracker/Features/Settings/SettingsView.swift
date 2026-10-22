@@ -885,10 +885,11 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Recupera categorías y administra promociones desde Configuración.",
-        "Consulta el gasto mínimo de cada tarjeta por ciclo de facturación.",
-        "Explora gastos y movimientos con gráficas y filtros más claros.",
-        "Revisa tus cuentas del hogar con información mejor organizada.",
+        "Administra promociones por tarjeta y revisa su aplicación a tus compras.",
+        "Captura varios movimientos manuales seguidos con fecha sugerida por cuenta.",
+        "Personaliza nombres y colores de categorías sin perder sus reglas y reportes.",
+        "Consulta liquidez bruta y cuentas del hogar con información más clara.",
+        "Restaura respaldos con protección adicional para categorías y promociones.",
     ]
 
     private var backupsDirectory: URL {
