@@ -101,6 +101,7 @@ struct PropertiesView: View {
     @State private var assignmentDraft: PropertyAssignmentDraft?
     @State private var memberCollection: PropertyMemberCollectionSelection?
     @State private var recoverySources: [PropertyTransactionInput] = []
+    @State private var rentDraft: PropertyRentDraft?
 
     var body: some View {
         ScrollView {
@@ -152,6 +153,7 @@ struct PropertiesView: View {
         .onChange(of: workspace.destination) {
             activitySelection = []; activityFilter = .linked
             activityAccountFilters = []; activityResponsibilityFilters = []
+            rentDraft = nil
         }
         .onChange(of: selectedMonth) {
             activitySelection = []; activityFilter = .linked
@@ -191,36 +193,6 @@ struct PropertiesView: View {
                 if let member = workspace.member(id: residentID) {
                     PropertyResidentRenameSheet(name: member.name, errorMessage: { workspace.error }) { name in
                         workspace.renameMember(id: residentID, name: name)
-                    }
-                }
-            case .rent:
-                if let property = selectedProperty {
-                    PropertyRentSheet(propertyID: property.id, month: selectedMonth,
-                                      currentAmount: ledger.rent(for: property.id, month: selectedMonth)) { agreement in
-                        for index in ledger.rents.indices where ledger.rents[index].propertyID == agreement.propertyID
-                            && ledger.rents[index].effectiveMonth == agreement.effectiveMonth
-                            && ledger.rents[index].deletedAt == nil {
-                            ledger.rents[index].deletedAt = .now
-                            ledger.rents[index].updatedAt = .now
-                        }
-                        ledger.rents.append(agreement)
-                        return persist()
-                    }
-                }
-            case .service:
-                if let property = selectedProperty {
-                    PropertyServiceSheet(propertyID: property.id) { budget in
-                        ledger.serviceBudgets.append(budget)
-                        return persist()
-                    }
-                }
-            case .serviceEdit(let budgetID):
-                if let property = selectedProperty,
-                   let budget = ledger.serviceBudgets.first(where: { $0.id == budgetID && $0.deletedAt == nil }) {
-                    PropertyServiceSheet(propertyID: property.id, budget: budget) { updated in
-                        guard let index = ledger.serviceBudgets.firstIndex(where: { $0.id == updated.id }) else { return false }
-                        ledger.serviceBudgets[index] = updated
-                        return persist()
                     }
                 }
             case .attribution:
@@ -292,8 +264,10 @@ struct PropertiesView: View {
             Menu {
                 if workspace.destination != .household, let property = selectedProperty {
                     Button("Add member…") { activeSheet = .resident }
-                    Button("Set up rent…") { activeSheet = .rent }
-                    Button("Add service reference…") { activeSheet = .service }
+                    Button("Set up rent…") {
+                        rentDraft = PropertyRentDraft(propertyID: property.id, editingID: nil,
+                            month: selectedMonth, amount: ledger.rent(for: property.id, month: selectedMonth))
+                    }
                     Divider()
                     Button("Link transaction…") { activeSheet = .attribution }
                     Button("Register collection…") { activeSheet = .payment(nil) }
@@ -402,12 +376,7 @@ struct PropertiesView: View {
                 if workspace.section == .month {
                     monthlyDetail(property, report)
                 } else {
-                    PropertyFacts(title: "Rent agreements", values: ledger.rents.filter {
-                        $0.propertyID == property.id && $0.deletedAt == nil
-                    }.sorted { $0.effectiveMonth > $1.effectiveMonth }.map {
-                        PropertyFactValue(title: String(format: String(localized: "Since %@"), propertyMonthText($0.effectiveMonth)), value: propertyMoneyText($0.monthlyAmount))
-                    }, actionTitle: "Set up rent…", action: { activeSheet = .rent })
-                    servicesSection(property)
+                    rentAgreementsSection(property)
                     PropertySectionHeading(title: "Maintenance program", actionTitle: "Set up program") { activeSheet = .maintenance }
                 }
             }
@@ -559,31 +528,65 @@ struct PropertiesView: View {
         }
     }
 
-    private func servicesSection(_ property: PropertyRecord) -> some View {
-        VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
-            PropertySectionHeading(title: "Service references", actionTitle: "Add service reference…") { activeSheet = .service }
-            PropertyTableCard {
-            VStack(alignment: .leading, spacing: 8) {
-            Text("References help with planning; only real transactions create obligations.")
-                .font(.caption).foregroundStyle(.secondary)
-            ForEach(ledger.serviceBudgets.filter { $0.propertyID == property.id && $0.deletedAt == nil }) { budget in
-                HStack {
-                    Text(budget.name)
-                    Text(LocalizedStringKey(budget.frequency.localizedTitle)).font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Text(propertyMoneyText(budget.monthlyReference))
-                        .foregroundStyle(.secondary)
-                    Menu {
-                        Button("Edit reference") { activeSheet = .serviceEdit(budget.id) }
-                    } label: {
-                        Image(systemName: "ellipsis.circle").accessibilityLabel(Text("Options for \(budget.name)"))
+    /// Rent agreements never enter the household settlement, so the section is
+    /// property-only. Values stay in read mode; the explicit edit action opens
+    /// the editor inline on this same surface.
+    @ViewBuilder
+    private func rentAgreementsSection(_ property: PropertyRecord) -> some View {
+        if workspace.destination != .household {
+            let agreements = ledger.rents.filter { $0.propertyID == property.id && $0.deletedAt == nil }
+                .sorted { $0.effectiveMonth > $1.effectiveMonth }
+            VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
+                PropertySectionHeading(title: "Rent agreements", actionTitle: "Set up rent…") {
+                    rentDraft = PropertyRentDraft(propertyID: property.id, editingID: nil,
+                        month: selectedMonth, amount: ledger.rent(for: property.id, month: selectedMonth))
+                }
+                PropertyTableCard {
+                    if let draft = rentDraft, draft.propertyID == property.id {
+                        PropertyRentAgreementEditor(month: draft.month, amount: draft.amount,
+                            errorMessage: { loadError },
+                            onSave: { amount, month in
+                                saveRentAgreement(propertyID: property.id, amount: amount, effectiveMonth: month)
+                            },
+                            onCancel: { rentDraft = nil })
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if agreements.isEmpty {
+                                Text("No rent agreements yet.").foregroundStyle(.secondary)
+                            }
+                            ForEach(agreements) { agreement in
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(String(format: String(localized: "Since %@"), propertyMonthText(agreement.effectiveMonth)))
+                                        .foregroundStyle(.secondary)
+                                    Spacer(minLength: 8)
+                                    Text(propertyMoneyText(agreement.monthlyAmount)).monospacedDigit()
+                                    Button("Edit") {
+                                        rentDraft = PropertyRentDraft(propertyID: property.id, editingID: agreement.id,
+                                            month: agreement.effectiveMonth, amount: agreement.monthlyAmount)
+                                    }.buttonStyle(.link).font(.caption)
+                                }.font(.callout)
+                            }
+                        }
                     }
-                    .menuStyle(.borderlessButton)
                 }
             }
-            }
-            }
         }
+    }
+
+    /// Saving keeps the historical versioning: superseding the active agreement
+    /// with the same effective month tombstones it and appends the new row.
+    private func saveRentAgreement(propertyID: UUID, amount: Decimal, effectiveMonth: Date) -> Bool {
+        let agreement = PropertyRentAgreement(propertyID: propertyID, monthlyAmount: amount, effectiveMonth: effectiveMonth)
+        for index in ledger.rents.indices where ledger.rents[index].propertyID == agreement.propertyID
+            && ledger.rents[index].effectiveMonth == agreement.effectiveMonth
+            && ledger.rents[index].deletedAt == nil {
+            ledger.rents[index].deletedAt = .now
+            ledger.rents[index].updatedAt = .now
+        }
+        ledger.rents.append(agreement)
+        let saved = persist()
+        if saved { rentDraft = nil }
+        return saved
     }
 
     private func maintenanceSection(_ property: PropertyRecord) -> some View {
@@ -661,18 +664,14 @@ struct PropertiesView: View {
 }
 
 private enum PropertySheet: Identifiable {
-    case property, resident, rent, service, attribution, existingPayment, adjustment, maintenance, reserve
+    case property, resident, attribution, existingPayment, adjustment, maintenance, reserve
     case payment(UUID?)
     case residentEdit(UUID)
-    case serviceEdit(UUID)
     var id: String {
         switch self {
         case .residentEdit(let id): "resident-edit-\(id.uuidString)"
-        case .serviceEdit(let id): "service-edit-\(id.uuidString)"
         case .property: "property"
         case .resident: "resident"
-        case .rent: "rent"
-        case .service: "service"
         case .attribution: "attribution"
         case .payment(let id): "payment-\(id?.uuidString ?? "choose")"
         case .existingPayment: "existing-payment"
@@ -683,13 +682,52 @@ private enum PropertySheet: Identifiable {
     }
 }
 
-extension PropertyServiceFrequency {
-    var localizedTitle: String {
-        switch self {
-        case .monthly: "Monthly"
-        case .bimonthly: "Bimonthly"
-        case .annual: "Annual"
-        case .irregular: "Irregular"
+/// Draft for the inline rent editor. `editingID` points at the agreement being
+/// edited; `nil` means a new agreement seeded from the selected month.
+private struct PropertyRentDraft {
+    var propertyID: UUID
+    var editingID: UUID?
+    var month: Date
+    var amount: Decimal
+}
+
+/// Inline rent agreement editor: seeded draft, Cancel/Save, and a failed save
+/// keeps the draft with its message.
+private struct PropertyRentAgreementEditor: View {
+    @State private var amountText: String
+    @State private var effectiveMonth: Date
+    @State private var saveError: String?
+    var errorMessage: () -> String?
+    var onSave: (_ amount: Decimal, _ effectiveMonth: Date) -> Bool
+    var onCancel: () -> Void
+
+    init(month: Date, amount: Decimal, errorMessage: @escaping () -> String? = { nil },
+         onSave: @escaping (Decimal, Date) -> Bool, onCancel: @escaping () -> Void) {
+        _amountText = State(initialValue: MoneyEntry.suggestedEntryText(amount))
+        _effectiveMonth = State(initialValue: month)
+        self.errorMessage = errorMessage
+        self.onSave = onSave
+        self.onCancel = onCancel
+    }
+
+    private var amount: Decimal? { MoneyEntry.parseEntryAmount(amountText) }
+
+    var body: some View {
+        StandardEditorForm(title: "Rent agreement", isValid: amount != nil,
+            onCancel: onCancel, onSave: {
+                guard let amount else { return }
+                if !onSave(amount, effectiveMonth) {
+                    saveError = errorMessage() ?? String(localized: "Could not save the rent agreement. Try again.")
+                }
+            }) {
+            LabeledContent("Monthly rent") {
+                TextField("MXN", text: $amountText)
+                    .frame(width: 170)
+                    .monospacedDigit()
+            }
+            DatePicker("Effective from", selection: $effectiveMonth, displayedComponents: .date)
+            Text("Changes do not modify already-closed months.").font(.caption).foregroundStyle(.secondary)
+            if let saveError { Text(saveError).font(.callout).foregroundStyle(.red) }
         }
     }
 }

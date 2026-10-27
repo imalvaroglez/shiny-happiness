@@ -875,3 +875,6 @@
 "A previous advance changed. Review its receipt and applications before applying it." = "Un anticipo anterior cambió. Revisa su cobro y sus aplicaciones antes de aplicarlo.";
 "No pending balance is available for this advance." = "No hay saldo pendiente disponible para este anticipo.";
 "The advance could not be applied. Try again." = "No se pudo aplicar el anticipo. Inténtalo de nuevo.";
+"Configuration" = "Configuración";
+"No rent agreements yet." = "Aún no hay acuerdos de renta.";
+"Could not save the rent agreement. Try again." = "No se pudo guardar el acuerdo de renta. Inténtalo de nuevo.";

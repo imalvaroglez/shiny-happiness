@@ -71,63 +71,6 @@ struct PropertyResidentRenameSheet: View {
     }
 }
 
-struct PropertyRentSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let propertyID: UUID
-    let month: Date
-    @State private var amount: Decimal
-    @State private var effectiveMonth: Date
-    var onSave: (PropertyRentAgreement) -> Bool
-    init(propertyID: UUID, month: Date, currentAmount: Decimal, onSave: @escaping (PropertyRentAgreement) -> Bool) {
-        self.propertyID = propertyID; self.month = month; self.onSave = onSave
-        _amount = State(initialValue: currentAmount)
-        _effectiveMonth = State(initialValue: month)
-    }
-    var body: some View {
-        Form {
-            TextField("Monthly rent", value: $amount, format: .number)
-            DatePicker("Effective from", selection: $effectiveMonth, displayedComponents: .date)
-            Text("Changes do not modify already-closed months.").font(.caption).foregroundStyle(.secondary)
-            HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Save") {
-                if onSave(PropertyRentAgreement(propertyID: propertyID, monthlyAmount: amount, effectiveMonth: effectiveMonth)) { dismiss() }
-            }.disabled(amount < 0) }
-        }.padding(20).frame(width: 400).navigationTitle("Rent agreement")
-    }
-}
-
-struct PropertyServiceSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let propertyID: UUID
-    @State private var budgetID: UUID?
-    @State private var name: String
-    @State private var frequency: PropertyServiceFrequency
-    @State private var monthlyReference: Decimal
-    var onSave: (PropertyServiceBudget) -> Bool
-    init(propertyID: UUID, budget: PropertyServiceBudget? = nil,
-         onSave: @escaping (PropertyServiceBudget) -> Bool) {
-        self.propertyID = propertyID; self.onSave = onSave
-        _budgetID = State(initialValue: budget?.id)
-        _name = State(initialValue: budget?.name ?? "")
-        _frequency = State(initialValue: budget?.frequency ?? .monthly)
-        _monthlyReference = State(initialValue: budget?.monthlyReference ?? 0)
-    }
-    var body: some View {
-        Form {
-            TextField("Service", text: $name)
-            Picker("Frequency", selection: $frequency) {
-                ForEach(PropertyServiceFrequency.allCases) { value in Text(value.localizedTitle).tag(value) }
-            }
-            TextField("Monthly reference", value: $monthlyReference, format: .number)
-            Text("This budget creates no charges. Register and link each real payment in Transactions.").font(.caption).foregroundStyle(.secondary)
-            HStack { Spacer(); Button("Cancel") { dismiss() }; Button(budgetID == nil ? "Add" : "Save") {
-                if onSave(PropertyServiceBudget(id: budgetID ?? UUID(), propertyID: propertyID,
-                    name: name.trimmingCharacters(in: .whitespacesAndNewlines), frequency: frequency,
-                    monthlyReference: monthlyReference, updatedAt: .now)) { dismiss() }
-            }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || monthlyReference < 0) }
-        }.padding(20).frame(width: 430).navigationTitle(budgetID == nil ? "Estimated service" : "Edit service")
-    }
-}
-
 struct PropertyAttributionSheet: View {
     @Environment(\.dismiss) private var dismiss
     let property: PropertyRecord
