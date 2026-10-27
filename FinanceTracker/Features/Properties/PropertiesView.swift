@@ -446,6 +446,7 @@ struct PropertiesView: View {
         let legacyNeedsReview = PropertyCollectionPosting.hasChangedAdvanceSource(propertyID: property.id,
             residentID: legacyID, ledger: ledger, inputs: transactionInputs)
         let linkedActivity = PropertyActivitySummary.linkedExpensesAndReimbursements(workspace.activityRows(filter: .linked))
+        let recoveryCandidates = workspace.recoveryReceipts(propertyID: property.id)
         return VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
             PropertyMetricGrid(values: historical
                 ? Array(PropertyPresentationAdapter.property(report).metrics.prefix(2)) + [
@@ -467,10 +468,12 @@ struct PropertiesView: View {
                     }
                 }, openLegacyAdvance: { memberCollection = .init(id: legacyID) })
             if historical { Text("Historical split pending reconciliation. It is not automatically added to prior debt.").font(.caption).foregroundStyle(.secondary) }
-            Button("Reconcile existing receipt…") {
-                recoverySources = workspace.recoveryReceipts(propertyID: property.id)
-                activeSheet = .existingPayment
-            }.buttonStyle(.link).font(.caption)
+            if !recoveryCandidates.isEmpty {
+                Button("Reconcile existing receipt…") {
+                    recoverySources = recoveryCandidates
+                    activeSheet = .existingPayment
+                }.buttonStyle(.link).font(.caption)
+            }
             PropertySpendingChart(rows: linkedActivity, contributors: rows.map(PropertyExpenseFlow.Contributor.init))
             PropertyActivityTable(rows: activityFilter == .linked ? linkedActivity : PropertyActivitySummary.linkedExpensesAndReimbursements(workspace.activityRows(filter: activityFilter)),
                 household: workspace.destination == .household,
