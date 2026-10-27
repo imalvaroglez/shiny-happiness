@@ -97,6 +97,7 @@
 		5EA6CD0FEDA323E96AD71541 /* PromotionLedgerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919E81C62A36EA3C2FCA286A /* PromotionLedgerStore.swift */; };
 		5FC71C112BCE91D414AEEC14 /* SignRecoveryHint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD9346479E8E084E76AE432 /* SignRecoveryHint.swift */; };
 		60A228E6A9826A4844F8B199 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 4A93E730E5933EB299BC6D93 /* Localizable.strings */; };
+		60B2726CBF3C2F71D390BD2A /* MoneyEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA90F19EF4674550ADCDD91 /* MoneyEntry.swift */; };
 		60DC122E6E47C0E7879ED964 /* SidecarFileTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337B47820C2F3739E832D88B /* SidecarFileTransaction.swift */; };
 		6365BD41B0339EC38BF1FBD6 /* PropertyActivityRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A8AF5050900EEB2C24AC1C1 /* PropertyActivityRow.swift */; };
 		6383BECC39BB996521430044 /* PaymentMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1209A83421ACFB92621BC0 /* PaymentMetadataTests.swift */; };
@@ -385,6 +386,7 @@
 		8D6CF100B0E88A7CD064C9C1 /* CategoryManagementViewStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryManagementViewStateTests.swift; sourceTree = "<group>"; };
 		8DD59B22E4D0D8F119D3DFD8 /* CategoryBadgeColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryBadgeColor.swift; sourceTree = "<group>"; };
 		8E285B0E8F12DCECA19A8F97 /* MetricChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricChip.swift; sourceTree = "<group>"; };
+		8EA90F19EF4674550ADCDD91 /* MoneyEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoneyEntry.swift; sourceTree = "<group>"; };
 		908D325A91CE03ABAE28A870 /* CategoryIdentityRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryIdentityRegressionTests.swift; sourceTree = "<group>"; };
 		911C0B681D74C9CCC271C0CA /* StatementBalanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatementBalanceTests.swift; sourceTree = "<group>"; };
 		919E81C62A36EA3C2FCA286A /* PromotionLedgerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromotionLedgerStore.swift; sourceTree = "<group>"; };
@@ -655,6 +657,7 @@
 				AAD06CB6E6BFF5D2DF2B332D /* KeychainTokenStore.swift */,
 				8573C4DA0BD52C0E219ABFF9 /* Logger.swift */,
 				ED3F63CCAA9EDC7AEF84A84B /* ManualCaptureDateStore.swift */,
+				8EA90F19EF4674550ADCDD91 /* MoneyEntry.swift */,
 				C1FD10AA79270231875467FE /* PromotionEditorInput.swift */,
 				919E81C62A36EA3C2FCA286A /* PromotionLedgerStore.swift */,
 				123DCA5D000C8E47FAE434D5 /* PropertyLedgerStore.swift */,
@@ -1261,6 +1264,7 @@
 				A7B77FBB5DFE9B4F07E0CF2B /* ManualTransactionSheet.swift in Sources */,
 				36F18F50AAB4C06BA8324702 /* MerchantExtractor.swift in Sources */,
 				098C90493B0CB3D2AEA48DD7 /* MetricChip.swift in Sources */,
+				60B2726CBF3C2F71D390BD2A /* MoneyEntry.swift in Sources */,
 				1F88CCE63E444338CA94C571 /* NetWorthComposition.swift in Sources */,
 				04A9E7D0A3158118B5CDD312 /* Normalizer.swift in Sources */,
 				F47D1A8E183539F736B5B6F7 /* OpenbankMexicoParser.swift in Sources */,

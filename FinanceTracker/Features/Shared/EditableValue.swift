@@ -122,12 +122,18 @@ struct EditableValueDraft<Value: Equatable & Sendable>: Sendable {
 /// field only exists while editing. Enter commits — an invalid draft is
 /// kept with an inline error — and Escape restores the committed value
 /// without triggering a containing sheet's cancel action.
+///
+/// The editor is seeded with `edit(value)` when provided (falling back to
+/// `display`), so fields whose display text is not directly parseable —
+/// money rendered with a currency symbol — still commit on Enter.
 struct EditableValueField<Value: Equatable & Sendable>: View {
     private let value: Value
     private let display: (Value) -> String
+    private let edit: ((Value) -> String)?
     private let parse: (String) -> Value?
     private let onCommit: (Value) -> Void
     private let validate: ((Value) -> String?)?
+    private let fieldLabel: LocalizedStringKey?
     private let changeTitle: LocalizedStringKey
 
     @State private var draft: EditableValueDraft<Value>
@@ -139,13 +145,17 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
         parse: @escaping (String) -> Value?,
         onCommit: @escaping (Value) -> Void,
         validate: ((Value) -> String?)? = nil,
+        edit: ((Value) -> String)? = nil,
+        fieldLabel: LocalizedStringKey? = nil,
         changeTitle: LocalizedStringKey = "Change"
     ) {
         self.value = value
         self.display = display
+        self.edit = edit
         self.parse = parse
         self.onCommit = onCommit
         self.validate = validate
+        self.fieldLabel = fieldLabel
         self.changeTitle = changeTitle
         _draft = State(initialValue: EditableValueDraft(lastCommitted: value))
     }
@@ -159,7 +169,7 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
             }
         }
         .onChange(of: value) { _, newValue in
-            draft.replaceAutomatic(with: newValue, edit: display, manual: false)
+            draft.replaceAutomatic(with: newValue, edit: editText, manual: false)
         }
     }
 
@@ -169,7 +179,7 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
         HStack(spacing: 4) {
             Text(display(value))
             Button(changeTitle) {
-                draft.begin(from: value, edit: display)
+                draft.begin(from: value, edit: editText)
             }
             .buttonStyle(.link)
         }
@@ -177,19 +187,16 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
 
     private var editor: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            TextField(display(value), text: $draft.text)
-                .focused($isFieldFocused)
-                .onSubmit { commitDraft() }
-                .frame(minWidth: 100)
+            field
             if let errorText = draft.errorText {
-                Label(errorText, systemImage: "exclamationmark.circle")
+                Label(errorText, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
             // Hidden Escape handler inside the row, so it never collides
             // with the cancelAction of a containing sheet.
             Button("Cancel") {
-                draft.cancel(edit: display)
+                draft.cancel(edit: editText)
             }
             .keyboardShortcut(.cancelAction)
             .opacity(0)
@@ -197,6 +204,31 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
             .accessibilityHidden(true)
         }
         .onAppear { isFieldFocused = true }
+    }
+
+    /// The draft text field. `fieldLabel` titles the field and names it
+    /// for VoiceOver; without it the display text keeps the old behavior.
+    @ViewBuilder
+    private var field: some View {
+        if let fieldLabel {
+            configured(TextField(fieldLabel, text: $draft.text))
+                .accessibilityLabel(fieldLabel)
+        } else {
+            configured(TextField(display(value), text: $draft.text))
+        }
+    }
+
+    private func configured(_ field: TextField<Text>) -> some View {
+        field
+            .focused($isFieldFocused)
+            .onSubmit { commitDraft() }
+            .frame(minWidth: 100)
+    }
+
+    /// Text used to seed or restore the editor; `display` when the caller
+    /// did not provide a separate editing form.
+    private func editText(_ value: Value) -> String {
+        edit?(value) ?? display(value)
     }
 
     private func commitDraft() {
@@ -207,13 +239,20 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
 // MARK: - Money field
 
 /// `EditableValueField` preconfigured for money amounts: `Decimal` values
-/// formatted with `MoneyFormat` and parsed with the shared entry-amount
-/// parser. Shares and percentages do not use this wrapper.
+/// shown with `MoneyFormat`, but seeded and parsed through `MoneyEntry`'s
+/// plain-text form, so the seeded text commits on Enter. Shares and
+/// percentages do not use this wrapper.
+///
+/// Intended for NON-negative amounts, e.g. capturing collection receipts.
+/// Signed contexts — such as editing a transaction's amount in
+/// TransactionDetailSheet — keep using their own signed fields; the entry
+/// parser deliberately rejects sign characters (YAGNI).
 struct EditableMoneyField: View {
     private let value: Decimal
     private let currencyCode: String
     private let onCommit: (Decimal) -> Void
     private let validate: ((Decimal) -> String?)?
+    private let fieldLabel: LocalizedStringKey?
     private let changeTitle: LocalizedStringKey
 
     init(
@@ -221,12 +260,14 @@ struct EditableMoneyField: View {
         currencyCode: String = "MXN",
         onCommit: @escaping (Decimal) -> Void,
         validate: ((Decimal) -> String?)? = nil,
+        fieldLabel: LocalizedStringKey? = nil,
         changeTitle: LocalizedStringKey = "Change"
     ) {
         self.value = value
         self.currencyCode = currencyCode
         self.onCommit = onCommit
         self.validate = validate
+        self.fieldLabel = fieldLabel
         self.changeTitle = changeTitle
     }
 
@@ -234,9 +275,11 @@ struct EditableMoneyField: View {
         EditableValueField(
             value: value,
             display: { MoneyFormat.string($0, code: currencyCode) },
-            parse: { PropertyCollectionPosting.parseEntryAmount($0) },
+            parse: { MoneyEntry.parseEntryAmount($0) },
             onCommit: onCommit,
             validate: validate,
+            edit: { MoneyEntry.suggestedEntryText($0) },
+            fieldLabel: fieldLabel,
             changeTitle: changeTitle
         )
     }

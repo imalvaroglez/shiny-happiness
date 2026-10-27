@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import FinanceTracker
 
@@ -110,5 +111,75 @@ struct EditableValueDraftTests {
 
         #expect(manual.text == "120")
         #expect(manual.lastCommitted == 150)
+    }
+
+    @Test("Begin with an active error clears it and reseeds the text")
+    func beginWithActiveErrorClearsErrorAndReseeds() {
+        var draft = EditableValueDraft(lastCommitted: 100)
+
+        draft.begin(from: 100, edit: edit)
+        draft.text = "abc"
+        draft.commit(parse: parse, onCommit: { _ in })
+        #expect(draft.isEditing)
+        #expect(draft.errorText != nil)
+
+        draft.begin(from: 100, edit: edit)
+        #expect(draft.isEditing)
+        #expect(draft.errorText == nil)
+        #expect(draft.text == "100")
+    }
+
+    @Test("Commit after a divergent refresh delivers the manual draft")
+    func commitAfterRefreshKeepsManualDraft() {
+        var draft = EditableValueDraft(lastCommitted: 100)
+        draft.begin(from: 100, edit: edit)
+        draft.text = "200"
+
+        // An automatic refresh arrives with a different value: the manual
+        // draft survives it, so commit delivers the draft, not the refresh.
+        draft.replaceAutomatic(with: 175, edit: edit, manual: false)
+
+        var committed: Int?
+        draft.commit(parse: parse, onCommit: { committed = $0 })
+
+        #expect(committed == 200)
+        #expect(draft.lastCommitted == 200)
+        #expect(!draft.isEditing)
+        #expect(draft.errorText == nil)
+    }
+
+    @Test("A second begin reseeds the editor text")
+    func doubleBeginReseedsText() {
+        var draft = EditableValueDraft(lastCommitted: 100)
+
+        draft.begin(from: 100, edit: edit)
+        draft.text = "250"
+        draft.begin(from: 120, edit: edit)
+
+        #expect(draft.isEditing)
+        #expect(draft.text == "120")
+        #expect(draft.errorText == nil)
+    }
+
+    @Test("The editor is seeded with edit text, not display text")
+    func beginSeedsEditorWithEditClosureNotDisplay() {
+        // Display renders a currency symbol; entry text must not, or a
+        // seeded draft could never parse on Enter. This pins the edit ≠
+        // display contract at the machine level.
+        let displayText: (Decimal) -> String = { "$\($0)" }
+        let entryText: (Decimal) -> String = { MoneyEntry.suggestedEntryText($0) }
+        let amount = Decimal(string: "1000")!
+        var draft = EditableValueDraft(lastCommitted: amount)
+
+        draft.begin(from: amount, edit: entryText)
+        #expect(draft.text == "1000.00")
+        #expect(draft.text != displayText(amount))
+
+        var committed: Decimal?
+        draft.commit(parse: { MoneyEntry.parseEntryAmount($0) }, onCommit: { committed = $0 })
+
+        #expect(committed == Decimal(string: "1000.00")!)
+        #expect(!draft.isEditing)
+        #expect(draft.errorText == nil)
     }
 }
