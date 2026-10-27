@@ -49,12 +49,13 @@ enum PropertyCollectionPosting {
     static func suggestedAmount(propertyID: UUID, residentID: UUID, report: PropertyMonthlyReport,
                                 ledger: PropertyLedger, inputs: [PropertyTransactionInput], asOf: Date,
                                 includeCurrent: Bool = true) -> Decimal {
-        let member = report.residents.first { $0.id == residentID }
-        let current = includeCurrent ? max(0, member?.balance ?? 0) : 0
-        // The report already excludes future or invalid receipts from prior debt.
-        let prior = max(0, member?.priorDebt ?? 0)
-        return max(0, current + prior - memberAdvances(propertyID: propertyID, residentID: residentID,
-                                                       ledger: ledger, inputs: inputs, asOf: asOf))
+        // The capture sheet cannot see the period flags the member table knows,
+        // so it asks for the calculable reading of the same settlement; a review
+        // gate collapses to zero instead of suggesting an untrustworthy amount.
+        let settlement = PropertyMemberSettlement.summarize(propertyID: propertyID, residentID: residentID,
+            report: report, ledger: ledger, inputs: inputs, asOf: asOf,
+            context: .init(canCalculate: true, isClosed: true, historical: false, includeCurrent: includeCurrent))
+        return settlement.payable ?? 0
     }
 
     private static func monthOutstanding(close: PropertySettlementClose, residentID: UUID,

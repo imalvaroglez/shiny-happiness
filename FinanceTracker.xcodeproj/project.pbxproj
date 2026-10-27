@@ -163,6 +163,7 @@
 		A165B4BB551EB7C129664652 /* CategoryPickerPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECF81337602AAC245C6B517 /* CategoryPickerPerformanceTests.swift */; };
 		A1AD6EE4E5C7D5AA5584BD27 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989ACDB4A037230E6C8E9080 /* Account.swift */; };
 		A32C65AECBA5FCC6DDECF6E0 /* RetirementKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = D803CDF2E576F738887F2D2D /* RetirementKind.swift */; };
+		A35A1EB6D0295F6EEE93458A /* PropertyMemberSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60553D2688EC718D09D263E4 /* PropertyMemberSettlement.swift */; };
 		A3FA364702E99FA693D03CBF /* AccountBalanceSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8A9B5CAA7955E44FD69806 /* AccountBalanceSnapshot.swift */; };
 		A57D3068DF3654644F33166E /* HouseholdSettlementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 853951F19D47673EB233AB07 /* HouseholdSettlementView.swift */; };
 		A766ECFBB9300ACB31EE2783 /* ColumnDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24F0AF2908D79A4B7A1865F5 /* ColumnDetector.swift */; };
@@ -339,6 +340,7 @@
 		5C84E93C9A795A6020B4643B /* categories.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = categories.json; sourceTree = "<group>"; };
 		5C89404D9A5CEE8DAE00A4B9 /* CategoryCustomizationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryCustomizationStoreTests.swift; sourceTree = "<group>"; };
 		5E31BC464A71CD5263D32CFD /* DataHealthSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataHealthSummary.swift; sourceTree = "<group>"; };
+		60553D2688EC718D09D263E4 /* PropertyMemberSettlement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyMemberSettlement.swift; sourceTree = "<group>"; };
 		62C7D882BEF6682B5A31ADDE /* FinanceTracker.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FinanceTracker.entitlements; sourceTree = "<group>"; };
 		6413C1BCA04D30478DFBF64C /* CashFlowExclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CashFlowExclusionTests.swift; sourceTree = "<group>"; };
 		66244CA1EBBF0264C8C4F516 /* PropertyWorkspaceComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyWorkspaceComponents.swift; sourceTree = "<group>"; };
@@ -961,6 +963,7 @@
 				9D749FD56AC697C8F3760BA3 /* PropertyCollectionPosting.swift */,
 				74989DA659C9D6ED2DB5CF3D /* PropertyExpenseFlow.swift */,
 				044916A9D45D12CDA7EEC804 /* PropertyHouseholdAdapter.swift */,
+				60553D2688EC718D09D263E4 /* PropertyMemberSettlement.swift */,
 				704D36A498A48056B8BC9ADA /* PropertyMonthlyTable.swift */,
 				E0707140F2A9924C265818BE /* PropertySankeyLayout.swift */,
 				599C652F50B420FD51DC3375 /* PropertySheets.swift */,
@@ -1299,6 +1302,7 @@
 				F5D3CB96E8051CB4D419C40E /* PropertyHouseholdLink.swift in Sources */,
 				74A34765DD3865D2FE5E29DA /* PropertyLedger.swift in Sources */,
 				2DD2C644AF216E306D306269 /* PropertyLedgerStore.swift in Sources */,
+				A35A1EB6D0295F6EEE93458A /* PropertyMemberSettlement.swift in Sources */,
 				B07ADA526D9AD86C893910FC /* PropertyMonthlyTable.swift in Sources */,
 				BC10B083A644C964BB51CDBE /* PropertySankeyLayout.swift in Sources */,
 				87768E5B4D64ADDA193E5D02 /* PropertySheets.swift in Sources */,

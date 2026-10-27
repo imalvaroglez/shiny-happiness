@@ -1,0 +1,283 @@
+import Foundation
+
+/// Pure per-member settlement summary behind the collections UI. One snapshot
+/// feeds the member table, the capture sheet suggestion, and the member detail
+/// sheet, so those surfaces can never disagree about what a member owes.
+///
+/// The summary never invents money: any amount that depends on missing or
+/// untrustworthy sources becomes `nil` (or a `.review` status) instead of
+/// silently collapsing to `0.00`.
+struct PropertyMemberSettlement: Equatable, Sendable {
+    enum Status: Equatable, Sendable {
+        /// Debt exists and no valid collection covers any of it.
+        case pending
+        /// Valid collections cover part of what the member owes.
+        case partial
+        /// There was debt and the valid collections cover all of it.
+        case paid
+        /// No debt existed to collect in the first place (the exact-zero frontier).
+        case nothingDue
+        /// The month split cannot be calculated yet; prior debt stays visible.
+        case toCalculate
+        /// A historical estimated split that was never reconciled into debt.
+        case toReconcile
+        /// A source vanished or changed, or a receipt needs reconciliation.
+        case review
+    }
+
+    /// The period facts `PropertiesView.monthlyDetail` and the capture sheet
+    /// already compute. The summary itself stays free of UI concerns.
+    struct Context: Sendable {
+        var canCalculate: Bool
+        var isClosed: Bool
+        var historical: Bool
+        var includeCurrent: Bool
+    }
+
+    var residentID: UUID
+    var month: Date
+    var asOf: Date
+    var status: Status
+    /// Rent + shared + individual + adjustments of the month; nil while the split is not calculable.
+    var monthObligation: Decimal?
+    /// The member's month balance (`PropertyResidentReport.balance`); nil while the split is not calculable.
+    var monthBalance: Decimal?
+    /// Debt carried from closed months, net of valid collections (the report's figure).
+    var priorDebt: Decimal
+    /// Valid collections applied to obligations of closed months.
+    var priorPaid: Decimal
+    /// Valid collections applied to this month's obligations.
+    var monthPaid: Decimal
+    /// `priorDebt + max(0, monthBalance)` while computable: the outstanding debt.
+    var due: Decimal?
+    /// `max(0, due - advanceAvailable)` for calculable states; nil otherwise.
+    var payable: Decimal?
+    /// Valid unapplied advances available for this member.
+    var advanceAvailable: Decimal
+    /// An advance of this member no longer matches its backing transaction.
+    var advanceStale: Bool
+    /// An application of this member lost its backing transaction.
+    var sourcesMissing: Bool
+    /// A receipt of this member is overallocated or used as reimbursement and collection.
+    var receiptsNeedReview: Bool
+    /// Receipts backing the valid collections, newest first.
+    var paymentTransactionIDs: [UUID]
+    /// The member no longer participates in the report month.
+    var participationEnded: Bool
+
+    /// Settlement of one member. Supports former members that only carry debt
+    /// from closed months (they are absent from `report.residents`).
+    static func summarize(propertyID: UUID, residentID: UUID, report: PropertyMonthlyReport,
+                          ledger: PropertyLedger, inputs: [PropertyTransactionInput],
+                          asOf: Date, context: Context) -> Self {
+        let data = Precalculated(propertyID: propertyID, report: report, ledger: ledger,
+                                 inputs: inputs, asOf: asOf)
+        return build(residentID: residentID, member: report.residents.first { $0.id == residentID },
+                     report: report, asOf: asOf, context: context, data: data)
+    }
+
+    /// Settlements for every report member in a single pass over the ledger:
+    /// application totals, advance validity, and reconciliation review are
+    /// precalculated once instead of rescanning the ledger per member.
+    static func summarizeAll(propertyID: UUID, report: PropertyMonthlyReport, ledger: PropertyLedger,
+                             inputs: [PropertyTransactionInput], asOf: Date, context: Context,
+                             visibleIDs: Set<UUID>? = nil) -> [Self] {
+        let data = Precalculated(propertyID: propertyID, report: report, ledger: ledger,
+                                 inputs: inputs, asOf: asOf)
+        return report.residents
+            .filter { visibleIDs?.contains($0.id) ?? true }
+            .map { build(residentID: $0.id, member: $0, report: report, asOf: asOf,
+                         context: context, data: data) }
+    }
+
+    // MARK: - Internals
+
+    private static func build(residentID: UUID, member: PropertyResidentReport?,
+                              report: PropertyMonthlyReport, asOf: Date,
+                              context: Context, data: Precalculated) -> Self {
+        let computable = context.isClosed || context.canCalculate
+        let priorDebt = (member?.priorDebt
+            ?? ((data.priorObligationByResident[residentID] ?? 0) - (data.priorPaidByResident[residentID] ?? 0)))
+            .currencyRounded
+        var monthObligation: Decimal?
+        var monthBalance: Decimal?
+        if let member, computable {
+            monthObligation = (member.rent + member.sharedExpenses + member.individualExpenses
+                + member.adjustments).currencyRounded
+            monthBalance = member.balance.currencyRounded
+        }
+        let monthPaid = (member?.paid ?? 0).currencyRounded
+        let priorPaid = (data.priorPaidByResident[residentID] ?? 0).currencyRounded
+        let advanceAvailable = (data.advanceByResident[residentID] ?? 0).currencyRounded
+        let advanceStale = data.advanceStaleByResident.contains(residentID)
+        let sourcesMissing = data.sourcesMissingByResident.contains(residentID)
+        let receiptsNeedReview = data.receiptsNeedReviewByResident.contains(residentID)
+        // `includeCurrent == false` keeps the open month out of the debt, mirroring
+        // the capture sheet's suggestion gating.
+        let current = context.includeCurrent ? max(0, monthBalance ?? 0) : 0
+
+        let status: Status
+        var due: Decimal?
+        var payable: Decimal?
+        if sourcesMissing || advanceStale || receiptsNeedReview {
+            // Show every amount that is still computable, but never turn missing
+            // data into a payable figure.
+            status = .review
+            due = computable ? (priorDebt + current).currencyRounded : nil
+            payable = nil
+        } else if context.historical {
+            // The estimated split never becomes debt on its own.
+            status = .toReconcile
+            due = nil
+            payable = nil
+        } else if !context.canCalculate && !context.isClosed {
+            status = .toCalculate
+            due = nil
+            payable = nil
+        } else {
+            let dueValue = (priorDebt + current).currencyRounded
+            due = dueValue
+            payable = max(0, dueValue - advanceAvailable).currencyRounded
+            // Gross obligation behind the net figures: closed debt before its
+            // collections plus this month's obligation.
+            let grossObligation = (priorDebt + priorPaid + (monthObligation ?? 0)).currencyRounded
+            let collected = (monthPaid + priorPaid).currencyRounded
+            if dueValue <= 0 {
+                // Exact frontier: nothing due means either the debt never existed
+                // or the valid collections already covered it.
+                status = grossObligation > 0 ? .paid : .nothingDue
+            } else if collected >= grossObligation && collected >= dueValue {
+                // Month collections were applied beyond the month obligation, so
+                // they already cover debt the net `due` still carries.
+                status = .paid
+            } else if collected > 0 {
+                status = .partial
+            } else {
+                status = .pending
+            }
+        }
+
+        var receiptIDs = data.monthReceiptIDsByResident[residentID] ?? []
+        receiptIDs.formUnion(data.priorReceiptIDsByResident[residentID] ?? [])
+        let paymentTransactionIDs = receiptIDs
+            .map { ($0, data.inputsByID[$0]?.postedAt ?? .distantPast) }
+            .sorted {
+                if $0.1 != $1.1 { return $0.1 > $1.1 }
+                return $0.0.uuidString < $1.0.uuidString
+            }
+            .map(\.0)
+
+        return Self(residentID: residentID, month: report.monthStart, asOf: asOf, status: status,
+                    monthObligation: monthObligation, monthBalance: monthBalance, priorDebt: priorDebt,
+                    priorPaid: priorPaid, monthPaid: monthPaid, due: due, payable: payable,
+                    advanceAvailable: advanceAvailable, advanceStale: advanceStale,
+                    sourcesMissing: sourcesMissing, receiptsNeedReview: receiptsNeedReview,
+                    paymentTransactionIDs: paymentTransactionIDs,
+                    participationEnded: !data.activeResidentIDs.contains(residentID))
+    }
+
+    /// One pass over the ledger shared by every member of a report. Replicates
+    /// the validity filters of the settlement report, `memberAdvances`, and
+    /// `hasChangedAdvanceSource` exactly, so the summary can never drift from
+    /// the numbers those entry points already publish.
+    private struct Precalculated {
+        var inputsByID: [UUID: PropertyTransactionInput] = [:]
+        var activeResidentIDs: Set<UUID> = []
+        var monthReceiptIDsByResident: [UUID: Set<UUID>] = [:]
+        var priorObligationByResident: [UUID: Decimal] = [:]
+        var priorPaidByResident: [UUID: Decimal] = [:]
+        var priorReceiptIDsByResident: [UUID: Set<UUID>] = [:]
+        var advanceByResident: [UUID: Decimal] = [:]
+        var advanceStaleByResident: Set<UUID> = []
+        var sourcesMissingByResident: Set<UUID> = []
+        var receiptsNeedReviewByResident: Set<UUID> = []
+
+        init(propertyID: UUID, report: PropertyMonthlyReport, ledger: PropertyLedger,
+             inputs: [PropertyTransactionInput], asOf: Date) {
+            for input in inputs { inputsByID[input.id] = input }
+            activeResidentIDs = Set(ledger.residents(for: propertyID, month: report.monthStart).map(\.id))
+            let propertyApplications = ledger.paymentApplications.filter {
+                $0.propertyID == propertyID && $0.deletedAt == nil
+            }
+            let reconciliation = PropertySettlementCalculator.reconciliationReview(
+                propertyID: propertyID, obligations: report.obligations,
+                applications: propertyApplications, inputs: inputsByID)
+            // Applied totals per receipt across every property: the same totals
+            // `memberAdvances` and `hasChangedAdvanceSource` compare against.
+            let appliedByPayment = Dictionary(
+                grouping: ledger.paymentApplications.filter { $0.deletedAt == nil },
+                by: \.paymentTransactionID
+            ).mapValues { $0.reduce(Decimal.zero) { $0 + $1.amount } }
+
+            // Valid collections of the report month, mirroring the report's own
+            // application filter.
+            let monthObligationIDs = Set(report.obligations.map(\.id))
+            for application in propertyApplications
+            where !PropertyPaymentAdvance.isAdvance(application)
+                && monthObligationIDs.contains(application.obligationID)
+                && !reconciliation.overallocatedPaymentIDs.contains(application.paymentTransactionID)
+                && !reconciliation.doubleUsedReceipts.contains(application.paymentTransactionID)
+                && PropertySettlementCalculator.isValidCollectionPayment(
+                    inputsByID[application.paymentTransactionID], asOf: asOf) {
+                monthReceiptIDsByResident[application.residentID, default: []]
+                    .insert(application.paymentTransactionID)
+            }
+
+            // Prior debt pieces from closes, mirroring `priorBalances`.
+            for close in ledger.closes
+            where close.propertyID == propertyID && close.monthStart < report.monthStart {
+                let obligationIDs = Set(close.obligations.map(\.id))
+                let reimbursementTransactionIDs = Set(close.obligations.compactMap {
+                    $0.kind == .reimbursement ? $0.transactionID : nil
+                })
+                for snapshot in close.residents {
+                    priorObligationByResident[snapshot.id, default: 0]
+                        += snapshot.obligation - (snapshot.directContribution ?? 0)
+                }
+                for application in propertyApplications
+                where obligationIDs.contains(application.obligationID)
+                    && !reimbursementTransactionIDs.contains(application.paymentTransactionID)
+                    && PropertySettlementCalculator.isValidCollectionPayment(
+                        inputsByID[application.paymentTransactionID], asOf: asOf) {
+                    priorPaidByResident[application.residentID, default: 0] += application.amount
+                    priorReceiptIDsByResident[application.residentID, default: []]
+                        .insert(application.paymentTransactionID)
+                }
+            }
+
+            for application in propertyApplications {
+                let source = inputsByID[application.paymentTransactionID]
+                if source == nil || source?.deletedAt != nil || source?.isDuplicate == true {
+                    sourcesMissingByResident.insert(application.residentID)
+                }
+                if reconciliation.overallocatedPaymentIDs.contains(application.paymentTransactionID)
+                    || reconciliation.doubleUsedReceipts.contains(application.paymentTransactionID) {
+                    receiptsNeedReviewByResident.insert(application.residentID)
+                }
+            }
+
+            // Advance availability and staleness, mirroring `memberAdvances` and
+            // `hasChangedAdvanceSource` member for member.
+            for advance in propertyApplications where PropertyPaymentAdvance.isAdvance(advance) {
+                guard let source = inputsByID[advance.paymentTransactionID] else {
+                    advanceStaleByResident.insert(advance.residentID)
+                    continue
+                }
+                let changed = PropertySettlementCalculator.hasSourceChanged(
+                    amount: advance.sourceAmountSnapshot, postedAt: advance.sourcePostedAtSnapshot,
+                    currencyCode: advance.sourceCurrencySnapshot,
+                    description: advance.sourceDescriptionSnapshot, versus: source)
+                guard !changed,
+                      (appliedByPayment[source.id] ?? 0) <= source.amount,
+                      PropertySettlementCalculator.isValidCollectionPayment(source, asOf: .distantFuture)
+                else {
+                    advanceStaleByResident.insert(advance.residentID)
+                    continue
+                }
+                if PropertySettlementCalculator.isValidCollectionPayment(source, asOf: asOf) {
+                    advanceByResident[advance.residentID, default: 0] += advance.amount
+                }
+            }
+        }
+    }
+}

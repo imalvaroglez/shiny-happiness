@@ -410,4 +410,347 @@ struct PropertyCollectionPostingTests {
         #expect(try PropertyLedgerStore.read(fileURL: url).paymentApplications.count == 1)
     }
 
+    // MARK: - PropertyMemberSettlement
+
+    private func settlementParity(_ includeCurrent: Bool, house: PropertyRecord, resident: PropertyResident,
+                                   report: PropertyMonthlyReport, ledger: PropertyLedger,
+                                   inputs: [PropertyTransactionInput]) throws -> PropertyMemberSettlement {
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: includeCurrent)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        #expect(PropertyCollectionPosting.suggestedAmount(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10),
+            includeCurrent: includeCurrent) == settlement.payable)
+        return settlement
+    }
+
+    @Test("The capture suggestion and the member settlement payable never diverge")
+    @MainActor
+    func suggestedAmountMatchesMemberSettlementPayable() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+
+        // Closed August debt (150) plus the open September rent (100).
+        var settlement = try settlementParity(true, house: house, resident: resident,
+            report: report, ledger: ledger, inputs: inputs)
+        #expect(settlement.payable == 250)
+        // Excluding the open month leaves only the closed debt.
+        settlement = try settlementParity(false, house: house, resident: resident,
+            report: report, ledger: ledger, inputs: inputs)
+        #expect(settlement.payable == 150)
+
+        // A month collection clears the open balance; both agree on the remainder.
+        let monthReceipt = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(9, 8),
+            description: "Cobro del mes", isCashAccount: true)
+        inputs.append(monthReceipt)
+        ledger.paymentApplications = [PropertyPaymentApplication(propertyID: house.id,
+            paymentTransactionID: monthReceipt.id,
+            obligationID: try #require(report.obligations.first(where: \.isRent)?.id),
+            residentID: resident.id, amount: 100, snapshots: PropertySourceSnapshots(capturing: monthReceipt))]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        settlement = try settlementParity(true, house: house, resident: resident,
+            report: report, ledger: ledger, inputs: inputs)
+        #expect(settlement.payable == 150)
+
+        // An unapplied advance lowers both by the same amount.
+        let advanceReceipt = PropertyTransactionInput(id: UUID(), amount: 30, postedAt: date(9, 12),
+            description: "Anticipo", isCashAccount: true)
+        inputs.append(advanceReceipt)
+        let advanceID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: advanceReceipt.id)
+        ledger.paymentApplications += [PropertyPaymentApplication(id: advanceID, propertyID: house.id,
+            paymentTransactionID: advanceReceipt.id, obligationID: advanceID, residentID: resident.id,
+            amount: 30, snapshots: PropertySourceSnapshots(capturing: advanceReceipt))]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        settlement = try settlementParity(true, house: house, resident: resident,
+            report: report, ledger: ledger, inputs: inputs)
+        #expect(settlement.payable == 120)
+        #expect(settlement.advanceAvailable == 30)
+
+        // Fer's household balance suggests the same amount both ways.
+        let roles = PropertyHouseholdAdapter.link
+        let account = Account(institution: "Banco sintético", type: .checking)
+        let expense = Transaction(account: account, postedAt: date(9, 3), amount: -1_000,
+            descriptionRaw: "Gasto para integrante")
+        expense.setHouseholdScope(.included)
+        expense.setExpenseAssignment(.partner)
+        let household = HouseholdSettlementReportService.build(monthStart: date(9),
+            transactions: [expense], setup: HouseholdSettlementSetup(partnerIncomeEstimate: 1_000,
+                useUserIncomeManualOverride: true, userIncomeManualOverride: 1_000))
+        var householdLedger = PropertyLedger()
+        householdLedger.householdLink = roles
+        householdLedger.properties = [PropertyRecord(id: roles.propertyID, name: "Casa sintética")]
+        householdLedger.residents = [PropertyResident(id: roles.userID, propertyID: roles.propertyID,
+            name: "Tú", activeFrom: .distantPast),
+            PropertyResident(id: roles.partnerID, propertyID: roles.propertyID, name: "Fer", activeFrom: .distantPast)]
+        let expenseInput = PropertyTransactionInput(capturing: expense)
+        let householdReport = PropertyHouseholdAdapter.report(household, ledger: householdLedger,
+            transactions: [expenseInput], asOf: date(9, 10))
+        let fer = PropertyMemberSettlement.summarize(propertyID: roles.propertyID,
+            residentID: roles.partnerID, report: householdReport, ledger: householdLedger,
+            inputs: [expenseInput], asOf: date(9, 10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(fer.payable == 1_000)
+        #expect(PropertyCollectionPosting.suggestedAmount(propertyID: roles.propertyID,
+            residentID: roles.partnerID, report: householdReport, ledger: householdLedger,
+            inputs: [expenseInput], asOf: date(9, 10)) == fer.payable)
+    }
+
+    @Test("Member settlement walks pending, partial, and paid across closes and the current month")
+    func memberSettlementPendingPartialAndPaidAcrossClosesAndCurrentMonth() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let augustRentID = try #require(august.obligations.first(where: \.isRent)?.id)
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let septemberRentID = try #require(report.obligations.first(where: \.isRent)?.id)
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+
+        // Pending: closed August debt (150) plus September rent (100), nothing collected.
+        var settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        #expect(settlement.status == .pending)
+        #expect(settlement.due == 250)
+        #expect(settlement.payable == 250)
+        #expect(settlement.monthObligation == 100)
+        #expect(settlement.monthBalance == 100)
+        #expect(settlement.monthPaid == 0 && settlement.priorPaid == 0 && settlement.priorDebt == 150)
+        #expect(settlement.paymentTransactionIDs.isEmpty)
+
+        // Partial: one valid receipt covers 100 of the prior debt.
+        let first = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(9, 5),
+            description: "Cobro 1", isCashAccount: true)
+        inputs.append(first)
+        ledger.paymentApplications = [PropertyPaymentApplication(propertyID: house.id,
+            paymentTransactionID: first.id, obligationID: augustRentID, residentID: resident.id,
+            amount: 100, snapshots: PropertySourceSnapshots(capturing: first))]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        #expect(settlement.status == .partial)
+        #expect(settlement.priorDebt == 50 && settlement.priorPaid == 100)
+        #expect(settlement.due == 150 && settlement.payable == 150)
+        #expect(settlement.paymentTransactionIDs == [first.id])
+
+        // Paid: the remaining prior debt plus the whole month rent are collected.
+        let second = PropertyTransactionInput(id: UUID(), amount: 150, postedAt: date(9, 20),
+            description: "Cobro 2", isCashAccount: true)
+        inputs.append(second)
+        ledger.paymentApplications += [
+            PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: second.id,
+                obligationID: augustRentID, residentID: resident.id, amount: 50,
+                snapshots: PropertySourceSnapshots(capturing: second)),
+            PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: second.id,
+                obligationID: septemberRentID, residentID: resident.id, amount: 100,
+                snapshots: PropertySourceSnapshots(capturing: second))]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        #expect(settlement.status == .paid)
+        #expect(settlement.due == 0 && settlement.payable == 0)
+        #expect(settlement.priorDebt == 0 && settlement.priorPaid == 150 && settlement.monthPaid == 100)
+        #expect(settlement.paymentTransactionIDs == [second.id, first.id])
+
+        // summarizeAll is one pass that matches member-by-member summarize.
+        let all = PropertyMemberSettlement.summarizeAll(propertyID: house.id, report: report,
+            ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        #expect(all.map(\.residentID) == report.residents.map(\.id))
+        #expect(all == report.residents.map {
+            PropertyMemberSettlement.summarize(propertyID: house.id, residentID: $0.id, report: report,
+                ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        })
+        #expect(PropertyMemberSettlement.summarizeAll(propertyID: house.id, report: report,
+            ledger: ledger, inputs: inputs, asOf: date(10), context: context, visibleIDs: []).isEmpty)
+    }
+
+    @Test("A missing or changed source forces review and never claims paid or zero")
+    func missingOrChangedSourceNeverClaimsPaidOrZero() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let augustRentID = try #require(august.obligations.first(where: \.isRent)?.id)
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 150, postedAt: date(9, 5),
+            description: "Cobro sobre cierre", isCashAccount: true)
+        ledger.paymentApplications = [PropertyPaymentApplication(propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: augustRentID, residentID: resident.id,
+            amount: 150, snapshots: PropertySourceSnapshots(capturing: receipt))]
+
+        // The receipt vanished from the inputs entirely.
+        let vanished = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        var settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: vanished, ledger: ledger, inputs: inputs, asOf: date(10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(settlement.sourcesMissing)
+        #expect(settlement.status == .review)
+        #expect(settlement.payable == nil)
+        #expect(settlement.due == 250)
+
+        // A soft-deleted receipt source behaves the same.
+        var deleted = receipt
+        deleted.deletedAt = date(9, 15)
+        inputs.append(deleted)
+        let deletedReport = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: deletedReport, ledger: ledger, inputs: inputs, asOf: date(10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(settlement.sourcesMissing && settlement.status == .review && settlement.payable == nil)
+        #expect(settlement.due == 250)
+
+        // A changed advance source is stale: review, no payable, and no credit taken.
+        var (staleLedger, staleHouse, staleResident, staleInputs) = fixture(rent: 100, expense: 0)
+        let original = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(8, 5),
+            description: "Anticipo", isCashAccount: true)
+        let advanceID = PropertyPaymentAdvance.obligationID(propertyID: staleHouse.id, paymentTransactionID: original.id)
+        staleLedger.paymentApplications = [PropertyPaymentApplication(id: advanceID,
+            propertyID: staleHouse.id, paymentTransactionID: original.id, obligationID: advanceID,
+            residentID: staleResident.id, amount: 100, snapshots: PropertySourceSnapshots(capturing: original))]
+        let changed = PropertyTransactionInput(id: original.id, amount: 50, postedAt: original.postedAt,
+            description: original.description, isCashAccount: true)
+        staleInputs.append(changed)
+        let staleReport = PropertySettlementCalculator.report(propertyID: staleHouse.id, month: date(9),
+            ledger: staleLedger, transactions: staleInputs, asOf: date(9, 10))
+        settlement = PropertyMemberSettlement.summarize(propertyID: staleHouse.id,
+            residentID: staleResident.id, report: staleReport, ledger: staleLedger,
+            inputs: staleInputs, asOf: date(9, 10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(settlement.advanceStale)
+        #expect(settlement.status == .review)
+        #expect(settlement.payable == nil)
+        #expect(settlement.advanceAvailable == 0)
+        #expect(settlement.due == 100)
+    }
+
+    @Test("A member without obligations has nothing due, not paid")
+    func zeroDueWithoutObligationsIsNothingDue() {
+        let house = PropertyRecord(name: "Casa sintética")
+        let resident = PropertyResident(propertyID: house.id, name: "Integrante", activeFrom: date(8),
+            referenceMonthlyIncome: 1_000)
+        var ledger = PropertyLedger()
+        ledger.properties = [house]
+        ledger.residents = [resident]
+        ledger.incomes = [PropertyIncome(propertyID: house.id, residentID: resident.id,
+            monthStart: date(9), amount: 1_000, confirmedAt: date(9))]
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: [], asOf: date(10))
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: [], asOf: date(10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(settlement.status == .nothingDue)
+        #expect(settlement.monthObligation == 0)
+        #expect(settlement.monthBalance == 0)
+        #expect(settlement.due == 0)
+        #expect(settlement.payable == 0)
+    }
+
+    @Test("An unapplied advance never marks the month as paid")
+    func unappliedAdvanceDoesNotMarkPaid() {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 200, postedAt: date(9, 5),
+            description: "Anticipo grande", isCashAccount: true)
+        inputs.append(receipt)
+        let advanceID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: receipt.id)
+        ledger.paymentApplications = [PropertyPaymentApplication(id: advanceID, propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: advanceID, residentID: resident.id,
+            amount: 200, snapshots: PropertySourceSnapshots(capturing: receipt))]
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 10))
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(9, 10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(settlement.status == .pending)
+        #expect(settlement.monthPaid == 0 && settlement.priorPaid == 0)
+        #expect(settlement.advanceAvailable == 200)
+        #expect(settlement.due == 100)
+        #expect(settlement.payable == 0)
+        #expect(PropertyCollectionPosting.suggestedAmount(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(9, 10)) == 0)
+    }
+
+    @Test("An uncalculable split hides month figures but keeps prior debt visible")
+    func uncalculableSplitKeepsPriorDebtVisibleButPayableNil() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        resident.referenceMonthlyIncome = 0
+        ledger.residents = [resident]
+        ledger.incomes = [PropertyIncome(propertyID: house.id, residentID: resident.id,
+            monthStart: date(8), amount: 1_000, confirmedAt: date(8))]
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        let september = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        // The same canCalculate check PropertiesView.monthlyDetail performs.
+        let canCalculate = september.residents.reduce(Decimal.zero) { $0 + $1.income } > 0
+            && september.obligations.allSatisfy {
+                if case .owner = $0.responsibility { return true }
+                return $0.allocations.values.reduce(Decimal.zero, +) == $0.amount
+            }
+        #expect(!canCalculate)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: september, ledger: ledger, inputs: inputs, asOf: date(10),
+            context: .init(canCalculate: canCalculate, isClosed: false, historical: false, includeCurrent: true))
+        #expect(settlement.status == .toCalculate)
+        #expect(settlement.monthObligation == nil)
+        #expect(settlement.monthBalance == nil)
+        #expect(settlement.due == nil)
+        #expect(settlement.payable == nil)
+        #expect(settlement.priorDebt == 150)
+    }
+
+    @Test("A historical household month is pending reconciliation, never debt")
+    @MainActor
+    func historicalHouseholdMonthIsToReconcile() throws {
+        let roles = PropertyHouseholdAdapter.link
+        let month = date(8)
+        let account = Account(institution: "Banco sintético", type: .checking)
+        let expense = Transaction(account: account, postedAt: date(8, 3), amount: -1_000,
+            descriptionRaw: "Gasto histórico")
+        expense.setHouseholdScope(.included)
+        expense.setExpenseAssignment(.partner)
+        let household = HouseholdSettlementReportService.build(monthStart: month,
+            transactions: [expense], setup: HouseholdSettlementSetup(partnerIncomeEstimate: 1_000,
+                useUserIncomeManualOverride: true, userIncomeManualOverride: 1_000))
+        var ledger = PropertyLedger()
+        ledger.householdLink = roles
+        ledger.properties = [PropertyRecord(id: roles.propertyID, name: "Casa sintética")]
+        ledger.residents = [PropertyResident(id: roles.userID, propertyID: roles.propertyID,
+            name: "Tú", activeFrom: .distantPast),
+            PropertyResident(id: roles.partnerID, propertyID: roles.propertyID, name: "Fer", activeFrom: .distantPast)]
+        let expenseInput = PropertyTransactionInput(capturing: expense)
+        let report = PropertyHouseholdAdapter.report(household, ledger: ledger,
+            transactions: [expenseInput], asOf: date(8, 10))
+        // The same historical determination PropertiesView performs: no household
+        // configuration and no close exist for the month.
+        let historical = (ledger.householdMonths ?? []).first { $0.monthStart == month && $0.deletedAt == nil } == nil
+            && !ledger.closes.contains { $0.propertyID == roles.propertyID && $0.monthStart == month }
+        #expect(historical)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: roles.propertyID,
+            residentID: roles.partnerID, report: report, ledger: ledger, inputs: [expenseInput],
+            asOf: date(8, 10),
+            context: .init(canCalculate: true, isClosed: false, historical: true, includeCurrent: false))
+        #expect(settlement.status == .toReconcile)
+        #expect(settlement.monthObligation == 1_000)
+        #expect(settlement.monthBalance == 1_000)
+        #expect(settlement.due == nil)
+        #expect(settlement.payable == nil)
+        #expect(settlement.priorDebt == 0)
+        #expect(!settlement.participationEnded)
+        #expect(PropertyCollectionPosting.suggestedAmount(propertyID: roles.propertyID,
+            residentID: roles.partnerID, report: report, ledger: ledger, inputs: [expenseInput],
+            asOf: date(8, 10), includeCurrent: false) == 0)
+    }
+
 }
