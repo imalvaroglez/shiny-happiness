@@ -81,6 +81,7 @@ struct EditableValueDraft<Value: Equatable & Sendable>: Sendable {
     mutating func commit(
         parse: (String) -> Value?,
         validate: ((Value) -> String?)? = nil,
+        onSave: ((Value) -> String?)? = nil,
         onCommit: (Value) -> Void
     ) {
         guard let parsed = parse(text) else {
@@ -88,6 +89,10 @@ struct EditableValueDraft<Value: Equatable & Sendable>: Sendable {
             return
         }
         if let validate, let message = validate(parsed) {
+            errorText = message
+            return
+        }
+        if let message = onSave?(parsed) {
             errorText = message
             return
         }
@@ -132,9 +137,13 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
     private let edit: ((Value) -> String)?
     private let parse: (String) -> Value?
     private let onCommit: (Value) -> Void
+    private let onSave: ((Value) -> String?)?
+    private let onBlurSave: ((Value) -> String?)?
     private let validate: ((Value) -> String?)?
     private let fieldLabel: LocalizedStringKey?
     private let changeTitle: LocalizedStringKey
+    private let changeAccessibilityLabel: Text?
+    private let onEditingChange: ((Bool) -> Void)?
 
     @State private var draft: EditableValueDraft<Value>
     @FocusState private var isFieldFocused: Bool
@@ -144,19 +153,27 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
         display: @escaping (Value) -> String,
         parse: @escaping (String) -> Value?,
         onCommit: @escaping (Value) -> Void,
+        onSave: ((Value) -> String?)? = nil,
+        onBlurSave: ((Value) -> String?)? = nil,
         validate: ((Value) -> String?)? = nil,
         edit: ((Value) -> String)? = nil,
         fieldLabel: LocalizedStringKey? = nil,
-        changeTitle: LocalizedStringKey = "Change"
+        changeTitle: LocalizedStringKey = "Change",
+        changeAccessibilityLabel: Text? = nil,
+        onEditingChange: ((Bool) -> Void)? = nil
     ) {
         self.value = value
         self.display = display
         self.edit = edit
         self.parse = parse
         self.onCommit = onCommit
+        self.onSave = onSave
+        self.onBlurSave = onBlurSave
         self.validate = validate
         self.fieldLabel = fieldLabel
         self.changeTitle = changeTitle
+        self.changeAccessibilityLabel = changeAccessibilityLabel
+        self.onEditingChange = onEditingChange
         _draft = State(initialValue: EditableValueDraft(lastCommitted: value))
     }
 
@@ -171,6 +188,13 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
         .onChange(of: value) { _, newValue in
             draft.replaceAutomatic(with: newValue, edit: editText, manual: false)
         }
+        .onChange(of: draft.isEditing) { _, editing in onEditingChange?(editing) }
+        .onChange(of: isFieldFocused) { _, focused in
+            if !focused, draft.isEditing, let onBlurSave {
+                draft.commit(parse: parse, validate: validate, onSave: onBlurSave, onCommit: onCommit)
+                if draft.isEditing { isFieldFocused = true }
+            }
+        }
     }
 
     /// Read-only value plus the "Change" trigger; no text field exists
@@ -182,6 +206,7 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
                 draft.begin(from: value, edit: editText)
             }
             .buttonStyle(.link)
+            .accessibilityLabel(changeAccessibilityLabel ?? Text(changeTitle))
         }
     }
 
@@ -232,7 +257,7 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
     }
 
     private func commitDraft() {
-        draft.commit(parse: parse, validate: validate, onCommit: onCommit)
+        draft.commit(parse: parse, validate: validate, onSave: onSave, onCommit: onCommit)
     }
 }
 
@@ -251,24 +276,36 @@ struct EditableMoneyField: View {
     private let value: Decimal
     private let currencyCode: String
     private let onCommit: (Decimal) -> Void
+    private let onSave: ((Decimal) -> String?)?
+    private let onBlurSave: ((Decimal) -> String?)?
     private let validate: ((Decimal) -> String?)?
     private let fieldLabel: LocalizedStringKey?
     private let changeTitle: LocalizedStringKey
+    private let changeAccessibilityLabel: Text?
+    private let onEditingChange: ((Bool) -> Void)?
 
     init(
         value: Decimal,
         currencyCode: String = "MXN",
         onCommit: @escaping (Decimal) -> Void,
+        onSave: ((Decimal) -> String?)? = nil,
+        onBlurSave: ((Decimal) -> String?)? = nil,
         validate: ((Decimal) -> String?)? = nil,
         fieldLabel: LocalizedStringKey? = nil,
-        changeTitle: LocalizedStringKey = "Change"
+        changeTitle: LocalizedStringKey = "Change",
+        changeAccessibilityLabel: Text? = nil,
+        onEditingChange: ((Bool) -> Void)? = nil
     ) {
         self.value = value
         self.currencyCode = currencyCode
         self.onCommit = onCommit
+        self.onSave = onSave
+        self.onBlurSave = onBlurSave
         self.validate = validate
         self.fieldLabel = fieldLabel
         self.changeTitle = changeTitle
+        self.changeAccessibilityLabel = changeAccessibilityLabel
+        self.onEditingChange = onEditingChange
     }
 
     var body: some View {
@@ -277,10 +314,14 @@ struct EditableMoneyField: View {
             display: { MoneyFormat.string($0, code: currencyCode) },
             parse: { MoneyEntry.parseEntryAmount($0) },
             onCommit: onCommit,
+            onSave: onSave,
+            onBlurSave: onBlurSave,
             validate: validate,
             edit: { MoneyEntry.suggestedEntryText($0) },
             fieldLabel: fieldLabel,
-            changeTitle: changeTitle
+            changeTitle: changeTitle,
+            changeAccessibilityLabel: changeAccessibilityLabel,
+            onEditingChange: onEditingChange
         )
     }
 }

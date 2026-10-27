@@ -209,6 +209,8 @@ Do not add broad `@Query<Transaction>` to views that can appear when there are z
 
 Follow the existing tokens, row actions, tables and forms documented in [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md).
 
+- Show saved values in consultation mode and expose direct Edit or Change actions. Open controls directly when the user has already chosen an explicit editing action; keep drafts and errors on save failure.
+
 - Follow the app's Liquid Glass visual language across primary screens, including Properties: inherit the shared `AppBackdrop`, reuse `GlassCard` and native materials with the existing radii/tokens, and keep content legible. Do not cover the shared backdrop with opaque white screen or table backgrounds. Check light/dark appearance and system accessibility settings when screen validation is available.
 - Related values stay visually close; controls and repeated data columns share alignment and width.
 - Equal-width cards in the same row also share header, plot, and footer proportions. Do not use empty space to force height symmetry or leave a long detail list beside a short chart.

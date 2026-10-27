@@ -97,6 +97,28 @@ final class PropertyWorkspaceModel {
         return PropertyHouseholdAdapter.report(source, ledger: ledger, transactions: transactionInputs, asOf: asOf)
     }
 
+    func settlementContext(propertyID: UUID, report: PropertyMonthlyReport) -> PropertyMemberSettlement.Context {
+        let closed = ledger.closes.contains { $0.propertyID == propertyID && $0.monthStart == report.monthStart }
+        let household = destination == .household
+        let historical = household && householdMonth(report.monthStart) == nil && !closed
+        let canCalculate = household ? householdReport?.splitAvailable == true
+            : report.residents.reduce(Decimal.zero) { $0 + $1.income } > 0 && report.obligations.allSatisfy {
+                if case .owner = $0.responsibility { return true }
+                return $0.allocations.values.reduce(Decimal.zero, +) == $0.amount
+            }
+        return .init(canCalculate: canCalculate, isClosed: closed, historical: historical,
+                     includeCurrent: !historical)
+    }
+
+    func memberSettlements(propertyID: UUID, report: PropertyMonthlyReport) -> [PropertyMemberSettlement] {
+        let context = settlementContext(propertyID: propertyID, report: report)
+        let visible = destination == .household && !context.isClosed ? householdActiveMemberIDs : nil
+        let former = Set(ledger.residents.filter { $0.propertyID == propertyID }.map(\.id))
+        return PropertyMemberSettlement.summarizeAll(propertyID: propertyID, report: report,
+            ledger: ledger, inputs: transactionInputs, asOf: asOf, context: context,
+            visibleIDs: visible, additionalResidentIDs: former)
+    }
+
     var householdSummary: String? {
         guard let source = householdReport else { return nil }
         let roles = ledger.householdLink ?? PropertyHouseholdAdapter.link
@@ -732,6 +754,16 @@ final class PropertyWorkspaceModel {
             self.error = error.localizedDescription
             return .rejected(error.localizedDescription)
         }
+    }
+
+    @discardableResult
+    func removeCollectionApplication(id: UUID) -> Bool {
+        guard ledgerAvailable, let index = ledger.paymentApplications.firstIndex(where: { $0.id == id && $0.deletedAt == nil }) else { return false }
+        do { try checkAssignmentRevision() }
+        catch { self.error = error.localizedDescription; return false }
+        ledger.paymentApplications[index].deletedAt = .now
+        ledger.paymentApplications[index].updatedAt = PersistedMutationClock.next(after: ledger.paymentApplications[index].updatedAt)
+        return save()
     }
 
     @discardableResult

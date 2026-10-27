@@ -99,6 +99,82 @@ struct SettingsAccountStateTests {
         return try ModelContainer(for: AppSchema.schema, configurations: [config])
     }
 
+    @Test("Account edits are isolated until save and a failed write leaves the account intact")
+    func accountConfigurationDraft() throws {
+        enum Failure: Error { case simulated }
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Banco sintético", type: .creditCard, nickname: "Original", creditLimit: 500)
+        context.insert(account)
+        try context.save()
+        let revision = account.lastModifiedAt
+        let draft = AccountConfigurationEditor.makeDraft(from: account)
+        draft.nickname = "Nuevo"
+        draft.creditLimit = 800
+        #expect(account.nickname == "Original")
+        do {
+            try AccountConfigurationEditor.save(draft: draft, accountID: account.id, expectedRevision: revision,
+                container: container, commit: { _ in throw Failure.simulated })
+            Issue.record("The simulated save should fail")
+        } catch Failure.simulated {} catch { Issue.record("Unexpected error: \(error)") }
+        let reader = ModelContext(container)
+        let original = try #require(reader.fetch(FetchDescriptor<Account>()).first)
+        #expect(original.nickname == "Original")
+        #expect(original.creditLimit == 500)
+        let savedSnapshot = try AccountConfigurationEditor.save(draft: draft, accountID: account.id,
+            expectedRevision: revision, container: container)
+        let verifiedContext = ModelContext(container)
+        let verified = try #require(verifiedContext.fetch(FetchDescriptor<Account>()).first)
+        #expect(verified.nickname == "Nuevo")
+        #expect(verified.creditLimit == 800)
+        #expect(verified.currency == "MXN")
+        #expect(savedSnapshot.nickname == "Nuevo")
+        #expect(savedSnapshot.lastModifiedAt != revision)
+        let nextDraft = AccountConfigurationEditor.makeDraft(from: savedSnapshot)
+        nextDraft.nickname = "Segunda edición"
+        let secondSnapshot = try AccountConfigurationEditor.save(draft: nextDraft, accountID: account.id,
+            expectedRevision: savedSnapshot.lastModifiedAt, container: container)
+        #expect(secondSnapshot.nickname == "Segunda edición")
+        do {
+            try AccountConfigurationEditor.save(draft: draft, accountID: account.id,
+                expectedRevision: revision, container: container)
+            Issue.record("The stale editor should be rejected")
+        } catch AccountConfigurationEditor.SaveError.changed {} catch { Issue.record("Unexpected error: \(error)") }
+    }
+
+    @Test("Account configuration reopens from an isolated on-disk store")
+    func accountConfigurationReopensOnDisk() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("account-config-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("test.store")
+        let accountID: UUID
+        do {
+            let config = ModelConfiguration(schema: AppSchema.schema, url: url)
+            let container = try ModelContainer(for: AppSchema.schema, configurations: [config])
+            let context = container.mainContext
+            let account = Account(institution: "Banco sintético", type: .creditCard, nickname: "Original", accountNumber: "1234", creditLimit: 500)
+            context.insert(account)
+            try context.save()
+            accountID = account.id
+            let draft = AccountConfigurationEditor.makeDraft(from: account)
+            draft.nickname = "Editada"
+            draft.creditLimit = 800
+            try AccountConfigurationEditor.save(draft: draft, accountID: accountID,
+                expectedRevision: account.lastModifiedAt, container: container)
+        }
+        do {
+            let config = ModelConfiguration(schema: AppSchema.schema, url: url)
+            let container = try ModelContainer(for: AppSchema.schema, configurations: [config])
+            let accounts = try container.mainContext.fetch(FetchDescriptor<Account>())
+            let restored = try #require(accounts.first { $0.id == accountID })
+            #expect(restored.nickname == "Editada")
+            #expect(restored.creditLimit == 800)
+            #expect(restored.accountNumber == "1234")
+            #expect(restored.type == .creditCard)
+        }
+    }
+
     @Test("Loads transaction counts per account and portfolio availability")
     func accountState() throws {
         let container = try makeContainer()

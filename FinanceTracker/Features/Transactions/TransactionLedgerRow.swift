@@ -23,6 +23,7 @@ struct TransactionLedgerRow: View {
     var promotionCount = 0
     var propertyDestinationLabel: String? = nil
     let onOpenDetail: () -> Void
+    var onEditDetail: (() -> Void)? = nil
     let onOpenCategoryPicker: () -> Void
     let onDelete: () -> Void
     let onRestore: () -> Void
@@ -61,7 +62,7 @@ struct TransactionLedgerRow: View {
             if isDeletedMode {
                 Button("Restore") { onRestore() }
             } else {
-                Button("Edit") { onOpenDetail() }
+                Button("Edit") { if let onEditDetail { onEditDetail() } else { onOpenDetail() } }
                 Button("Change Category") { onOpenCategoryPicker() }
                 Button("Apply to Similar…") { onApplyToSimilar() }
                 if isHouseholdEligible {

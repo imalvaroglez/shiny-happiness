@@ -109,6 +109,23 @@ struct PropertyCollectionPostingTests {
             ledger: ledger, inputs: inputs, asOf: date(9, 10)) == 50)
     }
 
+    @Test("An unavailable legacy advance remains identifiable for review")
+    func unavailableLegacyAdvanceRemainsReviewable() {
+        var (ledger, house, _, _) = fixture(rent: 100, expense: 0)
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 80, postedAt: date(8, 5),
+            description: "Anticipo sintético", isCashAccount: true)
+        let placeholder = PropertyPaymentAdvance.placeholderResidentID(propertyID: house.id)
+        let advanceID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: receipt.id)
+        let application = PropertyPaymentApplication(id: advanceID, propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: advanceID, residentID: placeholder,
+            amount: 80, snapshots: PropertySourceSnapshots(capturing: receipt))
+        ledger.paymentApplications = [application]
+        #expect(PropertyCollectionPosting.legacyAdvances(propertyID: house.id, ledger: ledger, inputs: [], asOf: date(9)) == 0)
+        #expect(PropertyCollectionPosting.hasChangedAdvanceSource(propertyID: house.id, residentID: placeholder,
+            ledger: ledger, inputs: []))
+        #expect(PropertyCollectionHistory.includes(application, source: nil, obligationIDs: [], asOf: date(9)))
+    }
+
     @Test("A changed linked source cannot allocate additional money silently")
     func changedReceiptIsRejected() throws {
         var (ledger, house, resident, inputs) = fixture()
@@ -891,6 +908,63 @@ struct PropertyCollectionPostingTests {
         })
         #expect(PropertyMemberSettlement.summarizeAll(propertyID: house.id, report: report,
             ledger: ledger, inputs: inputs, asOf: date(10), context: context, visibleIDs: []).isEmpty)
+    }
+
+    @Test("A former member with prior debt remains in the collection summaries")
+    func formerMemberWithPriorDebtRemainsVisible() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        ledger.residents[0].activeThrough = Calendar.current.propertyMonthStart(for: date(8))
+        let september = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let values = PropertyMemberSettlement.summarizeAll(propertyID: house.id, report: september,
+            ledger: ledger, inputs: inputs, asOf: date(10),
+            context: .init(canCalculate: false, isClosed: false, historical: false, includeCurrent: true),
+            additionalResidentIDs: [resident.id])
+        let former = try #require(values.first { $0.residentID == resident.id })
+        #expect(former.participationEnded)
+        #expect(former.priorDebt > 0)
+        #expect(former.status == .pending)
+        #expect(former.payable == former.priorDebt)
+
+        let receipt = PropertyTransactionInput(id: UUID(), amount: former.priorDebt, postedAt: date(9, 10),
+            description: "Cobro sintético", isCashAccount: true)
+        ledger.paymentApplications = august.obligations.compactMap { obligation in
+            guard let amount = obligation.allocations[resident.id], amount > 0 else { return nil }
+            return PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: receipt.id,
+                obligationID: obligation.id, residentID: resident.id, amount: amount,
+                snapshots: PropertySourceSnapshots(capturing: receipt))
+        }
+        let paidInputs = inputs + [receipt]
+        let paidReport = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: paidInputs, asOf: date(10))
+        let paid = PropertyMemberSettlement.summarizeAll(propertyID: house.id, report: paidReport,
+            ledger: ledger, inputs: paidInputs, asOf: date(10),
+            context: .init(canCalculate: false, isClosed: false, historical: false, includeCurrent: true),
+            additionalResidentIDs: [resident.id])
+        #expect(paid.first { $0.residentID == resident.id }?.status == .paid)
+        #expect(paid.first { $0.residentID == resident.id }?.paymentTransactionIDs == [receipt.id])
+    }
+
+    @Test("A receipt moved to a future date remains visible for reconciliation")
+    func changedReceiptRemainsVisible() {
+        let id = UUID()
+        let original = PropertyTransactionInput(id: id, amount: 100, postedAt: date(8, 5),
+            description: "Cobro sintético", isCashAccount: true)
+        let application = PropertyPaymentApplication(propertyID: UUID(), paymentTransactionID: id,
+            obligationID: UUID(), residentID: UUID(), amount: 100,
+            snapshots: PropertySourceSnapshots(capturing: original))
+        var changed = original
+        changed.postedAt = date(12, 5)
+        #expect(PropertyCollectionHistory.isVisible(application, source: changed, asOf: date(9)))
+        #expect(PropertyCollectionHistory.includes(application, source: changed, obligationIDs: [], asOf: date(9)))
+        var genuinelyFuture = application
+        genuinelyFuture.sourcePostedAtSnapshot = changed.postedAt
+        #expect(!PropertyCollectionHistory.isVisible(genuinelyFuture, source: changed, asOf: date(9)))
+        #expect(!PropertyCollectionHistory.includes(genuinelyFuture, source: changed, obligationIDs: [], asOf: date(9)))
+        #expect(PropertyCollectionHistory.includes(application, source: nil, obligationIDs: [], asOf: date(9)))
     }
 
     @Test("A missing or changed source forces review and never claims paid or zero")

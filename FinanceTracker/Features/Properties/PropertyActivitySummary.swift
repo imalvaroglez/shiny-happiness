@@ -16,6 +16,9 @@ struct PropertyActivityColumnFilters {
 
 /// Presentation totals use visible financial rows, never calculated rent or bank mutations.
 struct PropertyActivitySummary: Equatable {
+    static func linkedExpensesAndReimbursements(_ rows: [PropertyActivityRow]) -> [PropertyActivityRow] {
+        rows.filter { $0.kind != .collection }
+    }
     struct Total: Identifiable, Equatable {
         var kind: PropertyActivityRow.Kind
         var currency: String

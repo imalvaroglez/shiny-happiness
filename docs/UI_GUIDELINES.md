@@ -46,7 +46,7 @@ No añadir campos de notas ni menús intermedios a estas acciones.
 ## Dinero, lenguaje y formularios
 
 Usar `propertyMoneyText`/`MoneyFormat` con moneda explícita. La magnitud sin signo en la
-actividad se acompaña del tipo Gasto/Cobro/Reembolso: no modifica los signos contables.
+actividad se acompaña del tipo Gasto o Reembolso: no modifica los signos contables.
 Cero es un saldo real; datos insuficientes se indican como “Por calcular”.
 
 Toda cadena de interfaz usa claves inglesas y traducción es-MX en `Localizable.strings`,
@@ -56,6 +56,16 @@ ejemplo, `Prior debt` para deuda anterior, sin aliases de “Saldo anterior”.
 
 Formularios con título visible, etiquetas completas/multilínea y controles alineados.
 `StandardEditorForm` ofrece Cancelar/Guardar y atajos nativos; un fallo conserva el borrador.
+
+Los detalles muestran valores en modo consulta y ofrecen Editar; una acción explícita
+de edición abre directamente los controles. Los importes sugeridos se muestran como
+valores con Cambiar, sin enfocar automáticamente un campo. `EditableValueField` conserva
+el borrador y el error cuando falla el guardado; Enter confirma y Escape restaura.
+Las capturas nuevas, búsquedas, filtros y acciones explícitas de renombrar conservan
+sus controles directos. La precisión de cantidades y porcentajes sigue sus propias reglas.
+
+Los cobros se consultan desde la columna Pago de cada integrante. La tabla de movimientos
+vinculados muestra gastos y reembolsos, y su subtotal excluye los cobros.
 
 ## Inventario y alcance
 
@@ -70,8 +80,9 @@ Formularios con título visible, etiquetas completas/multilínea y controles ali
 | Importación | Revisión de filas y mensajes recuperables; no convertir referencias en movimientos. |
 | Configuración | Usar acciones inline para datos editables; evitar experiencias paralelas para la misma acción. |
 
-Este lote aplica los componentes a Propiedades y a su guardado compartido de asignaciones.
-El inventario no autoriza rediseñar dashboard, portafolio o importación fuera de su tarea.
+El patrón se aplica a los detalles de movimientos, configuración de cuentas, posiciones,
+revisión de importaciones y Propiedades. Los formularios que ya se abren desde una acción
+explícita de edición permanecen en modo edición.
 
 ## Verificación no disruptiva
 

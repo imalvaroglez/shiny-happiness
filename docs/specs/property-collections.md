@@ -36,9 +36,17 @@ el UUID financiero original. Los cierres conservan obligaciones y repartos;
 los cobros tardíos solo actualizan la cobranza.
 
 La tabla mensual muestra deuda anterior y anticipo al lado de «Por aportar».
-El historial agrupa por ingreso, muestra importe original y aplicado, y abre el
-detalle de las aplicaciones y el movimiento. Los repartos históricos no
+La columna Pago muestra el estado acumulado y abre el historial del integrante;
+Cobrar y Aplicar anticipo son acciones directas de la fila. El historial agrupa
+por ingreso, muestra importe original y aplicado, y abre el movimiento. Los cobros
+se excluyen de las filas y subtotales de movimientos vinculados. Los repartos históricos no
 cerrados de Household no se convierten automáticamente en deuda.
+
+La captura seleccionada desde una fila precarga al integrante y su saldo calculable.
+El importe se presenta a dos decimales y solo se edita al elegir Cambiar. Un saldo
+desconocido queda por calcular; cero real permite registrar un anticipo.
+El ingreso mensual se consulta como valor y se edita a petición; al confirmar se
+guardan el importe y su confirmación. Los errores conservan el borrador.
 
 ## Persistencia, compatibilidad y límites
 

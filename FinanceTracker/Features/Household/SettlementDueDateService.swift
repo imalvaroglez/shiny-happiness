@@ -126,7 +126,11 @@ enum SettlementDueDateService {
     /// a due date or a tombstone for a non-Fer row.
     static func purge(for transactionIDs: Set<UUID>, context: ModelContext) throws {
         guard !transactionIDs.isEmpty else { return }
-        let rows = overrides(for: transactionIDs, context: context)
+        let ids = transactionIDs
+        let descriptor = FetchDescriptor<SettlementDueDateOverride>(
+            predicate: #Predicate<SettlementDueDateOverride> { ids.contains($0.transactionID) }
+        )
+        let rows = try context.fetch(descriptor)
         for row in rows { context.delete(row) }
         try context.save()
     }

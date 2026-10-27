@@ -14,6 +14,8 @@ struct PropertyMonthlyMemberRow: Identifiable, Equatable {
     var shareIsEstimated = false
     var priorDebt: Decimal = 0
     var advance: Decimal = 0
+    var settlement: PropertyMemberSettlement? = nil
+    var former = false
     var id: ID { ID(member: memberID, month: month) }
 
     static func rows(report: PropertyMonthlyReport, visibleIDs: Set<UUID>? = nil,
@@ -33,11 +35,11 @@ struct PropertyMonthlyMemberRow: Identifiable, Equatable {
 enum PropertyMembersLayout {
     static let spacing: CGFloat = 10
     static let name: CGFloat = 100
-    static let income: CGFloat = 150
-    static let status: CGFloat = 145
+    static let income: CGFloat = 190
+    static let payment: CGFloat = 155
     static let pending: CGFloat = 180
     static let actions: CGFloat = 180
-    static var minimumWidth: CGFloat { name + income + status + pending + actions + spacing * 4 }
+    static var minimumWidth: CGFloat { name + income + payment + pending + actions + spacing * 4 }
 }
 
 @MainActor @Observable
@@ -64,9 +66,15 @@ struct PropertyMonthlyTable: View {
     var isClosed: Bool
     var allowsEnd = true
     var legacyAdvance: Decimal = 0
+    var legacyAdvancePresent = false
+    var legacyAdvanceNeedsReview = false
     var save: (UUID, Decimal, Bool) -> Bool
     var edit: (UUID) -> Void
     var end: (UUID) -> Void
+    var openPayments: (UUID) -> Void
+    var collect: (UUID) -> Void
+    var applyAdvance: (UUID) -> Void
+    var openLegacyAdvance: () -> Void
     @State private var drafts = PropertyIncomeDraftStore()
 
     var body: some View {
@@ -88,8 +96,8 @@ struct PropertyMonthlyTable: View {
                     HStack(spacing: PropertyMembersLayout.spacing) {
                         Text("Member").frame(minWidth: PropertyMembersLayout.name, maxWidth: .infinity, alignment: .leading)
                         Text("Monthly income").frame(width: PropertyMembersLayout.income, alignment: .leading)
-                        Text("Status").frame(width: PropertyMembersLayout.status, alignment: .leading)
                         Text("To contribute").frame(width: PropertyMembersLayout.pending, alignment: .trailing)
+                        Text("Payment status").frame(width: PropertyMembersLayout.payment, alignment: .leading)
                         Text("Actions").frame(width: PropertyMembersLayout.actions)
                     }
                 }
@@ -101,14 +109,18 @@ struct PropertyMonthlyTable: View {
             ForEach(rows) { row in
                 Divider()
                 PropertyIncomeTableRow(row: row, compact: compact, draft: drafts.draft(for: row), isClosed: isClosed, allowsEnd: allowsEnd,
-                    save: { save(row.memberID, $0, $1) }, edit: { edit(row.memberID) }, end: { end(row.memberID) })
+                    save: { save(row.memberID, $0, $1) }, edit: { edit(row.memberID) }, end: { end(row.memberID) },
+                    openPayments: { openPayments(row.memberID) }, collect: { collect(row.memberID) },
+                    applyAdvance: { applyAdvance(row.memberID) })
             }
-            if legacyAdvance > 0 {
+            if legacyAdvancePresent {
                 Divider()
                 HStack {
                     Text("Unassigned older advances").foregroundStyle(.secondary)
                     Spacer()
-                    Text(propertyMoneyText(legacyAdvance)).monospacedDigit()
+                    if legacyAdvanceNeedsReview { Text("Review required").foregroundStyle(.orange) }
+                    else { Text(propertyMoneyText(legacyAdvance)).monospacedDigit() }
+                    Button("Review", action: openLegacyAdvance).buttonStyle(.link)
                 }.font(.caption)
             }
         }
@@ -124,7 +136,11 @@ private struct PropertyIncomeTableRow: View {
     var save: (Decimal, Bool) -> Bool
     var edit: () -> Void
     var end: () -> Void
+    var openPayments: () -> Void
+    var collect: () -> Void
+    var applyAdvance: () -> Void
     @FocusState private var focused: Bool
+    @State private var editingIncome = false
 
     private var amount: Decimal? { Decimal(string: draft.text.replacingOccurrences(of: ",", with: ""), locale: Locale(identifier: "en_US_POSIX")) }
     private var valid: Bool { amount.map { $0 >= 0 } ?? false }
@@ -136,13 +152,13 @@ private struct PropertyIncomeTableRow: View {
                     HStack { name; Spacer(); income.frame(width: PropertyMembersLayout.income) }
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: PropertyMembersLayout.spacing) {
-                            status.fixedSize(horizontal: true, vertical: false)
+                            payment.fixedSize(horizontal: true, vertical: false)
                             Spacer()
                             pending.fixedSize(horizontal: true, vertical: false)
                             actions
                         }
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack { status; Spacer(); pending }
+                            HStack { payment; Spacer(); pending }
                             actions.frame(maxWidth: .infinity, alignment: .trailing)
                         }
                     }
@@ -151,8 +167,8 @@ private struct PropertyIncomeTableRow: View {
                 HStack(spacing: PropertyMembersLayout.spacing) {
                     name.frame(minWidth: PropertyMembersLayout.name, maxWidth: .infinity, alignment: .leading)
                     income.frame(width: PropertyMembersLayout.income)
-                    status.frame(width: PropertyMembersLayout.status, alignment: .leading)
                     pending.frame(width: PropertyMembersLayout.pending, alignment: .trailing)
+                    payment.frame(width: PropertyMembersLayout.payment, alignment: .leading)
                     actions.frame(width: PropertyMembersLayout.actions)
                 }
             }
@@ -166,6 +182,7 @@ private struct PropertyIncomeTableRow: View {
     private var name: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(row.name).font(.callout.weight(.medium))
+            if row.former { Text("Participation ended").font(.caption).foregroundStyle(.secondary) }
             if let share = row.share {
                 Text(String(format: String(localized: row.shareIsEstimated ? "Shared split: %@ (estimated)" : "Shared split: %@"), propertyPercentText(share)))
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
@@ -175,23 +192,30 @@ private struct PropertyIncomeTableRow: View {
         }
     }
     private var income: some View {
-        HStack(spacing: 4) {
-            Text("$").foregroundStyle(.secondary)
-            TextField("MXN", text: $draft.text).textFieldStyle(.roundedBorder).monospacedDigit().focused($focused)
-                .accessibilityLabel(Text("Monthly income for \(row.name), Mexican pesos"))
-                .onSubmit { commit(confirmed: true) }
-            Text("MXN").font(.caption2).foregroundStyle(.secondary)
-        }.disabled(isClosed)
+        VStack(alignment: .leading, spacing: 4) {
+            if row.former { Text("—").foregroundStyle(.secondary) }
+            else if isClosed { Text(propertyMoneyText(row.income)).monospacedDigit() }
+            else {
+                EditableMoneyField(value: row.income, onCommit: { _ in }, onSave: { value in
+                    save(value, true) ? nil : String(localized: "Could not save the income. Try again.")
+                }, onBlurSave: { value in
+                    save(value, false) ? nil : String(localized: "Could not save the income. Try again.")
+                }, fieldLabel: "Monthly income for \(row.name), Mexican pesos",
+                    changeAccessibilityLabel: Text("Change monthly income for \(row.name)"),
+                    onEditingChange: { editingIncome = $0 })
+            }
+            if !row.former { status }
+        }
     }
     private var status: some View {
         HStack(spacing: 6) {
-            if row.confirmed && !draft.dirty {
+            if row.confirmed && !draft.dirty && !editingIncome {
                 Label("Confirmed", systemImage: "checkmark.circle").foregroundStyle(.secondary)
             } else {
                 Image(systemName: "exclamationmark.circle").foregroundStyle(.orange)
                     .help(String(localized: "Estimated reference. Confirm the income to close the month."))
                 Button("Confirm") { commit(confirmed: true) }
-                    .disabled(!valid || isClosed).buttonStyle(.bordered)
+                    .disabled(!valid || isClosed || editingIncome).buttonStyle(.bordered)
             }
         }.font(.caption)
     }
@@ -210,13 +234,33 @@ private struct PropertyIncomeTableRow: View {
             }
         }
     }
+    private var payment: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let settlement = row.settlement {
+                Button(action: openPayments) { Text(LocalizedStringKey(settlement.status.title)) }
+                    .buttonStyle(.link)
+                if let payable = settlement.payable, payable > 0 {
+                    Button("Register collection", action: collect).buttonStyle(.borderless)
+                } else if settlement.status == .toCalculate || settlement.status == .toReconcile {
+                    Button("Register collection", action: collect).buttonStyle(.borderless)
+                } else if settlement.status == .nothingDue || settlement.status == .paid {
+                    Button("Register advance", action: collect).buttonStyle(.borderless)
+                }
+                if (settlement.due ?? 0) > 0 && settlement.advanceAvailable > 0 {
+                    Button("Apply advance", action: applyAdvance).buttonStyle(.borderless)
+                }
+            }
+        }.font(.caption)
+    }
     private var actions: some View {
         HStack(spacing: 12) {
-            Button(action: edit) { Label("Rename", systemImage: "pencil") }
-                .accessibilityLabel(Text("Rename \(row.name)"))
-            if allowsEnd {
-                Button(role: .destructive, action: end) { Label("Remove", systemImage: "person.crop.circle.badge.minus") }
-                    .accessibilityLabel(Text("Remove \(row.name) from this home"))
+            if !row.former {
+                Button(action: edit) { Label("Rename", systemImage: "pencil") }
+                    .accessibilityLabel(Text("Rename \(row.name)"))
+                if allowsEnd {
+                    Button(role: .destructive, action: end) { Label("Remove", systemImage: "person.crop.circle.badge.minus") }
+                        .accessibilityLabel(Text("Remove \(row.name) from this home"))
+                }
             }
         }
         .buttonStyle(.borderless)
@@ -227,5 +271,19 @@ private struct PropertyIncomeTableRow: View {
     private func commit(confirmed: Bool) {
         guard let amount, amount >= 0 else { return }
         if save(amount, confirmed) { draft.savedText = draft.text }
+    }
+}
+
+extension PropertyMemberSettlement.Status {
+    var title: String {
+        switch self {
+        case .pending: "Pending"
+        case .partial: "Partially paid"
+        case .paid: "Paid"
+        case .nothingDue: "Nothing due"
+        case .toCalculate: "Not yet calculated"
+        case .toReconcile: "Pending reconciliation"
+        case .review: "Review required"
+        }
     }
 }

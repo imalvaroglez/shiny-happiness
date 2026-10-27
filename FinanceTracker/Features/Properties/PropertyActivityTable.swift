@@ -22,7 +22,6 @@ struct PropertyActivityTable: View {
     @Binding var responsibilityFilters: Set<String>
     var assign: (Set<UUID>, PropertyAssignmentChoice) -> Void
     var adjustment: () -> Void
-    var reviewCollection: (UUID) -> Void
     var allowsUserAssignment = true
     var allowsPartnerAssignment = true
     @State private var sortColumn = PropertyActivitySortColumn.date
@@ -370,8 +369,6 @@ struct PropertyActivityTable: View {
             Menu { choices([row.id]) } label: { Text(row.responsibility).multilineTextAlignment(.leading) }
                 .menuStyle(.borderlessButton).help(String(localized: "Change responsibility"))
                 .accessibilityLabel(Text("Responsibility for \(row.concept)"))
-        } else if row.kind != .expense {
-            Button("Review applications…") { reviewCollection(row.id) }.buttonStyle(.link).font(.caption)
         } else { Text(row.responsibility).font(.caption) }
     }
     @ViewBuilder private func choices(_ ids: Set<UUID>) -> some View {

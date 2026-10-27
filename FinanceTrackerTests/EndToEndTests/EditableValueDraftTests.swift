@@ -10,6 +10,20 @@ import Testing
 @Suite("Editable Value Draft State")
 struct EditableValueDraftTests {
 
+    @Test("A rejected save preserves the draft and its committed value")
+    func rejectedSavePreservesDraft() {
+        var draft = EditableValueDraft(lastCommitted: 100)
+        draft.begin(from: 100, edit: edit)
+        draft.text = "250"
+        var committed: Int?
+        draft.commit(parse: parse, onSave: { _ in "No se pudo guardar" }, onCommit: { committed = $0 })
+        #expect(draft.isEditing)
+        #expect(draft.text == "250")
+        #expect(draft.lastCommitted == 100)
+        #expect(draft.errorText == "No se pudo guardar")
+        #expect(committed == nil)
+    }
+
     private func parse(_ text: String) -> Int? {
         Int(text)
     }

@@ -209,8 +209,10 @@ struct TransactionsView: View {
             showsAccount: sessionState.accountFilterID == nil,
             promotionCount: promotionCountsByTransaction[tx.id] ?? 0,
             propertyDestinationLabel: propertyLabel(for: tx),
-            onOpenDetail: { editingTransaction = tx },
+            onOpenDetail: { editTransactionDirect = false; editingTransaction = tx },
+            onEditDetail: { editTransactionDirect = true; editingTransaction = tx },
             onOpenCategoryPicker: {
+                editTransactionDirect = true
                 editingTransaction = tx
             },
             onDelete: { softDelete(tx) },
@@ -229,6 +231,7 @@ struct TransactionsView: View {
     @State private var lastTxCount: Int = 0
 
     @State private var editingTransaction: Transaction?
+    @State private var editTransactionDirect = false
     @State private var showingManualTransaction = false
     @State private var pendingApplyToSimilar: PendingApplyToSimilar?
     @State private var pendingApplyCandidate: PendingApplyToSimilar?
@@ -421,13 +424,13 @@ struct TransactionsView: View {
             }
         }
         .sheet(item: $editingTransaction) { tx in
-            TransactionDetailSheet(transaction: tx) { change in
+            TransactionDetailSheet(transaction: tx, onCategoryAssigned: { change in
                 pendingApplyCandidate = PendingApplyToSimilar(
                     transaction: change.transaction,
                     category: change.category,
                     keyword: change.keyword
                 )
-            }
+            }, initialMode: editTransactionDirect ? .edit : .consult)
         }
         .sheet(item: $pendingApplyToSimilar) { pending in
             ApplyToSimilarView(

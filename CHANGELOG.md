@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Los cobros se consultan desde cada integrante, con estado acumulado y acciones directas; la tabla de movimientos vinculados excluye los cobros. Los importes sugeridos se muestran antes de editarse.
+- Detalles de movimientos, configuración de cuentas, posiciones y pendientes de importación muestran valores de consulta y abren la edición mediante una acción explícita. Los borradores de cuenta se guardan de forma aislada.
 - Deuda anterior y anticipos se muestran junto al importe por aportar de cada integrante. La conciliación de ingresos ya existentes queda como acción secundaria, y un fallo al guardar la vinculación ofrece reintento sin duplicar el ingreso bancario.
 - El selector de cobros muestra todas las cuentas y señala las incompatibles; los importes sugeridos se presentan con dos decimales. La captura rechaza importes mal formados y detiene la reutilización de anticipos cuyo movimiento de origen cambió.
 - Property reports show each member's shared contribution percentage, a four-column spending Sankey (members → total → categories → subcategories) using monthly contribution percentages and exact cent allocation, with expandable detail and a compact hierarchy below 720 points, and visible-row counts with totals/subtotals by currency and movement type. Property screens now inherit the shared Liquid Glass backdrop and card materials used by Accounts.

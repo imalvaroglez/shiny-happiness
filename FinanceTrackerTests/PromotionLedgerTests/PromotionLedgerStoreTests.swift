@@ -7,6 +7,32 @@ struct PromotionLedgerStoreTests {
     private let url = FileManager.default.temporaryDirectory
         .appendingPathComponent("PromotionLedgerStoreTests-\(UUID().uuidString).json")
 
+    @Test("Staged promotion selections save together and reject a stale editor")
+    func stagedAttributions() throws {
+        defer { try? FileManager.default.removeItem(at: url) }
+        let now = Date.now
+        let first = promo(name: "Uno", updatedAt: now)
+        let second = promo(name: "Dos", updatedAt: now)
+        let transaction = UUID()
+        let other = UUID()
+        var ledger = PromotionLedger()
+        ledger.promotions = [first, second]
+        ledger.attributions = [attribution(promotionID: first.id, transactionID: transaction, updatedAt: now),
+                               attribution(promotionID: first.id, transactionID: other, updatedAt: now)]
+        try PromotionLedgerStore.replace(with: ledger, at: url, notify: false)
+        try PromotionLedgerStore.setAttributions(transactionID: transaction, currency: "MXN",
+            expected: [first.id], selected: [second.id], at: url)
+        let saved = try PromotionLedgerStore.read(fileURL: url)
+        #expect(Set(PromotionBoard.attributedPromotionIDs(ledger: saved, transactionID: transaction)) == [second.id])
+        #expect(Set(PromotionBoard.attributedPromotionIDs(ledger: saved, transactionID: other)) == [first.id])
+        #expect(saved.attributions.first { $0.transactionID == transaction && $0.promotionID == first.id }?.deletedAt != nil)
+        #expect(throws: PromotionLedgerStore.StoreError.self) {
+            try PromotionLedgerStore.setAttributions(transactionID: transaction, currency: "MXN",
+                expected: [first.id], selected: [], at: url)
+        }
+        #expect(try PromotionLedgerStore.read(fileURL: url) == saved)
+    }
+
     private func date(_ value: String) -> Date {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)

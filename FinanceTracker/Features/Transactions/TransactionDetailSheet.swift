@@ -14,6 +14,11 @@ struct TransactionDetailSheet: View {
     let transaction: Transaction
     let onCategoryAssigned: (CategoryChange) -> Void
     var onSaved: (() -> Void)? = nil
+    @State private var displayMode: DetailDisplayMode
+    @State private var originalRevision: Date
+    @State private var originalAccountID: UUID?
+    @State private var completion = TransactionEditCompletion()
+    @State private var savedBalanceMirror = false
 
     @State private var draftDate: Date
     @State private var draftDescription: String
@@ -29,8 +34,8 @@ struct TransactionDetailSheet: View {
     @State private var showingCategoryPicker = false
     @State private var promotionsModel = PromotionLedgerViewModel()
     @State private var categoryTintTick = 0
-    @State private var attributionError: String?
-    @State private var pendingAttribution: (promotionID: UUID, isOn: Bool)?
+    @State private var draftPromotionIDs: Set<UUID> = []
+    @State private var originalPromotionIDs: Set<UUID> = []
     @State private var propertyLedger = PropertyLedger()
     @State private var propertySourceAtOpen: PropertyTransactionInput?
     @State private var draftPropertyID: UUID?
@@ -77,10 +82,14 @@ struct TransactionDetailSheet: View {
         return abs(displayAmount) - ferAmount
     }
 
-    init(transaction: Transaction, onCategoryAssigned: @escaping (CategoryChange) -> Void, onSaved: (() -> Void)? = nil) {
+    init(transaction: Transaction, onCategoryAssigned: @escaping (CategoryChange) -> Void,
+         onSaved: (() -> Void)? = nil, initialMode: DetailDisplayMode = .consult) {
         self.transaction = transaction
         self.onCategoryAssigned = onCategoryAssigned
         self.onSaved = onSaved
+        _displayMode = State(initialValue: initialMode)
+        _originalRevision = State(initialValue: transaction.lastModifiedAt)
+        _originalAccountID = State(initialValue: transaction.account?.id)
         _draftDate = State(initialValue: transaction.postedAt)
         _draftDescription = State(initialValue: transaction.descriptionRaw)
         _draftAbsoluteAmount = State(initialValue: abs(transaction.amount))
@@ -98,7 +107,7 @@ struct TransactionDetailSheet: View {
         VStack(spacing: 18) {
             header
             summaryHeader
-            editPanel
+            if displayMode == .consult { consultationPanel } else { editPanel.disabled(completion.movementSaved) }
             footer
         }
         .padding(24)
@@ -115,6 +124,8 @@ struct TransactionDetailSheet: View {
         .onChange(of: draftIncluded) { if draftIncluded { draftPropertyID = nil } }
         .task {
             promotionsModel.reload(context: modelContext, includeTransactions: false)
+            originalPromotionIDs = attributedPromotionIDs
+            draftPromotionIDs = originalPromotionIDs
             loadPropertyDraft()
         }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
@@ -273,6 +284,73 @@ struct TransactionDetailSheet: View {
         )
     }
 
+    private var consultationPanel: some View {
+        VStack(spacing: 0) {
+            readOnlyRow("Statement Date", value: transaction.postedAt.formatted(date: .abbreviated, time: .omitted))
+            panelDivider
+            readOnlyRow("Description", value: transaction.descriptionRaw)
+            panelDivider
+            readOnlyRow("Amount", value: MoneyFormat.string(transaction.amount, code: transaction.currency))
+            if transaction.source == .manual && !isBalanceMirror {
+                panelDivider
+                readOnlyRow("Treatment", value: transaction.treatmentKind.displayName)
+            }
+            if !isBalanceMirror {
+                panelDivider
+                readOnlyRow("Property", value: collectionPropertyLabel)
+                panelDivider
+                readOnlyRow("Category", value: transaction.category?.localizedName ?? String(localized: "Uncategorized"))
+                if !attributedPromotionIDs.isEmpty {
+                    panelDivider
+                    let names = promotionsModel.ledger.promotions.filter { attributedPromotionIDs.contains($0.id) }.map(\.name)
+                    readOnlyRow("Promotions", value: names.joined(separator: ", "))
+                }
+                if isSettlementEditable {
+                    panelDivider
+                    readOnlyRow("Assignment", value: transaction.isIncludedInHouseholdSettlement
+                        ? transaction.expenseAssignment.displayName : String(localized: "Not included"))
+                    if transaction.isIncludedInHouseholdSettlement, transaction.expenseAssignment == .custom,
+                       let amount = transaction.customFerAmount {
+                        panelDivider
+                        readOnlyRow("Fer’s portion", value: MoneyFormat.string(amount, code: transaction.currency))
+                    }
+                    if let notes = transaction.settlementNotes, !notes.isEmpty {
+                        panelDivider
+                        readOnlyRow("Notes", value: notes)
+                    }
+                }
+            }
+            if let account = transaction.account {
+                panelDivider
+                readOnlyRow("Account", value: account.displayName)
+            }
+            if let card = transaction.cardLast4 {
+                panelDivider
+                readOnlyRow("Card", value: "••••\(card)")
+            }
+        }
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+    }
+
+    private var collectionPropertyLabel: String {
+        let applications = propertyLedger.paymentApplications.filter { $0.paymentTransactionID == transaction.id && $0.deletedAt == nil }
+        if !applications.isEmpty {
+            let labels = applications.map { application in
+                let property = propertyLedger.properties.first { $0.id == application.propertyID }?.name
+                    ?? (application.propertyID == (propertyLedger.householdLink ?? PropertyHouseholdAdapter.link).propertyID
+                        ? PropertyDestination.householdName : String(localized: "Property unavailable"))
+                let name = propertyLedger.residents.first { $0.id == application.residentID }?.name
+                    ?? String(localized: "Member")
+                return "\(property) · \(name)"
+            }
+            return Array(Set(labels)).sorted().joined(separator: ", ")
+        }
+        if let id = draftPropertyID { return propertyLedger.properties.first { $0.id == id }?.name ?? String(localized: "Property unavailable") }
+        if transaction.isIncludedInHouseholdSettlement { return PropertyDestination.householdName }
+        return String(localized: "No property")
+    }
+
     private var selectablePromotions: [PromotionRecord] {
         PromotionBoard.selectablePromotions(ledger: promotionsModel.ledger, currency: transaction.currency)
     }
@@ -293,6 +371,9 @@ struct TransactionDetailSheet: View {
             Text(propertySaveError).font(.caption2).foregroundStyle(.orange)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14)
         }
+        if propertyLedger.paymentApplications.contains(where: { $0.paymentTransactionID == transaction.id && $0.deletedAt == nil }) {
+            readOnlyRow("Property", value: collectionPropertyLabel)
+        } else {
         editRow("Propiedad") {
             Picker("Propiedad", selection: $draftPropertyID) {
                 Text("Sin propiedad").tag(UUID?.none)
@@ -368,6 +449,7 @@ struct TransactionDetailSheet: View {
                 }
             }
         }
+        }
     }
 
     private func loadPropertyDraft() {
@@ -396,8 +478,8 @@ struct TransactionDetailSheet: View {
 
     private var outOfWindowCount: Int {
         PromotionBoard.outOfWindowPromotionIDs(ledger: promotionsModel.ledger,
-                                               promotionIDs: attributedPromotionIDs,
-                                               date: transaction.postedAt,
+                                               promotionIDs: draftPromotionIDs,
+                                               date: draftDate,
                                                calendar: promotionsModel.promotionCalendar).count
     }
 
@@ -405,7 +487,7 @@ struct TransactionDetailSheet: View {
     private var promotionsRow: some View {
         VStack(spacing: 6) {
             editRow("Promociones") {
-                Text("\(attributedPromotionIDs.count) adjudicada\(attributedPromotionIDs.count == 1 ? "" : "s")")
+                Text("\(draftPromotionIDs.count) adjudicada\(draftPromotionIDs.count == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -416,8 +498,11 @@ struct TransactionDetailSheet: View {
                 }
                 ForEach(selectablePromotions) { promo in
                     Toggle(promo.name, isOn: Binding(
-                        get: { attributedPromotionIDs.contains(promo.id) },
-                        set: { isOn in toggleAttribution(promotionID: promo.id, isOn: isOn) }))
+                        get: { draftPromotionIDs.contains(promo.id) },
+                        set: { isOn in
+                            if isOn { draftPromotionIDs.insert(promo.id) }
+                            else { draftPromotionIDs.remove(promo.id) }
+                        }))
                     .font(.caption)
                     .toggleStyle(.checkbox)
                 }
@@ -428,37 +513,9 @@ struct TransactionDetailSheet: View {
                         .font(.caption2)
                         .foregroundStyle(.orange)
                 }
-                if let attributionError {
-                    HStack(spacing: 8) {
-                        Text(attributionError)
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                        Button("Reintentar") { retryLastAttribution() }
-                            .font(.caption2)
-                    }
-                }
             }
             .padding(.horizontal, 14)
         }
-    }
-
-    private func toggleAttribution(promotionID: UUID, isOn: Bool) {
-        pendingAttribution = (promotionID, isOn)
-        do {
-            if isOn {
-                try PromotionLedgerStore.attribute(transactionID: transaction.id, promotionID: promotionID)
-            } else {
-                try PromotionLedgerStore.unattribute(transactionID: transaction.id, promotionID: promotionID)
-            }
-            attributionError = nil
-        } catch {
-            attributionError = "No se pudo \(isOn ? "adjudicar" : "quitar la adjudicación"): \(error.localizedDescription)"
-        }
-    }
-
-    private func retryLastAttribution() {
-        guard let pending = pendingAttribution else { return }
-        toggleAttribution(promotionID: pending.promotionID, isOn: pending.isOn)
     }
 
     @ViewBuilder
@@ -584,7 +641,7 @@ struct TransactionDetailSheet: View {
 
     private func editRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(label)
+            Text(LocalizedStringKey(label))
                 .font(.callout)
                 .foregroundStyle(.primary)
                 .frame(width: 118, alignment: .leading)
@@ -600,8 +657,7 @@ struct TransactionDetailSheet: View {
             Text(value)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -680,25 +736,44 @@ struct TransactionDetailSheet: View {
 
     private var footer: some View {
         HStack {
-            Button("Cancel") {
+            Button(displayMode == .consult || completion.movementSaved ? "Close" : "Cancel") {
                 dismiss()
             }
             .keyboardShortcut(.cancelAction)
             Spacer()
-            Button("Save") {
-                save()
+            if displayMode == .consult {
+                Button("Edit") {
+                    originalPromotionIDs = attributedPromotionIDs
+                    draftPromotionIDs = originalPromotionIDs
+                    displayMode = .edit
+                }.buttonStyle(.glassProminent)
+            } else {
+                Button(completion.movementSaved ? "Retry saving" : "Save") { save() }
+                    .buttonStyle(.glassProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(customSplitInvalid)
+                    .accessibilityIdentifier("transaction.save.button")
+                    .accessibilityValue(customSplitInvalid ? "Disabled: invalid custom split" : "Enabled")
             }
-            .buttonStyle(.glassProminent)
-            .keyboardShortcut(.defaultAction)
-            .disabled(customSplitInvalid)
-            .accessibilityIdentifier("transaction.save.button")
-            .accessibilityValue(customSplitInvalid ? "Disabled: invalid custom split" : "Enabled")
         }
     }
 
     private func save() {
+        if completion.movementSaved { finishSavedMovement(); return }
         do { try validatePropertyDraft() }
         catch { propertySaveError = error.localizedDescription; return }
+        do {
+            try TransactionEditRevisionGuard.validate(transactionID: transaction.id, revision: originalRevision,
+                accountID: originalAccountID, expected: propertySourceAtOpen, container: modelContext.container)
+        } catch { propertySaveError = error.localizedDescription; return }
+        if draftPromotionIDs != originalPromotionIDs {
+            do {
+                let current = try PromotionLedgerStore.read()
+                guard Set(PromotionBoard.attributedPromotionIDs(ledger: current, transactionID: transaction.id)) == originalPromotionIDs else {
+                    throw PromotionLedgerStore.StoreError.attributionChanged
+                }
+            } catch { propertySaveError = error.localizedDescription; return }
+        }
         let isBalanceMirror = BalanceSnapshotService.mirroredSnapshot(for: transaction, context: modelContext) != nil
         // Capture before mutation: if the row leaves Fer, its due-date override is cleared.
         let previousAssignment = transaction.expenseAssignment
@@ -772,19 +847,42 @@ struct TransactionDetailSheet: View {
             propertySaveError = "No se pudieron guardar los cambios del movimiento: \(error.localizedDescription)"
             return
         }
-        if !isBalanceMirror {
-            do { try savePropertyAssociation(transaction) }
-            catch {
-                propertySaveError = "El movimiento se guardó, pero falló la asociación con la propiedad: \(error.localizedDescription)"
-                return
-            }
-        }
-        // Reassigning away from Fer clears the due-date override (only meaningful for Fer).
-        if draftIncluded, previousAssignment == .partner, draftExpenseAssignment != .partner {
-            try? SettlementDueDateService.purge(for: [transaction.id], context: modelContext)
-        }
+        savedBalanceMirror = isBalanceMirror
+        completion = TransactionEditCompletion(movementSaved: true,
+            dueDatePending: draftIncluded && previousAssignment == .partner && draftExpenseAssignment != .partner,
+            propertyPending: !isBalanceMirror, promotionPending: draftPromotionIDs != originalPromotionIDs)
+        finishSavedMovement()
+    }
 
-        if !isBalanceMirror, categoryDidChange, let cat = draftCategory {
+    private func finishSavedMovement() {
+        var pending = completion
+        do {
+            try pending.run(purgeDueDate: {
+                try SettlementDueDateService.purge(for: [transaction.id], context: modelContext)
+            }, saveProperty: {
+                try savePropertyAssociation(transaction)
+            }, savePromotions: {
+                try PromotionLedgerStore.setAttributions(transactionID: transaction.id, currency: transaction.currency,
+                    expected: originalPromotionIDs, selected: draftPromotionIDs)
+            })
+        } catch let failure as TransactionEditCompletion.Failure {
+            completion = pending
+            let key: String.LocalizationValue
+            switch failure.stage {
+            case .dueDate: key = "The movement was saved, but its due date could not be cleared: %@"
+            case .property: key = "The movement was saved, but its property association could not be saved: %@"
+            case .promotion: key = "The movement was saved, but the promotion assignments could not be saved: %@"
+            }
+            propertySaveError = String(format: String(localized: key), failure.underlying.localizedDescription)
+            return
+        } catch {
+            completion = pending
+            propertySaveError = error.localizedDescription
+            return
+        }
+        completion = pending
+        originalPromotionIDs = draftPromotionIDs
+        if !savedBalanceMirror, categoryDidChange, let cat = draftCategory {
             onCategoryAssigned(
                 CategoryChange(transaction: transaction, category: cat, keyword: pendingKeyword)
             )
@@ -865,5 +963,51 @@ struct TransactionDetailSheet: View {
             && previous?.maintenanceProgramID == proposed.maintenanceProgramID
         try PropertyAssignmentService.upsert(proposed, source: source, ledger: &ledger, responsibilityOnly: responsibilityOnly)
         try PropertyLedgerStore.replace(with: ledger)
+    }
+}
+
+@MainActor
+enum TransactionEditRevisionGuard {
+    enum EditError: LocalizedError {
+        case changed
+        var errorDescription: String? { String(localized: "This movement changed. Reopen it before saving.") }
+    }
+
+    static func validate(transactionID: UUID, revision: Date, accountID: UUID?,
+                         expected: PropertyTransactionInput?, container: ModelContainer) throws {
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let id = transactionID
+        let descriptor = FetchDescriptor<Transaction>(predicate: #Predicate<Transaction> { $0.id == id })
+        guard let live = try context.fetch(descriptor).first, let expected,
+              live.lastModifiedAt == revision, live.account?.id == accountID,
+              !PropertySettlementCalculator.hasSourceChanged(amount: expected.amount, postedAt: expected.postedAt,
+                  currencyCode: expected.currencyCode, description: expected.description,
+                  versus: PropertyTransactionInput(capturing: live)) else { throw EditError.changed }
+    }
+}
+
+struct TransactionEditCompletion {
+    enum Stage { case dueDate, property, promotion }
+    struct Failure: Error { var stage: Stage; var underlying: Error }
+    var movementSaved = false
+    var dueDatePending = false
+    var propertyPending = false
+    var promotionPending = false
+
+    mutating func run(purgeDueDate: () throws -> Void, saveProperty: () throws -> Void,
+                      savePromotions: () throws -> Void) throws {
+        if dueDatePending {
+            do { try purgeDueDate(); dueDatePending = false }
+            catch { throw Failure(stage: .dueDate, underlying: error) }
+        }
+        if propertyPending {
+            do { try saveProperty(); propertyPending = false }
+            catch { throw Failure(stage: .property, underlying: error) }
+        }
+        if promotionPending {
+            do { try savePromotions(); promotionPending = false }
+            catch { throw Failure(stage: .promotion, underlying: error) }
+        }
     }
 }

@@ -168,6 +168,7 @@ private struct PositionRowView: View {
     @State private var buyShares: Decimal = 0
     @State private var buyPrice: Decimal = 0
     @State private var confirmingDelete = false
+    @State private var isEditing = true
 
     init(
         position: StockPosition,
@@ -206,6 +207,7 @@ private struct PositionRowView: View {
                 }
             }
 
+            if isEditing {
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                 GridRow {
                     Text("Name")
@@ -221,9 +223,25 @@ private struct PositionRowView: View {
                 }
             }
             .textFieldStyle(.roundedBorder)
+            } else {
+                HStack {
+                    Text("Shares")
+                    Text(position.shares.formatted()).monospacedDigit()
+                    Text("Avg cost")
+                    Text(MoneyFormat.string(position.averageCost, code: account.currency)).monospacedDigit()
+                }.font(.caption).foregroundStyle(.secondary)
+            }
 
             HStack {
-                Button("Save Changes") { saveEdit() }
+                if isEditing {
+                    Button("Cancel") {
+                        name = position.name ?? ""; shares = position.shares; averageCost = position.averageCost
+                        isEditing = false
+                    }
+                    Button("Save Changes") { saveEdit() }
+                } else {
+                    Button("Edit") { isEditing = true }
+                }
                 Spacer()
                 Button("Delete", role: .destructive) { confirmingDelete = true }
             }
@@ -276,6 +294,7 @@ private struct PositionRowView: View {
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                 context: context
             )
+            isEditing = false
             onChanged()
         } catch {
             onError(error.localizedDescription)

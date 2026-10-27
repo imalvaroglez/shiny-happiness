@@ -74,8 +74,6 @@ struct PropertiesView: View {
         get { workspace.error }
         nonmutating set { workspace.error = newValue }
     }
-    @State private var applicationRemovalID: UUID?
-    @State private var showingApplicationRemovalConfirmation = false
 
     private var activeProperties: [PropertyRecord] { workspace.properties }
     private var selectedProperty: PropertyRecord? {
@@ -101,8 +99,7 @@ struct PropertiesView: View {
     @State private var activityAccountFilters: Set<String> = []
     @State private var activityResponsibilityFilters: Set<String> = []
     @State private var assignmentDraft: PropertyAssignmentDraft?
-    @State private var collectionReview: PropertyCollectionSelection?
-    @State private var collectionMovement: Transaction?
+    @State private var memberCollection: PropertyMemberCollectionSelection?
     @State private var recoverySources: [PropertyTransactionInput] = []
 
     var body: some View {
@@ -142,20 +139,6 @@ struct PropertiesView: View {
         .onChange(of: workspace.showingNewProperty) {
             if workspace.showingNewProperty { activeSheet = .property; workspace.showingNewProperty = false }
         }
-        .confirmationDialog("Remove this collection application", isPresented: $showingApplicationRemovalConfirmation,
-                            titleVisibility: .visible) {
-            Button("Withdraw application", role: .destructive) {
-                guard let applicationRemovalID,
-                      let index = ledger.paymentApplications.firstIndex(where: { $0.id == applicationRemovalID }) else { return }
-                ledger.paymentApplications[index].deletedAt = .now
-                ledger.paymentApplications[index].updatedAt = .now
-                persist()
-                self.applicationRemovalID = nil
-            }
-            Button("Cancel", role: .cancel) { applicationRemovalID = nil }
-        } message: {
-            Text("The original financial transaction is preserved. The amount stays available to reconcile again.")
-        }
         .confirmationDialog("Remove member", isPresented: Binding(get: { participationEndID != nil }, set: { if !$0 { participationEndID = nil } }), titleVisibility: .visible) {
             Button("Remove from \(propertyMonthText(PropertyParticipation.firstInactiveMonth(selected: selectedMonth, today: .now)))", role: .destructive) {
                 guard let id = participationEndID else { return }
@@ -174,22 +157,11 @@ struct PropertiesView: View {
             activitySelection = []; activityFilter = .linked
             activityAccountFilters = []; activityResponsibilityFilters = []
         }
-        .popover(item: $collectionReview) { selection in
-            PropertyCollectionDetails(paymentID: selection.id, workspace: workspace,
-                onOpen: { id in
-                    let descriptor = FetchDescriptor<Transaction>(predicate: #Predicate<Transaction> { $0.id == id })
-                    collectionMovement = try? modelContext.fetch(descriptor).first
-                    collectionReview = nil
-                }, onRemove: { id in
-                    applicationRemovalID = id
-                    showingApplicationRemovalConfirmation = true
-                    collectionReview = nil
-                })
-        }
-        .sheet(item: $collectionMovement) { movement in
-            TransactionDetailSheet(transaction: movement, onCategoryAssigned: { _ in
-                Task { await workspace.refreshPeriod(force: true) }
-            }, onSaved: { Task { await workspace.refreshPeriod(force: true) } })
+        .sheet(item: $memberCollection) { selection in
+            if let property = selectedProperty {
+                PropertyMemberCollectionsSheet(workspace: workspace, propertyID: property.id,
+                    residentID: selection.id)
+            }
         }
         .sheet(item: $assignmentDraft) { draft in
             PropertyAssignmentEditor(workspace: workspace, draft: draft,
@@ -264,10 +236,10 @@ struct PropertiesView: View {
                             workspace.linkAttribution(proposedAttribution)
                         }
                 }
-            case .payment:
+            case .payment(let memberID):
                 if let property = selectedProperty, let report {
                     PropertyCollectionCaptureSheet(workspace: workspace, property: property, report: report,
-                        accounts: accounts)
+                        accounts: accounts, initialResidentID: memberID)
                 }
             case .existingPayment:
                 if let property = selectedProperty, let report {
@@ -324,7 +296,7 @@ struct PropertiesView: View {
                     Button("Add service reference…") { activeSheet = .service }
                     Divider()
                     Button("Link transaction…") { activeSheet = .attribution }
-                    Button("Register collection…") { activeSheet = .payment }
+                    Button("Register collection…") { activeSheet = .payment(nil) }
                     Button("Add adjustment…") { activeSheet = .adjustment }
                         .disabled(ledger.closes.contains { $0.propertyID == property.id && $0.monthStart == selectedMonth })
                     Divider()
@@ -445,24 +417,35 @@ struct PropertiesView: View {
     private func monthlyDetail(_ property: PropertyRecord, _ report: PropertyMonthlyReport) -> some View {
         let editingDestination = workspace.destination
         let editingMonth = report.monthStart
-        let closed = ledger.closes.contains { $0.propertyID == property.id && $0.monthStart == selectedMonth }
-        let historical = workspace.destination == .household && workspace.householdMonth(selectedMonth) == nil && !closed
-        let canCalculate = workspace.destination == .household
-            ? householdReport?.splitAvailable == true
-            : report.residents.reduce(Decimal.zero) { $0 + $1.income } > 0 && report.obligations.allSatisfy {
-                if case .owner = $0.responsibility { return true }
-                return $0.allocations.values.reduce(Decimal.zero, +) == $0.amount
-            }
+        let context = workspace.settlementContext(propertyID: property.id, report: report)
+        let closed = context.isClosed
+        let historical = context.historical
+        let canCalculate = context.canCalculate
+        let settlements = workspace.memberSettlements(propertyID: property.id, report: report)
         var rows = PropertyMonthlyMemberRow.rows(report: report,
             visibleIDs: workspace.destination == .household && !closed ? workspace.householdActiveMemberIDs : nil,
             canCalculate: canCalculate, isClosed: closed, historical: historical)
         for index in rows.indices {
-            rows[index].advance = PropertyCollectionPosting.memberAdvances(propertyID: property.id,
-                residentID: rows[index].memberID, ledger: ledger, inputs: transactionInputs, asOf: workspace.asOf)
+            rows[index].settlement = settlements.first { $0.residentID == rows[index].memberID }
+            rows[index].advance = rows[index].settlement?.advanceAvailable ?? 0
+        }
+        let currentIDs = Set(rows.map(\.memberID))
+        for settlement in settlements where !currentIDs.contains(settlement.residentID) {
+            guard let member = workspace.member(id: settlement.residentID) else { continue }
+            rows.append(PropertyMonthlyMemberRow(memberID: member.id, month: report.monthStart,
+                name: member.name, income: 0, confirmed: true, pending: settlement.due,
+                historical: false, priorDebt: settlement.priorDebt, advance: settlement.advanceAvailable,
+                settlement: settlement, former: true))
         }
         let legacyAdvance = PropertyCollectionPosting.legacyAdvances(propertyID: property.id,
             ledger: ledger, inputs: transactionInputs, asOf: workspace.asOf)
-        let linkedActivity = workspace.activityRows(filter: .linked)
+        let legacyID = PropertyPaymentAdvance.placeholderResidentID(propertyID: property.id)
+        let legacyPresent = ledger.paymentApplications.contains {
+            $0.propertyID == property.id && $0.residentID == legacyID && $0.deletedAt == nil && PropertyPaymentAdvance.isAdvance($0)
+        }
+        let legacyNeedsReview = PropertyCollectionPosting.hasChangedAdvanceSource(propertyID: property.id,
+            residentID: legacyID, ledger: ledger, inputs: transactionInputs)
+        let linkedActivity = PropertyActivitySummary.linkedExpensesAndReimbursements(workspace.activityRows(filter: .linked))
         return VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
             PropertyMetricGrid(values: historical
                 ? Array(PropertyPresentationAdapter.property(report).metrics.prefix(2)) + [
@@ -470,21 +453,31 @@ struct PropertiesView: View {
                 : PropertyPresentationAdapter.property(report).metrics)
             PropertySectionHeading(title: "Members and contributions", actionTitle: workspace.destination == .household ? nil : "Add member") { activeSheet = .resident }
             PropertyMonthlyTable(rows: rows, isClosed: closed, legacyAdvance: legacyAdvance,
+                legacyAdvancePresent: legacyPresent, legacyAdvanceNeedsReview: legacyNeedsReview,
                 save: { id, amount, confirmed in workspace.saveMonthlyIncome(residentID: id, amount: amount, confirmed: confirmed,
                     month: editingMonth, editedDestination: editingDestination) },
                 edit: { id in
                     activeSheet = .residentEdit(id)
-                }, end: { id in participationEndID = id })
+                }, end: { id in participationEndID = id },
+                openPayments: { memberCollection = .init(id: $0) },
+                collect: { activeSheet = .payment($0) },
+                applyAdvance: { id in
+                    if case .rejected(let message) = workspace.applyMemberAdvance(propertyID: property.id, residentID: id) {
+                        loadError = message
+                    }
+                }, openLegacyAdvance: { memberCollection = .init(id: legacyID) })
             if historical { Text("Historical split pending reconciliation. It is not automatically added to prior debt.").font(.caption).foregroundStyle(.secondary) }
-            paymentsSection(property, report)
+            Button("Reconcile existing receipt…") {
+                recoverySources = workspace.recoveryReceipts(propertyID: property.id)
+                activeSheet = .existingPayment
+            }.buttonStyle(.link).font(.caption)
             PropertySpendingChart(rows: linkedActivity, contributors: rows.map(PropertyExpenseFlow.Contributor.init))
-            PropertyActivityTable(rows: activityFilter == .linked ? linkedActivity : workspace.activityRows(filter: activityFilter),
+            PropertyActivityTable(rows: activityFilter == .linked ? linkedActivity : PropertyActivitySummary.linkedExpensesAndReimbursements(workspace.activityRows(filter: activityFilter)),
                 household: workspace.destination == .household,
                 residents: ledger.residents(for: property.id, month: selectedMonth),
                 filter: $activityFilter, selection: $activitySelection,
                 accountFilters: $activityAccountFilters, responsibilityFilters: $activityResponsibilityFilters,
                 assign: applyActivityAssignment, adjustment: { activeSheet = .adjustment },
-                reviewCollection: { collectionReview = PropertyCollectionSelection(id: $0) },
                 allowsUserAssignment: workspace.householdActiveMemberIDs.contains((ledger.householdLink ?? PropertyHouseholdAdapter.link).userID),
                 allowsPartnerAssignment: workspace.householdActiveMemberIDs.contains((ledger.householdLink ?? PropertyHouseholdAdapter.link).partnerID))
             maintenanceSection(property)
@@ -560,79 +553,6 @@ struct PropertiesView: View {
                 Text(propertyMoneyText(pending)).monospacedDigit()
                 Text(LocalizedStringKey(note)).font(.caption).foregroundStyle(.secondary)
             }
-        }
-    }
-
-    private func paymentsSection(_ property: PropertyRecord, _ report: PropertyMonthlyReport) -> some View {
-        let obligationIDs = Set(report.obligations.map(\.id))
-        let applications = ledger.paymentApplications.filter { application in
-            guard application.propertyID == property.id, application.deletedAt == nil else { return false }
-            if PropertyPaymentAdvance.isAdvance(application) { return true }
-            if obligationIDs.contains(application.obligationID) { return true }
-            guard let transaction = transactionInputs.first(where: { $0.id == application.paymentTransactionID }) else { return false }
-            return Calendar.current.isDate(transaction.postedAt, equalTo: report.monthStart, toGranularity: .month)
-        }.sorted { applicationA, applicationB in
-            let dateA = transactionInputs.first(where: { $0.id == applicationA.paymentTransactionID })?.postedAt ?? .distantPast
-            let dateB = transactionInputs.first(where: { $0.id == applicationB.paymentTransactionID })?.postedAt ?? .distantPast
-            return dateA == dateB ? applicationA.id.uuidString < applicationB.id.uuidString : dateA > dateB
-        }
-        let byReceipt = Dictionary(grouping: applications, by: \.paymentTransactionID)
-        let receiptIDs = Array(byReceipt.keys).sorted { lhs, rhs in
-            let left = transactionInputs.first { $0.id == lhs }?.postedAt
-                ?? byReceipt[lhs]?.first?.sourcePostedAtSnapshot ?? .distantPast
-            let right = transactionInputs.first { $0.id == rhs }?.postedAt
-                ?? byReceipt[rhs]?.first?.sourcePostedAtSnapshot ?? .distantPast
-            return left == right ? lhs.uuidString < rhs.uuidString : left > right
-        }
-        return VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
-            PropertySectionHeading(title: "Collections", actionTitle: "Register collection…") { activeSheet = .payment }
-            PropertyTableCard {
-            LazyVStack(alignment: .leading, spacing: 9) {
-            if applications.isEmpty {
-                Text("No collections applied to this period. Received transactions remain in Accounts and transactions.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            ForEach(receiptIDs, id: \.self) { receiptID in
-                let receiptApps = byReceipt[receiptID] ?? []
-                let transaction = transactionInputs.first { $0.id == receiptID }
-                let source = receiptApps.first
-                let date = transaction?.postedAt ?? source?.sourcePostedAtSnapshot
-                let names = Set(receiptApps.compactMap { application in
-                    ledger.residents.first { $0.id == application.residentID }?.name
-                }).sorted().joined(separator: ", ")
-                let memberLabel = names.isEmpty ? String(localized: "Unassigned older advances") : names
-                let dateLabel = date?.formatted(.dateTime.day().month(.abbreviated).year().locale(Locale(identifier: "es-MX")))
-                    ?? String(localized: "Date unavailable")
-                let applied = receiptApps.filter { !PropertyPaymentAdvance.isAdvance($0) }
-                    .reduce(Decimal.zero) { $0 + $1.amount }
-                let advance = receiptApps.filter(PropertyPaymentAdvance.isAdvance)
-                    .reduce(Decimal.zero) { $0 + $1.amount }
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(transaction?.description ?? source?.sourceDescriptionSnapshot ?? String(localized: "Transaction unavailable"))
-                            .font(.subheadline.weight(.medium))
-                        Text(String(format: String(localized: "%@ · %@"), dateLabel, memberLabel))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if advance > 0 { Text("Available advance · \(propertyMoneyText(advance))").font(.caption).foregroundStyle(.secondary) }
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text(propertyMoneyText(transaction?.amount ?? source?.sourceAmountSnapshot ?? applied + advance)).monospacedDigit()
-                        Text("Applied · \(propertyMoneyText(applied))").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Button("View applications") { collectionReview = PropertyCollectionSelection(id: receiptID) }
-                        .buttonStyle(.link).font(.caption)
-                }
-                .padding(.vertical, 4)
-                Divider()
-            }
-        }
-            }
-            Button("Reconcile existing receipt…") {
-                recoverySources = workspace.recoveryReceipts(propertyID: property.id)
-                activeSheet = .existingPayment
-            }
-            .buttonStyle(.link).font(.caption)
         }
     }
 
@@ -738,7 +658,8 @@ struct PropertiesView: View {
 }
 
 private enum PropertySheet: Identifiable {
-    case property, resident, rent, service, attribution, payment, existingPayment, adjustment, maintenance, reserve
+    case property, resident, rent, service, attribution, existingPayment, adjustment, maintenance, reserve
+    case payment(UUID?)
     case residentEdit(UUID)
     case serviceEdit(UUID)
     var id: String {
@@ -750,7 +671,7 @@ private enum PropertySheet: Identifiable {
         case .rent: "rent"
         case .service: "service"
         case .attribution: "attribution"
-        case .payment: "payment"
+        case .payment(let id): "payment-\(id?.uuidString ?? "choose")"
         case .existingPayment: "existing-payment"
         case .adjustment: "adjustment"
         case .maintenance: "maintenance"

@@ -26,6 +26,50 @@ struct PropertyAssignmentTests {
         PropertySettlementCalculator.report(propertyID: house.id, month: month, ledger: ledger, transactions: inputs)
     }
 
+    @Test("An editor rejects a financial movement changed in another context")
+    func transactionEditorRejectsStaleMovement() throws {
+        let container = try container()
+        let context = container.mainContext
+        let account = Account(institution: "Banco sintético", type: .checking)
+        let transaction = Transaction(account: account, postedAt: month, amount: -100, descriptionRaw: "Compra sintética")
+        context.insert(account); context.insert(transaction)
+        try context.save()
+        let source = PropertyTransactionInput(capturing: transaction)
+        let revision = transaction.lastModifiedAt
+        let id = transaction.id
+        try TransactionEditRevisionGuard.validate(transactionID: id, revision: revision,
+            accountID: account.id, expected: source, container: container)
+        let other = ModelContext(container)
+        let changed = try #require(other.fetch(FetchDescriptor<Transaction>(predicate: #Predicate<Transaction> { $0.id == id })).first)
+        changed.amount = -200
+        try other.save()
+        #expect(throws: TransactionEditRevisionGuard.EditError.self) {
+            try TransactionEditRevisionGuard.validate(transactionID: id, revision: revision,
+                accountID: account.id, expected: source, container: container)
+        }
+    }
+
+    @Test("A failed promotion write retries only the pending step after clearing the due date")
+    func transactionCompletionRetriesOnlyPendingWork() throws {
+        var state = TransactionEditCompletion(movementSaved: true, dueDatePending: true,
+                                              propertyPending: true, promotionPending: true)
+        var calls: [String] = []
+        do {
+            try state.run(purgeDueDate: { calls.append("due") }, saveProperty: { calls.append("property") },
+                savePromotions: { calls.append("promotion"); throw Failure.save })
+            Issue.record("The promotion write should fail")
+        } catch let error as TransactionEditCompletion.Failure {
+            #expect(error.stage == .promotion)
+        }
+        #expect(calls == ["due", "property", "promotion"])
+        #expect(!state.dueDatePending && !state.propertyPending && state.promotionPending)
+        calls.removeAll()
+        try state.run(purgeDueDate: { calls.append("due") }, saveProperty: { calls.append("property") },
+                      savePromotions: { calls.append("promotion") })
+        #expect(calls == ["promotion"])
+        #expect(!state.promotionPending)
+    }
+
     @Test("Rental bulk assignments preserve metadata, identity, source signs and exact report sums")
     func rentalAssignments() throws {
         let (base, house, first, second) = fixture()
@@ -470,6 +514,12 @@ struct PropertyAssignmentTests {
         #expect(summary.totals.first { $0.kind == .expense && $0.currency == "USD" }?.amount == 7)
         #expect(summary.totals.first { $0.kind == .collection }?.amount == 50)
         #expect(summary.totals.first { $0.kind == .reimbursement }?.amount == 5)
+        let activity = PropertyActivitySummary.linkedExpensesAndReimbursements(rows)
+        let activitySummary = PropertyActivitySummary(rows: activity)
+        #expect(!activity.contains { $0.kind == .collection })
+        #expect(activitySummary.count == 5)
+        #expect(activitySummary.totals.first { $0.kind == .expense && $0.currency == "MXN" }?.amount == 31)
+        #expect(activitySummary.totals.first { $0.kind == .reimbursement }?.amount == 5)
         let filters = PropertyActivityColumnFilters(accounts: ["Cuenta A", "Cuenta B"], responsibilities: ["Compartido"])
         #expect(filters.isActive)
         let filtered = filters.apply(to: rows)

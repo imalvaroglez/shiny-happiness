@@ -83,13 +83,20 @@ struct PropertyMemberSettlement: Equatable, Sendable {
     /// precalculated once instead of rescanning the ledger per member.
     static func summarizeAll(propertyID: UUID, report: PropertyMonthlyReport, ledger: PropertyLedger,
                              inputs: [PropertyTransactionInput], asOf: Date, context: Context,
-                             visibleIDs: Set<UUID>? = nil) -> [Self] {
+                             visibleIDs: Set<UUID>? = nil, additionalResidentIDs: Set<UUID> = []) -> [Self] {
         let data = Precalculated(propertyID: propertyID, report: report, ledger: ledger,
                                  inputs: inputs, asOf: asOf)
-        return report.residents
+        let current = report.residents
             .filter { visibleIDs?.contains($0.id) ?? true }
             .map { build(residentID: $0.id, member: $0, report: report, asOf: asOf,
                          context: context, data: data) }
+        let currentIDs = Set(current.map(\.residentID))
+        let former = additionalResidentIDs.subtracting(currentIDs).sorted { $0.uuidString < $1.uuidString }
+            .map { id in build(residentID: id, member: report.residents.first { $0.id == id },
+                               report: report, asOf: asOf, context: context, data: data) }
+            .filter { $0.priorDebt > 0 || $0.advanceAvailable > 0 || $0.advanceStale || $0.sourcesMissing
+                || $0.receiptsNeedReview || !$0.paymentTransactionIDs.isEmpty }
+        return current + former
     }
 
     // MARK: - Internals
@@ -97,7 +104,9 @@ struct PropertyMemberSettlement: Equatable, Sendable {
     private static func build(residentID: UUID, member: PropertyResidentReport?,
                               report: PropertyMonthlyReport, asOf: Date,
                               context: Context, data: Precalculated) -> Self {
-        let computable = context.isClosed || context.canCalculate
+        let participationEnded = member == nil
+            || (data.knownResidentIDs.contains(residentID) && !data.activeResidentIDs.contains(residentID))
+        let computable = participationEnded || context.isClosed || context.canCalculate
         let priorDebt = (member?.priorDebt
             ?? ((data.priorObligationByResident[residentID] ?? 0) - (data.priorPaidByResident[residentID] ?? 0)))
             .currencyRounded
@@ -116,7 +125,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         let receiptsNeedReview = data.receiptsNeedReviewByResident.contains(residentID)
         // `includeCurrent == false` keeps the open month out of the debt, mirroring
         // the capture sheet's suggestion gating.
-        let current = context.includeCurrent ? max(0, monthBalance ?? 0) : 0
+        let current = context.includeCurrent && !participationEnded ? max(0, monthBalance ?? 0) : 0
 
         let status: Status
         var due: Decimal?
@@ -127,12 +136,12 @@ struct PropertyMemberSettlement: Equatable, Sendable {
             status = .review
             due = computable ? (priorDebt + current).currencyRounded : nil
             payable = nil
-        } else if context.historical {
+        } else if context.historical && !participationEnded {
             // The estimated split never becomes debt on its own.
             status = .toReconcile
             due = nil
             payable = nil
-        } else if !context.canCalculate && !context.isClosed {
+        } else if !context.canCalculate && !context.isClosed && !participationEnded {
             status = .toCalculate
             due = nil
             payable = nil
@@ -179,7 +188,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                     advanceAvailable: advanceAvailable, advanceStale: advanceStale,
                     sourcesMissing: sourcesMissing, receiptsNeedReview: receiptsNeedReview,
                     paymentTransactionIDs: paymentTransactionIDs,
-                    participationEnded: !data.activeResidentIDs.contains(residentID))
+                    participationEnded: participationEnded)
     }
 
     /// One pass over the ledger shared by every member of a report. Replicates
@@ -189,6 +198,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
     private struct Precalculated {
         var inputsByID: [UUID: PropertyTransactionInput] = [:]
         var activeResidentIDs: Set<UUID> = []
+        var knownResidentIDs: Set<UUID> = []
         var monthReceiptIDsByResident: [UUID: Set<UUID>] = [:]
         var priorObligationByResident: [UUID: Decimal] = [:]
         var priorPaidByResident: [UUID: Decimal] = [:]
@@ -218,6 +228,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
              inputs: [PropertyTransactionInput], asOf: Date) {
             for input in inputs { inputsByID[input.id] = input }
             activeResidentIDs = Set(ledger.residents(for: propertyID, month: report.monthStart).map(\.id))
+            knownResidentIDs = Set(ledger.residents.filter { $0.propertyID == propertyID }.map(\.id))
             let propertyApplications = ledger.paymentApplications.filter {
                 $0.propertyID == propertyID && $0.deletedAt == nil
             }
