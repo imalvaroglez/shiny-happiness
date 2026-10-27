@@ -144,12 +144,13 @@ struct DashboardPeriodFilteringTests {
         #expect(range.end == now)
     }
 
-    @Test("Income and expenses exclude transfers and credit-card payments")
-    func cashFlowExcludesTransfersAndCardPayments() throws {
+    @Test("Consumption excludes transfers while cash flow counts the bank card payment")
+    func consumptionExcludesTransfersWhileCashFlowCountsBankCardPayment() throws {
         let container = try makeContainer()
         let context = container.mainContext
         let now = Date.now
-        let account = Account(institution: "Test Bank", type: .checking)
+        let account = Account(institution: "Test Bank", type: .checking,
+                              archivedAt: now.addingTimeInterval(-86_400))
         let transfer = FinanceTracker.Category(name: "Transfer", kind: .transfer)
         let cardPayment = FinanceTracker.Category(name: "Card Payment", kind: .creditCardPayment)
         context.insert(account)
@@ -171,6 +172,451 @@ struct DashboardPeriodFilteringTests {
 
         #expect(snap.totalIncome == 300)
         #expect(snap.totalExpenses == -50)
+        #expect(snap.cashFlowIncome == 300)
+        #expect(snap.cashFlowExpenses == -750)
+        #expect(snap.netCashFlow == -450)
+    }
+
+    @Test("Manual interest is spread across its accrual days and card purchases affect cash flow at payment")
+    func manualInterestAccrualAndCardPaymentCashFlow() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let openedAt = date(year: 2026, month: 10, day: 1)
+        let now = date(year: 2026, month: 10, day: 21)
+        let bank = Account(institution: "Test Bank", type: .checking, openedAt: openedAt)
+        let card = Account(institution: "Test Card", type: .creditCard, openedAt: openedAt)
+        let interest = FinanceTracker.Category(name: "Interest", kind: .income)
+        let cardPayment = FinanceTracker.Category(name: "Card Payment Sent", kind: .creditCardPayment)
+        context.insert(bank)
+        context.insert(card)
+        context.insert(interest)
+        context.insert(cardPayment)
+
+        let firstInterest = Transaction(
+            account: bank, postedAt: date(year: 2026, month: 10, day: 2), amount: 100,
+            descriptionRaw: "Interest captured", category: interest, source: .manual
+        )
+        let accumulatedInterest = Transaction(
+            account: bank, postedAt: now, amount: Decimal(string: "2334.33")!,
+            descriptionRaw: "Accumulated interest", category: interest, source: .manual
+        )
+        let duplicateInterest = Transaction(
+            account: bank, postedAt: now, amount: 999,
+            descriptionRaw: "Duplicate interest", category: interest, isDuplicate: true, source: .manual
+        )
+        let cardCharge = Transaction(
+            account: card, postedAt: date(year: 2026, month: 10, day: 15), amount: -500,
+            descriptionRaw: "Card purchase"
+        )
+        let paymentGroup = UUID()
+        let bankPayment = Transaction(
+            account: bank, postedAt: date(year: 2026, month: 10, day: 20), amount: -500,
+            descriptionRaw: "Card payment", isTransfer: true,
+            source: .manual, transferGroupID: paymentGroup
+        )
+        let cardReceipt = Transaction(
+            account: card, postedAt: bankPayment.postedAt, amount: 500,
+            descriptionRaw: "Card payment", isTransfer: true,
+            source: .manual, transferGroupID: paymentGroup
+        )
+        let bankExpense = Transaction(
+            account: bank, postedAt: date(year: 2026, month: 10, day: 9), amount: -300,
+            descriptionRaw: "Bank account expense"
+        )
+        [firstInterest, accumulatedInterest, duplicateInterest, cardCharge, bankPayment, cardReceipt, bankExpense]
+            .forEach(context.insert)
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(.all, now: now)
+        viewModel.configure(context: context)
+        guard case .consolidated(let allTime) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+
+        #expect(allTime.totalInterestEarned == Decimal(string: "2434.33")!)
+        #expect(allTime.period.dateRange.start == openedAt)
+
+        viewModel.setPeriod(.month, now: now)
+        viewModel.refresh()
+        guard case .consolidated(let month) = viewModel.snapshot else {
+            Issue.record("Expected monthly consolidated snapshot"); return
+        }
+        #expect(month.totalIncome == Decimal(string: "2434.33")!)
+        #expect(month.totalExpenses == -800)
+        #expect(month.cashFlowIncome == Decimal(string: "2434.33")!)
+        #expect(month.cashFlowExpenses == -800)
+        #expect(month.netCashFlow == Decimal(string: "1634.33")!)
+        #expect(!month.hasUnmatchedCardPayment)
+        #expect(month.monthlyCashFlow.first { $0.month == date(year: 2026, month: 10, day: 3) }?.income == Decimal(string: "122.86")!)
+        #expect(month.monthlyCashFlow.first { $0.month == date(year: 2026, month: 10, day: 21) }?.income == Decimal(string: "122.85")!)
+
+        viewModel.setPeriod(
+            .custom,
+            customRange: DateRange(start: date(year: 2026, month: 10, day: 3), end: date(year: 2026, month: 10, day: 10)),
+            now: now
+        )
+        viewModel.refresh()
+        guard case .consolidated(let custom) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot for custom period"); return
+        }
+        #expect(custom.totalInterestEarned == Decimal(string: "982.88")!)
+        #expect(custom.totalIncome == Decimal(string: "982.88")!)
+        #expect(custom.interestSourceTransactions.contains { $0.id == accumulatedInterest.id })
+        #expect(custom.interestAllocations.allSatisfy { $0.sourceDate == now && $0.kind == .estimated })
+
+        viewModel.setPeriod(.all, now: now)
+        viewModel.refresh()
+        accumulatedInterest.amount = Decimal(string: "2334.34")!
+        try context.save()
+        viewModel.refresh()
+        guard case .consolidated(let edited) = viewModel.snapshot else {
+            Issue.record("Expected snapshot after editing interest capture"); return
+        }
+        #expect(edited.totalInterestEarned == Decimal(string: "2434.34")!)
+        #expect(edited.interestAllocations.first { $0.day == date(year: 2026, month: 10, day: 3) }?.amount == Decimal(string: "122.86")!)
+
+        accumulatedInterest.deletedAt = now
+        try context.save()
+        viewModel.refresh()
+        guard case .consolidated(let deleted) = viewModel.snapshot else {
+            Issue.record("Expected snapshot after deleting interest capture"); return
+        }
+        #expect(deleted.totalInterestEarned == 100)
+        #expect(deleted.interestAllocations.count == 2)
+        #expect(deleted.interestAllocations.allSatisfy { $0.sourceTransactionIDs == [firstInterest.id] })
+    }
+
+    @Test("Credit-card charges affect consumption on purchase date and cash flow on partial bank payments")
+    func cardPurchaseAndPartialPaymentsAcrossMonths() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let now = date(year: 2026, month: 11, day: 10)
+        let bank = Account(institution: "Test Bank", type: .checking)
+        let card = Account(institution: "Test Card", type: .creditCard)
+        let paymentCategory = FinanceTracker.Category(name: "Card Payment", kind: .creditCardPayment)
+        context.insert(bank)
+        context.insert(card)
+        context.insert(paymentCategory)
+
+        let charge = Transaction(
+            account: card, postedAt: date(year: 2026, month: 10, day: 30), amount: -500,
+            descriptionRaw: "October card purchase", source: .imported
+        )
+        let firstPaymentDate = date(year: 2026, month: 11, day: 3)
+        let firstGroup = UUID()
+        let firstBankPayment = Transaction(
+            account: bank, postedAt: firstPaymentDate, amount: -200,
+            descriptionRaw: "Partial card payment", category: paymentCategory,
+            isTransfer: true, source: .imported, transferGroupID: firstGroup
+        )
+        let firstCardReceipt = Transaction(
+            account: card, postedAt: firstPaymentDate, amount: 200,
+            descriptionRaw: "Partial card payment", category: paymentCategory,
+            isTransfer: true, source: .imported, transferGroupID: firstGroup
+        )
+        let secondPaymentDate = date(year: 2026, month: 11, day: 8)
+        let secondGroup = UUID()
+        let secondBankPayment = Transaction(
+            account: bank, postedAt: secondPaymentDate, amount: -100,
+            descriptionRaw: "Second partial card payment", category: paymentCategory,
+            isTransfer: true, source: .imported, transferGroupID: secondGroup
+        )
+        let secondCardReceipt = Transaction(
+            account: card, postedAt: secondPaymentDate, amount: 100,
+            descriptionRaw: "Second partial card payment", category: paymentCategory,
+            isTransfer: true, source: .imported, transferGroupID: secondGroup
+        )
+        [charge, firstBankPayment, firstCardReceipt, secondBankPayment, secondCardReceipt]
+            .forEach(context.insert)
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(
+            .custom,
+            customRange: DateRange(
+                start: date(year: 2026, month: 10, day: 1),
+                end: date(year: 2026, month: 10, day: 31)
+            ),
+            now: now
+        )
+        viewModel.configure(context: context)
+        guard case .consolidated(let october) = viewModel.snapshot else {
+            Issue.record("Expected October snapshot"); return
+        }
+        #expect(october.totalExpenses == -500)
+        #expect(october.cashFlowExpenses == 0)
+        #expect(october.netCashFlow == 0)
+
+        viewModel.setPeriod(
+            .custom,
+            customRange: DateRange(
+                start: date(year: 2026, month: 11, day: 1),
+                end: date(year: 2026, month: 11, day: 10)
+            ),
+            now: now
+        )
+        viewModel.refresh()
+        guard case .consolidated(let november) = viewModel.snapshot else {
+            Issue.record("Expected November snapshot"); return
+        }
+        #expect(november.totalExpenses == 0)
+        #expect(november.cashFlowExpenses == -300)
+        #expect(november.netCashFlow == -300)
+    }
+
+    @Test("Card receipt without a recorded bank withdrawal flags potentially incomplete cash flow")
+    func cardReceiptWithoutBankWithdrawalIsFlagged() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let now = date(year: 2026, month: 10, day: 21)
+        let card = Account(institution: "Test Card", type: .creditCard)
+        let cardPayment = FinanceTracker.Category(name: "Card Payment Received", kind: .creditCardPayment)
+        context.insert(card)
+        context.insert(cardPayment)
+        context.insert(Transaction(
+            account: card, postedAt: now, amount: 500,
+            descriptionRaw: "Card payment received", category: cardPayment
+        ))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(.month, now: now)
+        viewModel.configure(context: context)
+        guard case .consolidated(let snapshot) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+        #expect(snapshot.hasUnmatchedCardPayment)
+        #expect(snapshot.cashFlowExpenses == 0)
+        #expect(snapshot.netCashFlow == 0)
+    }
+
+    @Test("Asset cash flow drill-down ignores unmatched card payments outside its account")
+    func assetUnmatchedCardPaymentFlagStaysScopedToItsOwnRows() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let now = date(year: 2026, month: 10, day: 21)
+        let bank = Account(institution: "Test Bank", type: .checking)
+        let card = Account(institution: "Test Card", type: .creditCard)
+        let cardPayment = FinanceTracker.Category(name: "Card Payment", kind: .creditCardPayment)
+        context.insert(bank)
+        context.insert(card)
+        context.insert(cardPayment)
+        // Unmatched receipt: lives on the card, no bank withdrawal recorded.
+        context.insert(Transaction(
+            account: card, postedAt: date(year: 2026, month: 10, day: 5), amount: 300,
+            descriptionRaw: "Card payment received", category: cardPayment
+        ))
+        context.insert(Transaction(
+            account: bank, postedAt: date(year: 2026, month: 10, day: 2), amount: 1_000,
+            descriptionRaw: "Salary", source: .manual
+        ))
+        try context.save()
+
+        let consolidated = DashboardViewModel()
+        consolidated.setPeriod(.month, now: now)
+        consolidated.configure(context: context)
+        guard case .consolidated(let globalSnapshot) = consolidated.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+        #expect(globalSnapshot.hasUnmatchedCardPayment)
+
+        let assetVM = DashboardViewModel()
+        assetVM.scope = .account(bank.id)
+        assetVM.setPeriod(.month, now: now)
+        assetVM.configure(context: context)
+        guard case .asset(let bankSnapshot) = assetVM.snapshot else {
+            Issue.record("Expected asset snapshot"); return
+        }
+        // The unmatched receipt is not one of this account's rows, so the
+        // drill-down note must not fire on data the sheet cannot show.
+        #expect(!bankSnapshot.hasUnmatchedCardPayment)
+    }
+
+    @Test("Asset cash flow counts matched card payments and carries matched IDs for drill-down")
+    func assetCashFlowCountsMatchedCardPaymentAndWiresMatchedIDs() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let now = date(year: 2026, month: 10, day: 21)
+        let bank = Account(institution: "Test Bank", type: .checking)
+        let card = Account(institution: "Test Card", type: .creditCard)
+        let cardPayment = FinanceTracker.Category(name: "Card Payment", kind: .creditCardPayment)
+        context.insert(bank)
+        context.insert(card)
+        context.insert(cardPayment)
+        let group = UUID()
+        let bankPayment = Transaction(
+            account: bank, postedAt: date(year: 2026, month: 10, day: 20), amount: -500,
+            descriptionRaw: "Card payment", category: cardPayment,
+            isTransfer: true, source: .manual, transferGroupID: group
+        )
+        let cardReceipt = Transaction(
+            account: card, postedAt: bankPayment.postedAt, amount: 500,
+            descriptionRaw: "Card payment", category: cardPayment,
+            isTransfer: true, source: .manual, transferGroupID: group
+        )
+        context.insert(bankPayment)
+        context.insert(cardReceipt)
+        context.insert(Transaction(
+            account: bank, postedAt: date(year: 2026, month: 10, day: 9), amount: -50,
+            descriptionRaw: "Coffee", source: .manual
+        ))
+        context.insert(Transaction(
+            account: bank, postedAt: date(year: 2026, month: 10, day: 2), amount: 1_000,
+            descriptionRaw: "Salary", source: .manual
+        ))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.scope = .account(bank.id)
+        viewModel.setPeriod(.month, now: now)
+        viewModel.configure(context: context)
+        guard case .asset(let snapshot) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot"); return
+        }
+
+        // The bank-side outflow is this account's real cash movement (cash
+        // basis), and both sides of the transfer group feed the drill-down.
+        #expect(!snapshot.hasUnmatchedCardPayment)
+        #expect(snapshot.matchedCardPaymentTransactionIDs.contains(bankPayment.id))
+        #expect(snapshot.matchedCardPaymentTransactionIDs.contains(cardReceipt.id))
+        #expect(snapshot.totalIncome == 1_000)
+        #expect(snapshot.totalExpenses == -50)
+        #expect(snapshot.monthlyCashFlow.reduce(Decimal.zero) { $0 + $1.expenses } == -550)
+    }
+
+    @Test("Interest allocation preserves cents, uses actual import dates, and flags impossible first intervals")
+    func interestAllocatorPreservesMoneyAndImportDates() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Mexico_City")!
+        let openedAt = date(year: 2026, month: 10, day: 2)
+        let lastCapture = date(year: 2026, month: 10, day: 21)
+        let accountID = UUID()
+        let previousID = UUID()
+        let accumulatedID = UUID()
+        let importedID = UUID()
+        let impossibleID = UUID()
+        let allocations = InterestAccrualAllocator.allocate([
+            InterestAccrualInput(
+                transactionID: previousID, accountID: accountID, currency: "MXN",
+                postedAt: openedAt, amount: 100, accountOpenedAt: openedAt, source: .manual
+            ),
+            InterestAccrualInput(
+                transactionID: accumulatedID, accountID: accountID, currency: "MXN",
+                postedAt: lastCapture, amount: Decimal(string: "2334.33")!,
+                accountOpenedAt: openedAt, source: .manual
+            ),
+            InterestAccrualInput(
+                transactionID: importedID, accountID: accountID, currency: "MXN",
+                postedAt: date(year: 2026, month: 10, day: 7), amount: 25,
+                accountOpenedAt: openedAt, source: .imported
+            ),
+            InterestAccrualInput(
+                transactionID: impossibleID, accountID: UUID(), currency: "MXN",
+                postedAt: date(year: 2026, month: 10, day: 1), amount: 7,
+                accountOpenedAt: date(year: 2026, month: 10, day: 2), source: .manual
+            ),
+        ], through: lastCapture, calendar: calendar)
+
+        let accumulated = allocations.filter { $0.sourceTransactionID == accumulatedID }
+        #expect(accumulated.count == 19)
+        #expect(accumulated.reduce(Decimal.zero) { $0 + $1.amount } == Decimal(string: "2334.33")!)
+        #expect(accumulated.filter { $0.amount == Decimal(string: "122.86")! }.count == 18)
+        #expect(accumulated.last?.amount == Decimal(string: "122.85")!)
+
+        let imported = allocations.filter { $0.sourceTransactionID == importedID }
+        #expect(imported.count == 1)
+        #expect(imported.first?.kind == .actual)
+        #expect(imported.first?.day == date(year: 2026, month: 10, day: 7))
+        #expect(allocations.first { $0.sourceTransactionID == impossibleID }?.kind == .undistributed)
+    }
+
+    @Test("Same-day interest captures share an interval and daily allocation follows calendar days across DST")
+    func interestAllocatorGroupsSameDayAndHandlesDST() {
+        var cdmxCalendar = Calendar(identifier: .gregorian)
+        cdmxCalendar.timeZone = TimeZone(identifier: "America/Mexico_City")!
+        let sameDayAccountID = UUID()
+        let sameDayOne = UUID()
+        let sameDayTwo = UUID()
+        let laterCapture = UUID()
+        let sameDayAllocations = InterestAccrualAllocator.allocate([
+            InterestAccrualInput(
+                transactionID: sameDayOne, accountID: sameDayAccountID, currency: "MXN",
+                postedAt: date(year: 2026, month: 10, day: 2), amount: Decimal(string: "0.01")!,
+                accountOpenedAt: date(year: 2026, month: 10, day: 1), source: .manual
+            ),
+            InterestAccrualInput(
+                transactionID: sameDayTwo, accountID: sameDayAccountID, currency: "MXN",
+                postedAt: date(year: 2026, month: 10, day: 2), amount: Decimal(string: "0.02")!,
+                accountOpenedAt: date(year: 2026, month: 10, day: 1), source: .manual
+            ),
+            InterestAccrualInput(
+                transactionID: laterCapture, accountID: sameDayAccountID, currency: "MXN",
+                postedAt: date(year: 2026, month: 10, day: 4), amount: Decimal(string: "0.10")!,
+                accountOpenedAt: date(year: 2026, month: 10, day: 1), source: .manual
+            ),
+        ], through: date(year: 2026, month: 10, day: 4), calendar: cdmxCalendar)
+        let sameDayGroup = sameDayAllocations.filter { $0.sourceTransactionIDs.contains(sameDayOne) }
+        #expect(sameDayGroup.count == 2)
+        #expect(sameDayGroup.allSatisfy { $0.sourceTransactionIDs.contains(sameDayTwo) })
+        #expect(sameDayGroup.reduce(Decimal.zero) { $0 + $1.amount } == Decimal(string: "0.03")!)
+
+        let currencyAccountID = UUID()
+        let mxnCaptureID = UUID()
+        let usdCaptureID = UUID()
+        let currencyAllocations = InterestAccrualAllocator.allocate([
+            InterestAccrualInput(
+                transactionID: mxnCaptureID, accountID: currencyAccountID, currency: "MXN",
+                postedAt: date(year: 2026, month: 10, day: 2), amount: Decimal(string: "0.02")!,
+                accountOpenedAt: date(year: 2026, month: 10, day: 1), source: .manual
+            ),
+            InterestAccrualInput(
+                transactionID: usdCaptureID, accountID: currencyAccountID, currency: "USD",
+                postedAt: date(year: 2026, month: 10, day: 4), amount: Decimal(string: "0.04")!,
+                accountOpenedAt: date(year: 2026, month: 10, day: 3), source: .manual
+            ),
+        ], through: date(year: 2026, month: 10, day: 4), calendar: cdmxCalendar)
+        let mxnDays = currencyAllocations.filter { $0.sourceTransactionID == mxnCaptureID }.map(\.day)
+        let usdDays = currencyAllocations.filter { $0.sourceTransactionID == usdCaptureID }.map(\.day)
+        #expect(mxnDays == (1...2).map { date(year: 2026, month: 10, day: $0) })
+        #expect(usdDays == (3...4).map { date(year: 2026, month: 10, day: $0) })
+
+        var dstCalendar = Calendar(identifier: .gregorian)
+        dstCalendar.timeZone = TimeZone(identifier: "America/New_York")!
+        func newYorkDate(_ day: Int) -> Date {
+            var components = DateComponents()
+            components.year = 2026
+            components.month = 3
+            components.day = day
+            components.timeZone = dstCalendar.timeZone
+            return dstCalendar.date(from: components)!
+        }
+        let dstCaptureID = UUID()
+        let dstAllocations = InterestAccrualAllocator.allocate([
+            InterestAccrualInput(
+                transactionID: dstCaptureID, accountID: UUID(), currency: "USD",
+                postedAt: newYorkDate(10), amount: 4,
+                accountOpenedAt: newYorkDate(7), source: .manual
+            ),
+        ], through: newYorkDate(10), calendar: dstCalendar)
+        #expect(dstAllocations.count == 4)
+        #expect(dstAllocations.map(\.day) == (7...10).map(newYorkDate))
+        #expect(dstAllocations.reduce(Decimal.zero) { $0 + $1.amount } == 4)
+
+        let leapCaptureID = UUID()
+        let leapAllocations = InterestAccrualAllocator.allocate([
+            InterestAccrualInput(
+                transactionID: leapCaptureID, accountID: UUID(), currency: "MXN",
+                postedAt: date(year: 2024, month: 3, day: 1), amount: Decimal(string: "0.03")!,
+                accountOpenedAt: date(year: 2024, month: 2, day: 28), source: .manual
+            ),
+        ], through: date(year: 2024, month: 3, day: 1), calendar: cdmxCalendar)
+        #expect(leapAllocations.map(\.day) == [
+            date(year: 2024, month: 2, day: 28),
+            date(year: 2024, month: 2, day: 29),
+            date(year: 2024, month: 3, day: 1),
+        ])
+        #expect(leapAllocations.reduce(Decimal.zero) { $0 + $1.amount } == Decimal(string: "0.03")!)
     }
 
     @Test("Net worth is point-in-time balance and card matches last chart point")
@@ -602,7 +1048,6 @@ struct DashboardPeriodFilteringTests {
         viewModel.setPeriod(.quarter, now: now)
         viewModel.refresh()
         let periodSwitchElapsed = Date().timeIntervalSince(loadedAll)
-
         guard case .consolidated(let snap) = viewModel.snapshot else {
             Issue.record("Expected consolidated snapshot"); return
         }
@@ -666,6 +1111,261 @@ struct DashboardPeriodFilteringTests {
         #expect(snap.balanceOverTime.last?.month == now)
         #expect(snap.balanceOverTime.last?.balance == 2_000)
         #expect(!snap.balanceOverTime.contains { $0.month < date(year: 2026, month: 6, day: 15) })
+    }
+
+    @Test("Balance Over Time distributes manual interest without changing the recorded balance")
+    func balanceOverTimeDistributesManualInterest() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let openingDate = date(year: 2026, month: 10, day: 1)
+        let captureDate = date(year: 2026, month: 10, day: 21)
+        let now = captureDate.addingTimeInterval(12 * 60 * 60)
+        let account = Account(institution: "Test Bank", type: .checking, openedAt: openingDate)
+        let interest = FinanceTracker.Category(name: "Interest", kind: .income)
+        context.insert(account)
+        context.insert(interest)
+        context.insert(AccountBalanceSnapshot(
+            account: account,
+            date: openingDate,
+            amount: 10_000,
+            kind: .manualOpening
+        ))
+        context.insert(Transaction(
+            account: account,
+            postedAt: date(year: 2026, month: 10, day: 2),
+            amount: Decimal(string: "0.01")!,
+            descriptionRaw: "First interest capture",
+            category: interest,
+            source: .manual
+        ))
+        let accumulatedInterest = Transaction(
+            account: account,
+            postedAt: captureDate,
+            amount: Decimal(string: "2334.33")!,
+            descriptionRaw: "Accumulated interest",
+            category: interest,
+            source: .manual
+        )
+        context.insert(accumulatedInterest)
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.scope = .account(account.id)
+        viewModel.setPeriod(
+            .custom,
+            customRange: DateRange(start: openingDate, end: captureDate),
+            now: now
+        )
+        viewModel.configure(context: context)
+
+        guard case .asset(let snapshot) = viewModel.snapshot else {
+            Issue.record("Expected asset account snapshot"); return
+        }
+
+        let calendar = Calendar.current
+        func balance(on day: Date) -> Decimal? {
+            snapshot.balanceOverTime.last { calendar.isDate($0.month, inSameDayAs: day) }?.balance
+        }
+
+        #expect(balance(on: date(year: 2026, month: 10, day: 2)) == Decimal(string: "10000.01")!)
+        #expect(balance(on: date(year: 2026, month: 10, day: 3)) == Decimal(string: "10122.87")!)
+        #expect(balance(on: date(year: 2026, month: 10, day: 20)) == Decimal(string: "12211.49")!)
+        #expect(balance(on: captureDate) == Decimal(string: "12334.34")!)
+        #expect(snapshot.balanceOverTime.last?.balance == snapshot.currentBalance)
+        #expect(snapshot.currentBalance == Decimal(string: "12334.34")!)
+        #expect(snapshot.interestAllocations.contains {
+            $0.day == date(year: 2026, month: 10, day: 3)
+                && $0.amount == Decimal(string: "122.86")!
+                && $0.kind == .estimated
+        })
+
+        viewModel.setPeriod(
+            .custom,
+            customRange: DateRange(
+                start: date(year: 2026, month: 10, day: 3),
+                end: date(year: 2026, month: 10, day: 10)
+            ),
+            now: now
+        )
+        viewModel.refresh()
+        guard case .asset(let historicalPeriod) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot for historical period"); return
+        }
+        #expect(historicalPeriod.balanceOverTime.last?.balance == Decimal(string: "10982.89")!)
+        #expect(historicalPeriod.totalInterestEarned == Decimal(string: "982.88")!)
+
+        viewModel.setPeriod(.all, now: now)
+        viewModel.refresh()
+        accumulatedInterest.amount = Decimal(string: "2334.34")!
+        try context.save()
+        viewModel.refresh()
+        guard case .asset(let edited) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot after editing interest capture"); return
+        }
+        #expect(edited.balanceOverTime.last?.balance == Decimal(string: "12334.35")!)
+
+        accumulatedInterest.deletedAt = now
+        try context.save()
+        viewModel.refresh()
+        guard case .asset(let deleted) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot after deleting interest capture"); return
+        }
+        #expect(deleted.balanceOverTime.last?.balance == Decimal(string: "10000.01")!)
+    }
+
+    @Test("Imported interest remains on its recorded date in Balance Over Time")
+    func importedInterestKeepsRecordedBalanceDate() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let openingDate = date(year: 2026, month: 10, day: 1)
+        let now = date(year: 2026, month: 10, day: 21)
+        let account = Account(institution: "Test Bank", type: .checking, openedAt: openingDate)
+        let interest = FinanceTracker.Category(name: "Interest", kind: .income)
+        context.insert(account)
+        context.insert(interest)
+        context.insert(AccountBalanceSnapshot(
+            account: account,
+            date: openingDate,
+            amount: 1_000,
+            kind: .manualOpening
+        ))
+        context.insert(Transaction(
+            account: account,
+            postedAt: date(year: 2026, month: 10, day: 10),
+            amount: 100,
+            descriptionRaw: "Imported interest credit",
+            category: interest,
+            source: .imported
+        ))
+        try context.save()
+
+        let viewModel = DashboardViewModel()
+        viewModel.scope = .account(account.id)
+        viewModel.setPeriod(
+            .custom,
+            customRange: DateRange(start: openingDate, end: now),
+            now: now
+        )
+        viewModel.configure(context: context)
+
+        guard case .asset(let snapshot) = viewModel.snapshot else {
+            Issue.record("Expected asset account snapshot"); return
+        }
+
+        let calendar = Calendar.current
+        func balance(on day: Date) -> Decimal? {
+            snapshot.balanceOverTime.last { calendar.isDate($0.month, inSameDayAs: day) }?.balance
+        }
+
+        #expect(balance(on: date(year: 2026, month: 10, day: 9)) == 1_000)
+        #expect(balance(on: date(year: 2026, month: 10, day: 10)) == 1_100)
+    }
+
+    private func pointsEqual(_ lhs: [NetWorthPoint], _ rhs: [NetWorthPoint]) -> Bool {
+        lhs.count == rhs.count
+            && zip(lhs, rhs).allSatisfy { $0.month == $1.month && $0.balance == $1.balance }
+    }
+
+    @Test("Resolver series stay independent of the input order of same-day transactions")
+    func balanceSeriesIgnoresSameDayTransactionInputOrder() throws {
+        // The shared resolver stays unchanged: it accepts history.transactions
+        // in any order. Events are date-sorted by the existing comparator and
+        // every same-date point is replaced by the cumulative sum, so Decimal
+        // commutativity makes the base series — and the chart-only interest
+        // projection built on top of it — independent of the arrival order of
+        // same-day transactions.
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(
+            institution: "Order Bank",
+            type: .checking,
+            openedAt: date(year: 2026, month: 1, day: 1)
+        )
+        context.insert(account)
+        let opening = AccountBalanceSnapshot(
+            account: account,
+            date: date(year: 2026, month: 6, day: 1),
+            amount: 1_000,
+            kind: .manualOpening
+        )
+        context.insert(opening)
+        let sameDay = date(year: 2026, month: 6, day: 10)
+        let capture = Transaction(
+            account: account,
+            postedAt: date(year: 2026, month: 6, day: 16),
+            amount: 12,
+            descriptionRaw: "Manual interest capture"
+        )
+        let transactions = [
+            Transaction(account: account, postedAt: sameDay, amount: 25, descriptionRaw: "Midnight tie A"),
+            Transaction(account: account, postedAt: sameDay, amount: -5, descriptionRaw: "Midnight tie B"),
+            Transaction(account: account, postedAt: sameDay.addingTimeInterval(43_200), amount: 200, descriptionRaw: "Noon credit"),
+            Transaction(account: account, postedAt: sameDay.addingTimeInterval(61_200), amount: -50, descriptionRaw: "Evening debit"),
+            capture
+        ]
+        for transaction in transactions { context.insert(transaction) }
+        try context.save()
+
+        let anchor = AccountBalanceAnchor(date: opening.date, amount: opening.amount, source: .manualSnapshot(opening))
+        let chronological = AccountBalanceHistory(anchors: [anchor], transactions: transactions)
+        let reversedOrder = AccountBalanceHistory(anchors: [anchor], transactions: Array(transactions.reversed()))
+
+        let baseForward = AccountBalanceResolver.balanceSeries(account: account, history: chronological)
+        let baseReversed = AccountBalanceResolver.balanceSeries(account: account, history: reversedOrder)
+        #expect(pointsEqual(baseForward, baseReversed))
+        // Same-timestamp rows collapse into one cumulative point; different
+        // timestamps on the same day stay separate, ordered by the comparator.
+        #expect(baseForward.count == 5)
+        #expect(baseForward[1].month == sameDay && baseForward[1].balance == 1_020)
+        #expect(baseForward[3].month == sameDay.addingTimeInterval(61_200) && baseForward[3].balance == 1_170)
+        #expect(baseForward.last?.month == capture.postedAt && baseForward.last?.balance == 1_182)
+
+        let allocations = [
+            InterestDailyAllocation(
+                sourceTransactionIDs: [capture.id],
+                accountID: account.id,
+                currency: "MXN",
+                day: date(year: 2026, month: 6, day: 15),
+                amount: 6,
+                incomeAmount: 6,
+                sourceDate: capture.postedAt,
+                intervalStart: date(year: 2026, month: 6, day: 15),
+                intervalEnd: capture.postedAt,
+                originalAmount: 12,
+                originalIncomeAmount: 12,
+                kind: .estimated
+            ),
+            InterestDailyAllocation(
+                sourceTransactionIDs: [capture.id],
+                accountID: account.id,
+                currency: "MXN",
+                day: date(year: 2026, month: 6, day: 16),
+                amount: 6,
+                incomeAmount: 6,
+                sourceDate: capture.postedAt,
+                intervalStart: date(year: 2026, month: 6, day: 15),
+                intervalEnd: capture.postedAt,
+                originalAmount: 12,
+                originalIncomeAmount: 12,
+                kind: .estimated
+            )
+        ]
+        let chartForward = AccountBalanceResolver.balanceSeries(
+            account: account,
+            history: chronological,
+            manualInterestAllocations: allocations
+        )
+        let chartReversed = AccountBalanceResolver.balanceSeries(
+            account: account,
+            history: reversedOrder,
+            manualInterestAllocations: allocations
+        )
+        #expect(pointsEqual(chartForward, chartReversed))
+        // Pre-capture accrual day adds its allocation on top of the carried
+        // base; from the capture date the net adjustment returns to zero.
+        #expect(chartForward.count == 6)
+        #expect(chartForward[4].balance == 1_176)
+        #expect(chartForward.last?.month == capture.postedAt && chartForward.last?.balance == baseForward.last?.balance)
     }
 
     @Test("Dense chart buckets use narrower bars than sparse buckets")
@@ -831,6 +1531,62 @@ struct DashboardPeriodFilteringTests {
         #expect(sparse.barWidth > fullYear.barWidth)
     }
 
+    @Test("Dense daily bars fit a compact account chart")
+    func denseDailyBarsFitCompactAccountChart() {
+        let daily = DashboardGroupedBarLayout(
+            groupCount: 31,
+            availableWidth: 183,
+            showsFirstSeries: true,
+            showsSecondSeries: true
+        )
+
+        #expect(daily.intraGroupSpacing == 1)
+        #expect(daily.groupSpacing == 0)
+        #expect(daily.barWidth >= 2)
+        #expect(daily.contentWidth <= 183.1)
+    }
+
+    @Test("Dense daily axes keep readable labels at both ends")
+    func denseDailyAxisLabelsStayReadable() {
+        let indexes = DashboardGroupedBarAxisLabels.indexes(groupCount: 31, availableWidth: 183)
+
+        #expect(indexes == [0, 16, 30])
+    }
+
+    @Test("Isolated cash flow outlier does not flatten daily bars")
+    func isolatedCashFlowOutlierDoesNotFlattenDailyBars() {
+        let regularGroups = (0..<10).map { index in
+            let day = index + 1
+            return DashboardPeriodBarGroup(
+                id: date(year: 2026, month: 10, day: day),
+                bucketStart: date(year: 2026, month: 10, day: day),
+                label: "\(day) oct",
+                order: index,
+                firstMagnitude: 100,
+                secondMagnitude: 0,
+                isPlaceholder: false
+            )
+        }
+        let outlier = DashboardPeriodBarGroup(
+            id: date(year: 2026, month: 10, day: 11),
+            bucketStart: date(year: 2026, month: 10, day: 11),
+            label: "11 oct",
+            order: 10,
+            firstMagnitude: 100,
+            secondMagnitude: 1_000,
+            isPlaceholder: false
+        )
+
+        let scale = DashboardGroupedBarScale.resolve(
+            groups: regularGroups + [outlier],
+            showsFirstSeries: true,
+            showsSecondSeries: true
+        )
+
+        #expect(scale.truncatesOutliers)
+        #expect(scale.maximum == 200)
+    }
+
     @Test("Dashboard compact currency labels avoid scientific notation")
     func dashboardCompactCurrencyLabelsAvoidScientificNotation() {
         #expect(dashboardCompactAmount(0, code: "MXN") == "$0")
@@ -853,6 +1609,20 @@ struct DashboardPeriodFilteringTests {
         #expect(domain.lowerBound > 0)
         #expect(domain.lowerBound < 2_400_000)
         #expect(domain.upperBound > 2_600_000)
+    }
+
+    @Test("High balance chart leaves headroom for its top axis label")
+    func highBalanceChartLeavesAxisHeadroom() {
+        let points = [
+            NetWorthPoint(month: date(year: 2026, month: 10, day: 1), balance: 470_000),
+            NetWorthPoint(month: date(year: 2026, month: 10, day: 21), balance: 500_000)
+        ]
+
+        let domain = DashboardBalanceChartScale.domain(for: points)
+
+        #expect(domain.lowerBound < 470_000)
+        #expect(domain.upperBound > 500_000)
+        #expect(domain.upperBound < 510_000)
     }
 
     @Test("Equal balance chart domain gets readable padding")

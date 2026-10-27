@@ -31,6 +31,15 @@ struct TransactionDetailSheet: View {
     @State private var categoryTintTick = 0
     @State private var attributionError: String?
     @State private var pendingAttribution: (promotionID: UUID, isOn: Bool)?
+    @State private var propertyLedger = PropertyLedger()
+    @State private var propertySourceAtOpen: PropertyTransactionInput?
+    @State private var draftPropertyID: UUID?
+    @State private var draftPropertyKind: PropertyExpenseKind = .operation
+    @State private var draftPropertyResponsibility: PropertyCaptureResponsibility = .shared
+    @State private var draftPropertyResidentID: UUID?
+    @State private var draftSelectedPropertyResidents: Set<UUID> = []
+    @State private var draftMaintenanceProgramID: UUID?
+    @State private var propertySaveError: String?
 
     @State private var pendingKeyword: String?
     @State private var categoryDidChange = false
@@ -99,7 +108,15 @@ struct TransactionDetailSheet: View {
                 draftCustomFerAmount = (abs(displayAmount) / 2).currencyRounded
             }
         }
-        .task { promotionsModel.reload(context: modelContext, includeTransactions: false) }
+        .onChange(of: draftPropertyKind) {
+            if draftPropertyKind == .maintenance { draftPropertyResponsibility = .owner }
+        }
+        .onChange(of: draftPropertyID) { if draftPropertyID != nil { draftIncluded = false } }
+        .onChange(of: draftIncluded) { if draftIncluded { draftPropertyID = nil } }
+        .task {
+            promotionsModel.reload(context: modelContext, includeTransactions: false)
+            loadPropertyDraft()
+        }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
             promotionsModel.scheduleReload(context: modelContext, includeTransactions: false)
         }
@@ -224,6 +241,8 @@ struct TransactionDetailSheet: View {
             }
 
             if !isBalanceMirror {
+                propertyRows
+                panelDivider
                 categoryRow
                 panelDivider
             }
@@ -256,6 +275,119 @@ struct TransactionDetailSheet: View {
 
     private var selectablePromotions: [PromotionRecord] {
         PromotionBoard.selectablePromotions(ledger: promotionsModel.ledger, currency: transaction.currency)
+    }
+
+    private var propertyResidents: [PropertyResident] {
+        guard let draftPropertyID else { return [] }
+        return propertyLedger.residents(for: draftPropertyID, month: draftDate)
+    }
+
+    private var propertyMaintenancePrograms: [PropertyMaintenanceProgram] {
+        guard let draftPropertyID else { return [] }
+        return propertyLedger.maintenancePrograms.filter { $0.propertyID == draftPropertyID && $0.deletedAt == nil }
+    }
+
+    @ViewBuilder
+    private var propertyRows: some View {
+        if let propertySaveError {
+            Text(propertySaveError).font(.caption2).foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14)
+        }
+        editRow("Propiedad") {
+            Picker("Propiedad", selection: $draftPropertyID) {
+                Text("Sin propiedad").tag(UUID?.none)
+                if transaction.currency == "MXN" {
+                    ForEach(propertyLedger.activeProperties) { property in Text(property.name).tag(UUID?.some(property.id)) }
+                } else if let draftPropertyID,
+                          let property = propertyLedger.properties.first(where: { $0.id == draftPropertyID }) {
+                    Text("\(property.name) · solo lectura (\(transaction.currency))")
+                        .tag(UUID?.some(property.id))
+                }
+            }.labelsHidden().frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        if transaction.currency != "MXN", draftPropertyID != nil {
+            Label("Las liquidaciones de propiedades requieren MXN. Quita la atribución de este movimiento o registra su equivalente en una cuenta MXN.",
+                  systemImage: "exclamationmark.triangle")
+                .font(.caption2).foregroundStyle(.orange).padding(.horizontal, 14)
+        }
+        if draftPropertyID != nil, transaction.currency == "MXN" {
+            panelDivider
+            editRow(transaction.amount > 0 ? "Tipo de ingreso" : "Tipo de gasto") {
+                Picker(transaction.amount > 0 ? "Tipo de ingreso" : "Tipo de gasto", selection: $draftPropertyKind) {
+                    if transaction.amount > 0 {
+                        Text("Cobro de residente").tag(PropertyExpenseKind.operation)
+                        Text("Reembolso recibido").tag(PropertyExpenseKind.reimbursement)
+                    } else {
+                        Text("Operación").tag(PropertyExpenseKind.operation)
+                        Text("Mantenimiento").tag(PropertyExpenseKind.maintenance)
+                        Text("Otro").tag(PropertyExpenseKind.other)
+                    }
+                }.labelsHidden().frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            if transaction.amount < 0 {
+                panelDivider
+                editRow("Responsabilidad") {
+                    Picker("Responsabilidad", selection: $draftPropertyResponsibility) {
+                        Text("Compartido").tag(PropertyCaptureResponsibility.shared)
+                        Text("Individual").tag(PropertyCaptureResponsibility.individual)
+                        Text("Entre residentes elegidos").tag(PropertyCaptureResponsibility.selected)
+                        Text("Propietario").tag(PropertyCaptureResponsibility.owner)
+                    }.labelsHidden().frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                if draftPropertyResponsibility == .individual {
+                    panelDivider
+                    editRow("Residente") {
+                        Picker("Residente", selection: $draftPropertyResidentID) {
+                            Text("Elige").tag(UUID?.none)
+                            ForEach(propertyResidents) { Text($0.name).tag(UUID?.some($0.id)) }
+                        }.labelsHidden().frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+                if draftPropertyResponsibility == .selected {
+                    ForEach(propertyResidents) { resident in
+                        Toggle(resident.name, isOn: Binding(get: {
+                            draftSelectedPropertyResidents.contains(resident.id)
+                        }, set: { selected in
+                            if selected { draftSelectedPropertyResidents.insert(resident.id) }
+                            else { draftSelectedPropertyResidents.remove(resident.id) }
+                        })).padding(.horizontal, 14)
+                    }
+                }
+                if draftPropertyKind == .maintenance, !propertyMaintenancePrograms.isEmpty {
+                    panelDivider
+                    editRow("Programa") {
+                        Picker("Programa", selection: $draftMaintenanceProgramID) {
+                            Text("Sin programa").tag(UUID?.none)
+                            ForEach(propertyMaintenancePrograms) { program in
+                                Text("\(program.startsAt.formatted(.dateTime.month(.wide).year()))–\(program.endsAt.formatted(.dateTime.month(.wide).year()))")
+                                    .tag(UUID?.some(program.id))
+                            }
+                        }
+                        .labelsHidden().frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadPropertyDraft() {
+        propertySourceAtOpen = propertyInput(transaction)
+        do {
+            propertyLedger = try PropertyLedgerStore.read()
+            guard let attribution = propertyLedger.attributions.filter({
+                $0.transactionID == transaction.id && $0.deletedAt == nil
+            }).max(by: { $0.updatedAt < $1.updatedAt }) else { return }
+            draftPropertyID = attribution.propertyID
+            draftPropertyKind = transaction.amount > 0 && attribution.kind != .reimbursement
+                ? .operation : attribution.kind
+            draftMaintenanceProgramID = attribution.maintenanceProgramID
+            switch attribution.responsibility {
+            case .shared: draftPropertyResponsibility = .shared
+            case .owner: draftPropertyResponsibility = .owner
+            case .individual(let id): draftPropertyResponsibility = .individual; draftPropertyResidentID = id
+            case .selected(let ids): draftPropertyResponsibility = .selected; draftSelectedPropertyResidents = Set(ids)
+            }
+        } catch { propertySaveError = error.localizedDescription }
     }
 
     private var attributedPromotionIDs: Set<UUID> {
@@ -565,6 +697,8 @@ struct TransactionDetailSheet: View {
     }
 
     private func save() {
+        do { try validatePropertyDraft() }
+        catch { propertySaveError = error.localizedDescription; return }
         let isBalanceMirror = BalanceSnapshotService.mirroredSnapshot(for: transaction, context: modelContext) != nil
         // Capture before mutation: if the row leaves Fer, its due-date override is cleared.
         let previousAssignment = transaction.expenseAssignment
@@ -633,7 +767,18 @@ struct TransactionDetailSheet: View {
 
         transaction.touch()
         BalanceSnapshotService.syncMirroredSnapshot(for: transaction, context: modelContext)
-        try? modelContext.save()
+        do { try modelContext.save() }
+        catch {
+            propertySaveError = "No se pudieron guardar los cambios del movimiento: \(error.localizedDescription)"
+            return
+        }
+        if !isBalanceMirror {
+            do { try savePropertyAssociation(transaction) }
+            catch {
+                propertySaveError = "El movimiento se guardó, pero falló la asociación con la propiedad: \(error.localizedDescription)"
+                return
+            }
+        }
         // Reassigning away from Fer clears the due-date override (only meaningful for Fer).
         if draftIncluded, previousAssignment == .partner, draftExpenseAssignment != .partner {
             try? SettlementDueDateService.purge(for: [transaction.id], context: modelContext)
@@ -647,5 +792,78 @@ struct TransactionDetailSheet: View {
 
         onSaved?()
         dismiss()
+    }
+
+    private func propertyDraftResponsibility() throws -> PropertyResponsibility {
+        if transaction.amount > 0 { return .owner }
+        switch draftPropertyResponsibility {
+        case .shared: return .shared
+        case .owner: return .owner
+        case .individual:
+            guard let id = draftPropertyResidentID else { throw PropertyAssignmentService.AssignmentError.invalid("Choose an active member for this period.") }
+            return .individual(residentID: id)
+        case .selected:
+            return .selected(residentIDs: draftSelectedPropertyResidents.sorted { $0.uuidString < $1.uuidString })
+        }
+    }
+
+    private func validatePropertyDraft() throws {
+        let ledger = try PropertyLedgerStore.read()
+        let original = ledger.attributions.first { $0.transactionID == transaction.id && $0.deletedAt == nil }
+        let draftResponsibility = draftPropertyID != nil ? try propertyDraftResponsibility() : nil
+        if PropertyAssignmentService.isLocked(transaction.id, ledger: ledger) {
+            let associationChanged = draftPropertyID != original?.propertyID
+                || (draftPropertyID != nil && draftResponsibility != original?.responsibility)
+                || (draftPropertyID != nil && draftPropertyKind != original?.kind)
+            let householdChanged = draftIncluded != transaction.isIncludedInHouseholdSettlement
+                || (draftIncluded && (draftExpenseAssignment != transaction.expenseAssignment
+                    || (draftExpenseAssignment == .custom && draftCustomFerAmount != transaction.customPartnerPercent)))
+            if associationChanged || householdChanged {
+                throw PropertyAssignmentService.AssignmentError.invalid("This transaction belongs to a closed calculation. Record an adjustment in an open period.")
+            }
+        }
+        if let id = draftPropertyID {
+            try PropertyAssignmentService.validate(try propertyDraftResponsibility(), propertyID: id, month: draftDate, ledger: ledger)
+            var input = propertyInput(transaction)
+            input.isHouseholdAssigned = draftIncluded
+            guard PropertyAssignmentService.isAvailable(input, propertyID: id, ledger: ledger) else {
+                throw PropertyAssignmentService.AssignmentError.invalid("This transaction has another destination or is not eligible.")
+            }
+        }
+    }
+
+    private func propertyInput(_ transaction: Transaction) -> PropertyTransactionInput {
+        PropertyTransactionInput(capturing: transaction)
+    }
+
+    private func savePropertyAssociation(_ transaction: Transaction) throws {
+        var ledger = try PropertyLedgerStore.read()
+        let existingIndex = ledger.attributions.firstIndex { $0.transactionID == transaction.id && $0.deletedAt == nil }
+        // A financial-source correction may surface a discrepancy, but never rewrites a closed split.
+        if PropertyAssignmentService.isLocked(transaction.id, ledger: ledger) { return }
+        guard let draftPropertyID else {
+            guard let index = existingIndex else { return }
+            ledger.attributions[index].deletedAt = .now; ledger.attributions[index].updatedAt = .now
+            try PropertyLedgerStore.replace(with: ledger)
+            return
+        }
+        let responsibility = try propertyDraftResponsibility()
+        var proposed: PropertyTransactionAttribution
+        if let existingIndex { proposed = ledger.attributions[existingIndex] }
+        else { proposed = PropertyTransactionAttribution(propertyID: draftPropertyID, transactionID: transaction.id,
+            kind: draftPropertyKind, responsibility: responsibility) }
+        proposed.kind = draftPropertyKind
+        proposed.responsibility = try propertyDraftResponsibility()
+        proposed.maintenanceProgramID = draftMaintenanceProgramID
+        let source = propertyInput(transaction)
+        let sourceWasEdited = propertySourceAtOpen.map {
+            PropertySettlementCalculator.hasSourceChanged(amount: $0.amount, postedAt: $0.postedAt,
+                currencyCode: $0.currencyCode, description: $0.description, versus: source)
+        } ?? false
+        let previous = existingIndex.map { ledger.attributions[$0] }
+        let responsibilityOnly = !sourceWasEdited && previous?.kind == proposed.kind
+            && previous?.maintenanceProgramID == proposed.maintenanceProgramID
+        try PropertyAssignmentService.upsert(proposed, source: source, ledger: &ledger, responsibilityOnly: responsibilityOnly)
+        try PropertyLedgerStore.replace(with: ledger)
     }
 }

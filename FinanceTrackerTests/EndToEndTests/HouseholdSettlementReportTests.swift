@@ -1,7 +1,14 @@
+import AppKit
 import Foundation
 import SwiftData
+import SwiftUI
 import Testing
 @testable import FinanceTracker
+
+// `Transaction` is ambiguous once SwiftUI is imported (SwiftUI.Transaction),
+// so bind the app model for this file. Same convention as the qualified
+// `FinanceTracker.Category` uses below.
+private typealias Transaction = FinanceTracker.Transaction
 
 @Suite("Household Settlement Report")
 @MainActor
@@ -1037,5 +1044,315 @@ struct HouseholdSettlementReportTests {
             let resolved = SettlementDueDateService.activeDueDates(for: [tx.id], context: context)
             #expect(resolved[tx.id] != nil, "Identical-timestamp rows must resolve deterministically (active present)")
         }
+    }
+
+    // MARK: - Property workspace over SwiftData (moved from the former
+    // PropertyWorkspaceTests and PropertyMonthlyRefactorTests suites). These
+    // reuse this suite's makeContainer(); pure ledger tests live in
+    // PropertyManagementTests.
+
+    private enum SimulatedFailure: Error { case save }
+    private var november2026: Date { YearMonth(year: 2026, month: 11).startDate }
+    private var march2026: Date { YearMonth(year: 2026, month: 3).startDate }
+    private func workspaceLedgerURL() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("property-workspace-\(UUID()).json")
+    }
+
+    @Test("Switching homes, sections, and income assumptions reuses one period fetch")
+    func periodCache() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Banco de prueba", type: .checking)
+        context.insert(account)
+        let tx = Transaction(account: account, postedAt: november2026, amount: -500, descriptionRaw: "Gasto compartido")
+        tx.setHouseholdScope(.included)
+        tx.setExpenseAssignment(.shared)
+        context.insert(tx)
+        try context.save()
+        let workspace = PropertyWorkspaceModel(month: november2026, asOf: .distantFuture)
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.refreshPeriod()
+        #expect(workspace.transactionFetchCount == 1)
+        #expect(workspace.householdReport?.totalSharedExpenses == 500)
+        workspace.destination = .household
+        workspace.section = .configuration
+        workspace.updateHouseholdSetup(HouseholdSettlementSetup(partnerIncomeEstimate: 1_000,
+            useUserIncomeManualOverride: true, userIncomeManualOverride: 1_000))
+        await workspace.refreshPeriod()
+        workspace.destination = .allHomes
+        await workspace.refreshPeriod()
+        #expect(workspace.transactionFetchCount == 1)
+        #expect(workspace.householdReport?.amountToRecoverFromPartner == 250)
+        workspace.shiftMonth(1)
+        await workspace.refreshPeriod()
+        #expect(workspace.transactionFetchCount == 2)
+        #expect(workspace.householdReport?.totalSharedExpenses == 0)
+    }
+
+    @Test("The unified query retains historical Fer due dates and linked property sources")
+    func historicalSourcesAndDueDates() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Banco de prueba", type: .checking)
+        context.insert(account)
+        let oldMonth = YearMonth(year: 2026, month: 10).startDate
+        let tx = Transaction(account: account, postedAt: oldMonth, amount: -600, descriptionRaw: "Compra anterior")
+        tx.setHouseholdScope(.included)
+        tx.setExpenseAssignment(.partner)
+        context.insert(tx)
+        context.insert(SettlementDueDateOverride(transactionID: tx.id, dueDate: november2026))
+        let propertyTx = Transaction(account: account, postedAt: oldMonth, amount: -800, descriptionRaw: "Reparación anterior")
+        context.insert(propertyTx)
+        try context.save()
+        let property = PropertyRecord(name: "Casa norte")
+        var ledger = PropertyLedger()
+        ledger.properties = [property]
+        ledger.attributions = [.init(propertyID: property.id, transactionID: propertyTx.id,
+            kind: .maintenance, responsibility: .owner)]
+        ledger.attributions.append(.init(propertyID: property.id, transactionID: UUID(),
+            kind: .maintenance, responsibility: .owner))
+        let workspace = PropertyWorkspaceModel(month: november2026, asOf: .distantFuture)
+        workspace.applyLedger(ledger)
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.refreshPeriod()
+        #expect(workspace.transactionFetchCount == 1)
+        #expect(workspace.transactionInputs.contains { $0.id == propertyTx.id })
+        #expect(workspace.householdReport?.amountToRecoverFromPartner == 600)
+        #expect(workspace.householdReport?.totalPaidByUser == 0)
+        let presentation = try #require(workspace.householdReport.map(PropertyPresentationAdapter.household))
+        #expect(presentation.metrics.first?.amount == 0)
+        #expect(presentation.people.last?.amount == 600)
+        workspace.applyLedger(ledger)
+        await workspace.refreshPeriod()
+        #expect(workspace.transactionFetchCount == 1, "Known missing sources must not invalidate an unchanged input set")
+    }
+
+    @Test("No-account startup never materializes transaction rows")
+    func emptyAccounts() async throws {
+        let container = try makeContainer()
+        let workspace = PropertyWorkspaceModel(month: november2026, asOf: .distantFuture)
+        workspace.configure(context: container.mainContext, hasAccounts: false)
+        await workspace.refreshPeriod()
+        #expect(workspace.transactionFetchCount == 0)
+        #expect(workspace.householdReport?.totalPaidByUser == 0)
+    }
+
+    @Test("Failed income inserts and updates cannot leak into later shared-context saves")
+    func isolatedSetupFailure() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        context.autosaveEnabled = false
+        let unrelated = Account(institution: "Pendiente sin guardar", type: .checking)
+        context.insert(unrelated)
+        let original = HouseholdSettlementSetup(partnerIncomeEstimate: 500)
+        #expect(throws: SimulatedFailure.self) {
+            try HouseholdWorkspacePersistence.save(original, month: november2026, container: container,
+                commit: { _ in throw SimulatedFailure.save })
+        }
+        #expect(try HouseholdWorkspacePersistence.read(month: november2026, container: container).partnerIncomeEstimate == 0)
+        #expect(context.hasChanges)
+        try HouseholdWorkspacePersistence.save(original, month: november2026, container: container)
+        #expect(throws: SimulatedFailure.self) {
+            try HouseholdWorkspacePersistence.save(HouseholdSettlementSetup(partnerIncomeEstimate: 900),
+                month: november2026, container: container, commit: { _ in throw SimulatedFailure.save })
+        }
+        try context.save()
+        #expect(try HouseholdWorkspacePersistence.read(month: november2026, container: container).partnerIncomeEstimate == 500)
+        #expect(try context.fetch(FetchDescriptor<Account>()).contains { $0.id == unrelated.id })
+    }
+
+    @Test("Retry invalidates a previously successful period cache")
+    func retryRefreshesExternalChanges() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Banco de prueba", type: .checking)
+        context.insert(account)
+        try context.save()
+        let workspace = PropertyWorkspaceModel(month: november2026, asOf: .distantFuture, readLedger: { _ in PropertyLedger() })
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.refreshPeriod()
+        let revision = workspace.inputRevision
+        let tx = Transaction(account: account, postedAt: november2026, amount: -700, descriptionRaw: "Nuevo gasto")
+        tx.setHouseholdScope(.included)
+        tx.setExpenseAssignment(.partner)
+        context.insert(tx)
+        try context.save()
+        await workspace.retry()
+        #expect(workspace.transactionFetchCount == 2)
+        #expect(workspace.inputRevision > revision)
+        #expect(workspace.householdReport?.amountToRecoverFromPartner == 700)
+    }
+
+    @Test("Failed period reads never expose a previous report under a new month")
+    func failedMonthDoesNotExposePreviousReport() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Banco de prueba", type: .checking)
+        context.insert(account)
+        try context.save()
+        let property = PropertyRecord(name: "Casa norte")
+        var ledger = PropertyLedger()
+        ledger.properties = [property]
+        ledger.rents = [.init(propertyID: property.id, monthlyAmount: 3_000, effectiveMonth: november2026)]
+        var fail = false
+        let workspace = PropertyWorkspaceModel(month: november2026, asOf: .distantFuture, readLedger: { _ in PropertyLedger() },
+            fetchTransactions: { context, descriptor in
+                if fail { throw SimulatedFailure.save }
+                return try context.fetch(descriptor)
+            })
+        workspace.applyLedger(ledger)
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.refreshPeriod()
+        #expect(workspace.reports[property.id]?.rent == 3_000)
+        fail = true
+        workspace.shiftMonth(1)
+        await workspace.refreshPeriod()
+        #expect(!workspace.periodReady)
+        #expect(workspace.reports.isEmpty)
+        #expect(workspace.householdReport == nil)
+        #expect(workspace.error != nil)
+        workspace.configure(context: context, hasAccounts: false)
+        await workspace.refreshPeriod(force: true)
+        #expect(workspace.periodReady)
+        #expect(workspace.error == nil)
+    }
+
+    @Test("No-account refresh preserves persisted assumptions and abandoning an invalid draft restores them")
+    func persistedSetupWithoutAccounts() async throws {
+        let container = try makeContainer()
+        let saved = HouseholdSettlementSetup(partnerIncomeEstimate: 850, splitMethod: .customPercent,
+            customUserPercent: 50, customPartnerPercent: 50)
+        try HouseholdWorkspacePersistence.save(saved, month: november2026, container: container)
+        let workspace = PropertyWorkspaceModel(month: november2026, asOf: .distantFuture)
+        workspace.configure(context: container.mainContext, hasAccounts: false)
+        await workspace.refreshPeriod()
+        #expect(workspace.householdSetup == saved)
+        #expect(workspace.transactionFetchCount == 0)
+        workspace.updateHouseholdSetup(HouseholdSettlementSetup(partnerIncomeEstimate: 850,
+            splitMethod: .customPercent, customUserPercent: 60, customPartnerPercent: 50))
+        workspace.discardHouseholdDraft()
+        #expect(workspace.householdSetup == saved)
+        #expect(workspace.persistedHouseholdSetup == saved)
+    }
+
+    @Test("Overlapping month changes publish only the last requested period")
+    func overlappingMonthChanges() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Banco de prueba", type: .checking)
+        context.insert(account)
+        for index in 0..<200 {
+            context.insert(Transaction(account: account, postedAt: november2026, amount: -10,
+                descriptionRaw: "Gasto \(index)"))
+        }
+        try context.save()
+        let workspace = PropertyWorkspaceModel(month: november2026, asOf: .distantFuture)
+        workspace.configure(context: context, hasAccounts: true)
+        let first = Task { await workspace.refreshPeriod() }
+        await Task.yield()
+        workspace.shiftMonth(1)
+        await workspace.refreshPeriod()
+        await first.value
+        #expect(workspace.periodReady)
+        #expect(workspace.householdReport?.monthStart == YearMonth(year: 2026, month: 12).startDate)
+        #expect(workspace.transactionInputs.isEmpty)
+    }
+
+    @Test("Representative workspace loads 1,000 expenses and draws its shared summary")
+    func representativeWorkspacePerformance() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Banco de prueba", type: .checking)
+        context.insert(account)
+        let property = PropertyRecord(name: "Casa norte")
+        var ledger = PropertyLedger()
+        ledger.properties = [property]
+        for index in 0..<3 {
+            let resident = PropertyResident(propertyID: property.id, name: "Residente \(index + 1)",
+                activeFrom: november2026, referenceMonthlyIncome: 1_000)
+            ledger.residents.append(resident)
+            ledger.incomes.append(PropertyIncome(propertyID: property.id, residentID: resident.id,
+                monthStart: november2026, amount: 1_000, confirmedAt: november2026))
+        }
+        for index in 0..<1_000 {
+            let tx = Transaction(account: account, postedAt: november2026, amount: -10,
+                descriptionRaw: "Gasto de prueba \(index)")
+            context.insert(tx)
+            ledger.attributions.append(PropertyTransactionAttribution(propertyID: property.id,
+                transactionID: tx.id, kind: .operation, responsibility: .shared))
+        }
+        try context.save()
+        let workspace = PropertyWorkspaceModel(month: november2026, asOf: .distantFuture)
+        workspace.applyLedger(ledger)
+        workspace.configure(context: context, hasAccounts: true)
+        let start = ContinuousClock.now
+        await workspace.refreshPeriod()
+        let loaded = ContinuousClock.now
+        let report = try #require(workspace.reports[property.id])
+        #expect(report.expenses == 10_000)
+        let view = NSHostingView(rootView: PropertySummaryPanel(
+            presentation: PropertyPresentationAdapter.property(report), onOpenSettlement: {}))
+        view.frame = NSRect(x: 0, y: 0, width: 780, height: 700)
+        view.layoutSubtreeIfNeeded()
+        if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+        }
+        let drawn = ContinuousClock.now
+        workspace.destination = .property(property.id)
+        workspace.section = .configuration
+        workspace.section = .month
+        await workspace.refreshPeriod()
+        #expect(workspace.transactionFetchCount == 1)
+        print("PROPERTY_WORKSPACE_PERF: 1000 expenses; query/reports \(start.duration(to: loaded)); first offscreen summary layout/draw \(loaded.duration(to: drawn))")
+    }
+
+    @Test("Confirmed zero survives reopen; edits invalidate confirmation without writing legacy setup")
+    func householdConfirmationAuthority() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        try HouseholdWorkspacePersistence.save(HouseholdSettlementSetup(partnerIncomeEstimate: 900), month: march2026, container: container)
+        let url = workspaceLedgerURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let workspace = PropertyWorkspaceModel(month: march2026, fileURL: url)
+        workspace.configure(context: context, hasAccounts: false)
+        await workspace.loadLedger(); await workspace.refreshPeriod()
+        workspace.destination = .household
+        let member = PropertyHouseholdAdapter.link.partnerID
+        #expect(workspace.saveMonthlyIncome(residentID: member, amount: 0, confirmed: true, month: march2026))
+        #expect(workspace.householdMonth(march2026)?.partnerConfirmedAt != nil)
+        #expect(workspace.householdSetup.partnerIncomeEstimate == 0)
+        #expect(try HouseholdWorkspacePersistence.read(month: march2026, container: container).partnerIncomeEstimate == 900)
+        #expect(workspace.saveMonthlyIncome(residentID: member, amount: 1250, confirmed: false, month: march2026))
+        #expect(workspace.householdMonth(march2026)?.partnerConfirmedAt == nil)
+        #expect(workspace.saveMonthlyIncome(residentID: member, amount: 1250, confirmed: true, month: march2026))
+        let reopened = PropertyWorkspaceModel(month: march2026, fileURL: url)
+        reopened.configure(context: context, hasAccounts: false)
+        await reopened.loadLedger(); await reopened.refreshPeriod()
+        #expect(reopened.householdSetup.partnerIncomeEstimate == 1250)
+        #expect(reopened.householdMonth(march2026)?.partnerConfirmedAt != nil)
+        #expect(reopened.properties.isEmpty) // household remains one sidebar entry
+    }
+
+    @Test("Household adapter retains exact split and recognizes direct user expenses once")
+    func householdReconciliation() async throws {
+        let container = try makeContainer(); let context = container.mainContext
+        let account = Account(institution: "Pruebas", type: .checking); context.insert(account)
+        let expense = Transaction(account: account, postedAt: march2026, amount: -1000, descriptionRaw: "Gasto compartido")
+        expense.setHouseholdScope(.included); expense.setExpenseAssignment(.shared); context.insert(expense)
+        try context.save()
+        let url = workspaceLedgerURL(); defer { try? FileManager.default.removeItem(at: url) }
+        let workspace = PropertyWorkspaceModel(month: march2026, fileURL: url)
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.loadLedger(); await workspace.refreshPeriod(); workspace.destination = .household
+        let link = PropertyHouseholdAdapter.link
+        #expect(workspace.saveMonthlyIncome(residentID: link.userID, amount: 1000, confirmed: true, month: march2026))
+        #expect(workspace.saveMonthlyIncome(residentID: link.partnerID, amount: 1000, confirmed: true, month: march2026))
+        let original = try #require(workspace.householdReport)
+        let report = try #require(workspace.householdMonthlyReport)
+        #expect(original.amountToRecoverFromPartner == 500)
+        #expect(report.residents.first { $0.id == link.userID }?.balance == 0)
+        #expect(report.residents.first { $0.id == link.partnerID }?.balance == original.amountToRecoverFromPartner)
+        #expect(report.canClose)
+        #expect(report.expenses == original.totalPaidByUser)
+        #expect(workspace.transactionFetchCount == 1)
     }
 }

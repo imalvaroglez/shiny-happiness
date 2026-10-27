@@ -61,6 +61,7 @@ private enum SettingsPane: String, Hashable {
 
 struct SettingsView: View {
     var onAccountDeleted: (UUID) -> Void = { _ in }
+    var onAccountArchived: (UUID) -> Void = { _ in }
     var onAccountCreated: (Account) -> Void = { _ in }
     var onDataReset: () -> Void = {}
     var onSpendRequirementChanged: () -> Void = {}
@@ -84,6 +85,7 @@ struct SettingsView: View {
     @State private var tokenStatusMessage: String?
 
     @State private var accountDeletionTarget: AccountDeletionTarget?
+    @State private var accountActionError: String?
     @State private var showingAddAccount = false
     @State private var balanceSnapshotAccount: Account?
     @State private var positionsAccount: Account?
@@ -216,6 +218,14 @@ struct SettingsView: View {
         } message: {
             Text(resetErrorMessage ?? "An unknown error occurred.")
         }
+        .alert("Account Error", isPresented: Binding(
+            get: { accountActionError != nil },
+            set: { if !$0 { accountActionError = nil } }
+        )) {
+            Button("OK") { accountActionError = nil }
+        } message: {
+            Text(accountActionError ?? "The account change could not be saved.")
+        }
         .alert("Restore backup?", isPresented: $showingRestoreConfirmation) {
             Button("Cancel", role: .cancel) {
                 pendingRestore = nil
@@ -297,35 +307,71 @@ struct SettingsView: View {
     }
 
     private var accountsSection: some View {
-        SectionCard(title: "Accounts") {
-            VStack(spacing: 0) {
-                HStack {
-                    Text(accounts.isEmpty ? "Create your first account manually or import a statement." : "Manage account details and manual balance snapshots.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
-                        showingAddAccount = true
-                    } label: {
-                        Label("Add Account", systemImage: "plus")
+        VStack(spacing: 16) {
+            SectionCard(title: "Accounts") {
+                let activeAccounts = AccountArchiveService.activeAccounts(from: accounts)
+                VStack(spacing: 0) {
+                    HStack {
+                        Text(activeAccounts.isEmpty
+                             ? "No active accounts. Add an account or restore one from the archived list."
+                             : "Manage account details and manual balance snapshots.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            showingAddAccount = true
+                        } label: {
+                            Label("Add Account", systemImage: "plus")
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
 
-                if !accounts.isEmpty {
-                    Divider().padding(.leading, 16)
-                    AccountRowsView(
-                        accounts: accounts,
-                        refreshToken: accountSettingsRefreshToken,
-                        onSpendRequirementChanged: onSpendRequirementChanged,
-                        onEditPositions: { positionsAccount = $0 },
-                        onAddBalanceSnapshot: { balanceSnapshotAccount = $0 },
+                    if !activeAccounts.isEmpty {
+                        Divider().padding(.leading, 16)
+                        AccountRowsView(
+                            accounts: activeAccounts,
+                            refreshToken: accountSettingsRefreshToken,
+                            onSpendRequirementChanged: onSpendRequirementChanged,
+                            onEditPositions: { positionsAccount = $0 },
+                            onAddBalanceSnapshot: { balanceSnapshotAccount = $0 },
+                            onArchive: archiveAccount,
+                            onDelete: requestAccountDeletion
+                        )
+                    }
+                }
+            }
+
+            let archivedAccounts = AccountArchiveService.archivedAccounts(from: accounts)
+            if !archivedAccounts.isEmpty {
+                SectionCard(title: "Archived Accounts") {
+                    ArchivedAccountRowsView(
+                        accounts: archivedAccounts,
+                        onRestore: restoreAccount,
                         onDelete: requestAccountDeletion
                     )
                 }
             }
+        }
+    }
+
+    private func archiveAccount(_ account: Account) {
+        do {
+            try AccountArchiveService.archive(account: account, context: modelContext)
+            accountActionError = nil
+            onAccountArchived(account.id)
+        } catch {
+            accountActionError = "Could not archive \(account.displayName): \(error.localizedDescription)"
+        }
+    }
+
+    private func restoreAccount(_ account: Account) {
+        do {
+            try AccountArchiveService.restore(account: account, context: modelContext)
+            accountActionError = nil
+        } catch {
+            accountActionError = "Could not restore \(account.displayName): \(error.localizedDescription)"
         }
     }
 
@@ -1064,6 +1110,7 @@ private struct AccountRowsView: View {
     let onSpendRequirementChanged: () -> Void
     let onEditPositions: (Account) -> Void
     let onAddBalanceSnapshot: (Account) -> Void
+    let onArchive: (Account) -> Void
     let onDelete: (Account) -> Void
 
     @State private var accountStates: [UUID: SettingsAccountState] = [:]
@@ -1080,6 +1127,7 @@ private struct AccountRowsView: View {
                     onSpendRequirementChanged: onSpendRequirementChanged,
                     onEditPositions: { onEditPositions(account) },
                     onAddBalanceSnapshot: { onAddBalanceSnapshot(account) },
+                    onArchive: { onArchive(account) },
                     onDelete: { onDelete(account) }
                 )
                 if index < accounts.count - 1 {
@@ -1106,6 +1154,48 @@ private struct AccountRowsView: View {
     }
 }
 
+private struct ArchivedAccountRowsView: View {
+    let accounts: [Account]
+    let onRestore: (Account) -> Void
+    let onDelete: (Account) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(account.displayName)
+                            .font(.callout.weight(.medium))
+                        Text("\(account.type.displayName) · \(account.currency) · \(String(localized: "Archived"))")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        onRestore(account)
+                    } label: {
+                        Label("Restore", systemImage: "arrow.uturn.backward")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(role: .destructive) {
+                        onDelete(account)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                if index < accounts.count - 1 {
+                    Divider().padding(.leading, 16)
+                }
+            }
+        }
+    }
+}
+
 private struct AccountEditorRow: View {
     let accounts: [Account]
     let account: Account
@@ -1114,6 +1204,7 @@ private struct AccountEditorRow: View {
     let onSpendRequirementChanged: () -> Void
     let onEditPositions: () -> Void
     let onAddBalanceSnapshot: () -> Void
+    let onArchive: () -> Void
     let onDelete: () -> Void
 
     @State private var showingSpendRequirementEditor = false
@@ -1245,6 +1336,11 @@ private struct AccountEditorRow: View {
                         .font(.caption)
                 }
 
+                Button(action: onArchive) {
+                    Label("Archive Account", systemImage: "archivebox")
+                        .font(.caption)
+                }
+
                 Button(role: .destructive, action: onDelete) {
                     Label("Delete Account", systemImage: "trash")
                         .font(.caption)
@@ -1348,6 +1444,7 @@ private struct DataHealthLoadedSection: View {
         for account in accounts {
             hasher.combine(account.id)
             hasher.combine(account.closedAt)
+            hasher.combine(account.archivedAt)
             hasher.combine(account.currency)
         }
         hasher.combine(refreshToken)
@@ -1363,7 +1460,7 @@ private struct DataHealthSummaryPanel: View {
         SectionCard(title: "Your data") {
             VStack(alignment: .leading, spacing: 12) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                    DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed accounts excluded")
+                    DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed and archived accounts excluded")
                     DataHealthCard(label: "History", value: historyValue, detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet")
                     DataHealthCard(label: "Último movimiento", value: summary.lastActivity?.formattedMX() ?? "—", detail: summary.lastActivity == nil ? "Aún no hay actividad" : "movimiento activo más reciente")
                     DataHealthCard(label: "Needs attention", value: "\(summary.unresolvedPendingCount)", detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports", tint: summary.unresolvedPendingCount == 0 ? .green : .orange)
@@ -2055,7 +2152,7 @@ private struct DataHealthPreviewPanel: View {
     var body: some View {
         SectionCard(title: "Your data") {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed accounts excluded")
+                DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed and archived accounts excluded")
                 DataHealthCard(label: "History", value: historyValue, detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet")
                 DataHealthCard(label: "Último movimiento", value: summary.lastActivity?.formattedMX() ?? "—", detail: summary.lastActivity == nil ? "Aún no hay actividad" : "movimiento activo más reciente")
                 DataHealthCard(label: "Needs attention", value: "\(summary.unresolvedPendingCount)", detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports", tint: summary.unresolvedPendingCount == 0 ? .green : .orange)

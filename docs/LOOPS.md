@@ -545,7 +545,7 @@ at `…/Application Support/FinanceTracker/Backups/`.)
 **Real backup mechanism:** `.ftbackup` folder bundles written by
 `BackupScheduler` (24h gate on launch; retention 7 daily / 4 weekly / 12
 monthly) and by manual export from Settings. Format: `Info.plist` +
-`manifest.json` (`schemaVersion: Int`, currently 9) + `models/*.json` +
+`manifest.json` (`schemaVersion: Int`, currently 14) + `models/*.json` +
 `statements/*`. Restore strategies: `replaceAll`, `mergeKeepingNewer`.
 
 Before installing a release that reads or writes user data:

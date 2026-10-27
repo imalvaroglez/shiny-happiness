@@ -25,6 +25,7 @@ struct AccountSnapshot: Codable {
     var accountNumber: String?
     var openedAt: Date
     var closedAt: Date?
+    var archivedAt: Date?
     var creditLimit: Decimal?
     var statementDayOfMonth: Int?
     var paymentDayOfMonth: Int?

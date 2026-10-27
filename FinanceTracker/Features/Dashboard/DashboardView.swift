@@ -22,13 +22,19 @@ struct DashboardView: View {
     @State private var dataResetGeneration = 0
     @State private var pendingTransactionPreset: TransactionFilterPreset?
     @State private var transactionSession = TransactionSessionState()
+    @State private var propertyWorkspace = PropertyWorkspaceModel()
+    @AppStorage("sidebarPropertiesExpanded") private var sidebarPropertiesExpanded = true
 
     @Query private var accounts: [Account]
     @AppStorage("sidebarAccountSort") private var sidebarAccountSort = "nickname"
     @AppStorage("sidebarAccountsExpanded") private var sidebarAccountsExpanded = true
 
+    private var activeAccounts: [Account] {
+        accounts.filter { $0.archivedAt == nil }
+    }
+
     private var sortedAccounts: [Account] {
-        accounts.sorted {
+        activeAccounts.sorted {
             if sidebarAccountSort == "institution" {
                 return ($0.institution, $0.nickname) < ($1.institution, $1.nickname)
             }
@@ -43,12 +49,25 @@ struct DashboardView: View {
         case overview
         case account(UUID)
         case transactions
-        case householdSettlement
+        case properties(PropertyDestination)
         case importStatements
         case settings
     }
 
-    @State private var sidebarSelection: SidebarSelection = .overview
+    // The root stores which feature is active; the workspace owns the property destination.
+    @State private var rootSelection: SidebarSelection = .overview
+    private var sidebarSelection: SidebarSelection {
+        get {
+            if case .properties = rootSelection { return .properties(propertyWorkspace.destination) }
+            return rootSelection
+        }
+        nonmutating set {
+            if case .properties(let destination) = newValue {
+                propertyWorkspace.destination = destination
+                rootSelection = .properties(.allHomes)
+            } else { rootSelection = newValue }
+        }
+    }
 
     /// Identity color of the currently scoped account, used by glass cards
     /// (specular tint), the sidebar selection highlight, and chart plot-area
@@ -68,6 +87,7 @@ struct DashboardView: View {
         NavigationSplitView {
             sidebar
                 .navigationTitle("FinanceTracker")
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
         } detail: {
             detailPane
         }
@@ -101,18 +121,32 @@ struct DashboardView: View {
             HouseholdAllocationRepairService.repairIfNeeded(context: modelContext)
             viewModel.setPeriod(selectedRange)
             viewModel.configure(context: modelContext)
+            propertyWorkspace.configure(context: modelContext, hasAccounts: !accounts.isEmpty)
+            await propertyWorkspace.loadLedger()
             await BackupScheduler.runIfNeeded(context: modelContext)
         }
-        .onChange(of: sidebarSelection) {
-            switch sidebarSelection {
+        .onChange(of: sidebarSelection) { previous, selection in
+            switch selection {
             case .overview:
                 viewModel.scope = .consolidated
                 viewModel.refresh()
             case .account(let id):
                 viewModel.scope = .account(id)
                 viewModel.refresh()
+            case .properties:
+                propertyWorkspace.configure(context: modelContext, hasAccounts: !accounts.isEmpty)
+                Task {
+                    if case .properties = previous { await propertyWorkspace.refreshPeriod() }
+                    else { await propertyWorkspace.refreshPeriod(force: true) }
+                }
             default:
                 break
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PropertyLedgerStore.didChangeNotification)) { _ in
+            Task {
+                await propertyWorkspace.loadLedger()
+                if case .properties = sidebarSelection { await propertyWorkspace.refreshPeriod() }
             }
         }
         .onChange(of: selectedRange) {
@@ -123,11 +157,16 @@ struct DashboardView: View {
                 viewModel.refresh()
             }
         }
-        .onChange(of: accounts.map(\.id)) {
+        .onChange(of: accounts.map { "\($0.id.uuidString):\($0.archivedAt?.timeIntervalSince1970 ?? 0)" }) {
             validateAccountSelection()
+            propertyWorkspace.configure(context: modelContext, hasAccounts: !accounts.isEmpty)
+            if case .properties = sidebarSelection { Task { await propertyWorkspace.refreshPeriod(force: true) } }
         }
         .onChange(of: scenePhase) {
-            if scenePhase == .active { viewModel.refreshForCalendarChange() }
+            if scenePhase == .active {
+                viewModel.refreshForCalendarChange()
+                if case .properties = sidebarSelection { Task { await propertyWorkspace.refreshPeriod(force: true) } }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             if scenePhase == .active { viewModel.refreshForCalendarChange() }
@@ -173,73 +212,43 @@ struct DashboardView: View {
     // MARK: - Sidebar
 
     private var sidebar: some View {
-        List(selection: $sidebarSelection) {
+        List(selection: Binding(get: { sidebarSelection }, set: { sidebarSelection = $0 })) {
             Label("Overview", systemImage: "chart.pie")
                 .tag(SidebarSelection.overview)
 
-            Section {
-                if accounts.isEmpty {
-                    Text("No accounts yet")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if sidebarAccountsExpanded {
-                    ForEach(sortedAccounts) { account in
-                        AccountSidebarRow(account: account, scopedViewModel: viewModel)
-                            .tag(SidebarSelection.account(account.id))
-                    }
+            SidebarDestinationGroup(title: "Accounts", isExpanded: $sidebarAccountsExpanded) {
+                if activeAccounts.isEmpty {
+                    Text("No accounts yet").font(.caption).foregroundStyle(.secondary)
                 }
-            } header: {
-                HStack {
-                    Button {
-                        withAnimation {
-                            sidebarAccountsExpanded.toggle()
-                        }
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .rotationEffect(.degrees(sidebarAccountsExpanded ? 90 : 0))
-                    }
-                    .buttonStyle(.plain)
-                    .help(sidebarAccountsExpanded ? "Collapse accounts" : "Expand accounts")
-                    Text("Accounts")
-                    Spacer()
-                    Button {
-                        showingAddAccount = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.plain)
-                    .help("Add account")
-                    Menu {
-                        ForEach([("nickname", "Account name"), ("institution", "Institution"), ("type", "Type")], id: \.0) { key, label in
-                            Button {
-                                sidebarAccountSort = key
-                            } label: {
-                                if sidebarAccountSort == key {
-                                    Label(label, systemImage: "checkmark")
-                                } else {
-                                    Text(label)
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .frame(width: 18)
-                    .fixedSize()
-                    .help("Sort accounts")
+                ForEach(sortedAccounts) { account in
+                    AccountSidebarRow(account: account)
+                        .tag(SidebarSelection.account(account.id))
                 }
-                .padding(.trailing, 16)
             }
-
-
+            .contextMenu {
+                ForEach([("nickname", "Account name"), ("institution", "Institution"), ("type", "Type")], id: \.0) { key, label in
+                    Button { sidebarAccountSort = key } label: {
+                        Label(label, systemImage: sidebarAccountSort == key ? "checkmark" : "arrow.up.arrow.down")
+                    }
+                }
+            }
+            SidebarDestinationGroup(title: "Properties", isExpanded: $sidebarPropertiesExpanded) {
+                    Label("All homes", systemImage: "square.grid.2x2")
+                        .tag(SidebarSelection.properties(.allHomes))
+                        .accessibilityIdentifier("properties.allHomes")
+                    Label(PropertyDestination.householdName, systemImage: "house")
+                        .tag(SidebarSelection.properties(.household))
+                        .accessibilityIdentifier("properties.householdHome")
+                    ForEach(propertyWorkspace.properties) { property in
+                        Label(property.name, systemImage: "house")
+                            .tag(SidebarSelection.properties(.property(property.id)))
+                            .accessibilityIdentifier("properties.home.\(property.id.uuidString)")
+                    }
+            }
+            .accessibilityIdentifier("properties.sidebar.item")
             Section {
                 Label("Transactions", systemImage: "list.bullet")
                     .tag(SidebarSelection.transactions)
-                Label("Household Settlement", systemImage: "house")
-                    .accessibilityIdentifier("household.sidebar.item")
-                    .tag(SidebarSelection.householdSettlement)
                 Label("Import Statements", systemImage: "doc.badge.plus")
                     .tag(SidebarSelection.importStatements)
                 Label("Settings", systemImage: "gearshape")
@@ -263,8 +272,8 @@ struct DashboardView: View {
                 onPresetConsumed: { _ in pendingTransactionPreset = nil },
                 sessionState: $transactionSession
             )
-        case .householdSettlement:
-            HouseholdSettlementView(onReviewTransactions: { month in
+        case .properties:
+            PropertiesView(workspace: propertyWorkspace, onReviewHouseholdTransactions: { month in
                 pendingTransactionPreset = TransactionFilterPreset(
                     month: month,
                     inclusion: .notIncluded
@@ -281,6 +290,13 @@ struct DashboardView: View {
                     viewModel.scope = .consolidated
                 }
                 viewModel.reloadSpendRequirements(context: modelContext)
+            }, onAccountArchived: { id in
+                balanceSnapshotAccount = nil
+                if case .account(let selectedID) = sidebarSelection, selectedID == id {
+                    sidebarSelection = .overview
+                    viewModel.scope = .consolidated
+                    viewModel.refresh()
+                }
             }, onAccountCreated: { account in
                 viewModel.reloadSpendRequirements(context: modelContext)
                 viewModel.refresh()
@@ -312,6 +328,10 @@ struct DashboardView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    Button { showingAddAccount = true } label: {
+                        Label("Add account", systemImage: "creditcard")
+                    }
+                    Divider()
                     if let account = selectedAccount {
                         if !selectedAccountInPortfolioMode {
                             Button {
@@ -388,7 +408,7 @@ struct DashboardView: View {
 
     private var selectedAccount: Account? {
         guard case .account(let id) = sidebarSelection else { return nil }
-        return accounts.first { $0.id == id }
+        return activeAccounts.first { $0.id == id }
     }
 
     private var selectedAccountInPortfolioMode: Bool {
@@ -400,7 +420,7 @@ struct DashboardView: View {
 
     private func validateAccountSelection() {
         guard case .account(let id) = sidebarSelection else { return }
-        guard accounts.contains(where: { $0.id == id }) else {
+        guard activeAccounts.contains(where: { $0.id == id }) else {
             balanceSnapshotAccount = nil
             sidebarSelection = .overview
             viewModel.scope = .consolidated
@@ -490,7 +510,7 @@ struct DashboardView: View {
     private var timeRangePicker: some View {
         Picker("Period", selection: $selectedRange) {
             ForEach(DashboardPeriodKind.allCases, id: \.self) { range in
-                Text(range.rawValue).tag(range)
+                Text(range.localizedTitle).tag(range)
             }
         }
         .pickerStyle(.segmented)
@@ -524,15 +544,7 @@ struct DashboardView: View {
 // MARK: - Sidebar row
 
 private struct AccountSidebarRow: View {
-    @Environment(\.modelContext) private var modelContext
-
     let account: Account
-    let scopedViewModel: DashboardViewModel  // used to read the latest snapshot if needed
-
-    init(account: Account, scopedViewModel: DashboardViewModel) {
-        self.account = account
-        self.scopedViewModel = scopedViewModel
-    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -546,26 +558,9 @@ private struct AccountSidebarRow: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
-                if account.type == .creditCard, let utilization = utilization {
-                    ProgressView(value: min(max(utilization, 0), 1))
-                        .progressViewStyle(.linear)
-                        .tint(utilization > 0.7 ? .red : (utilization > 0.3 ? .orange : AccountIdentity.color(for: account)))
-                        .frame(height: 3)
-                        .padding(.top, 2)
-                }
             }
         }
         .padding(.vertical, 4)
-    }
-
-    private var utilization: Double? {
-        guard account.type == .creditCard,
-              let limit = account.creditLimit,
-              limit > 0 else { return nil }
-        let balance = AccountBalanceResolver.currentBalance(account: account, context: modelContext)
-        let owed = (abs(balance) as NSDecimalNumber).doubleValue
-        let lim = (limit as NSDecimalNumber).doubleValue
-        return owed / lim
     }
 
     private var iconForType: some View {

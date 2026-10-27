@@ -145,7 +145,7 @@ struct DashboardChartEmptyState: View {
     let message: String
 
     var body: some View {
-        Text(message)
+        Text(LocalizedStringKey(message))
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 160)
@@ -167,31 +167,20 @@ enum DashboardBalanceChartScale {
         }
 
         if minValue == maxValue {
-            let padding = max(abs(maxValue) * 0.08, 1)
+            let padding = max(abs(maxValue) * 0.005, 1)
             return DashboardBalanceChartDomain(
-                lowerBound: niceFloor(minValue - padding),
-                upperBound: niceCeil(maxValue + padding)
+                lowerBound: minValue - padding,
+                upperBound: maxValue + padding
             )
         }
 
-        // Hug the data so the AreaMark fill is a thin band around the line,
-        // never a flood from the line down to an arbitrary 0 baseline. The
-        // previous `minValue <= padding ? 0` heuristic snapped the lower bound
-        // to 0 whenever the minimum was small relative to the span — which
-        // happens for any balance that grew over time (savings, retirement,
-        // consolidated net worth over wide history) — producing a "huge blue
-        // rectangle" covering most of the card. Nice-rounding the raw min/max
-        // (no span-proportional padding, no 0-snap) keeps the domain tight for
-        // near-flat, wide, and stray-low-point series alike.
+        // Keep the data-hugging domain used by the existing balance charts,
+        // with a small amount of space above the highest value so edge labels
+        // and the latest point don't touch the card boundary.
         let lower = niceFloor(minValue)
-        let upper = niceCeil(maxValue)
-
-        // Guard against a degenerate (e.g. all-equal-after-rounding) domain.
-        if lower >= upper {
-            let bump = max(abs(upper) * 0.08, 1)
-            return DashboardBalanceChartDomain(lowerBound: lower - bump, upperBound: upper + bump)
-        }
-
+        let roundedUpper = niceCeil(maxValue)
+        let headroom = max((maxValue - minValue) * 0.04, abs(maxValue) * 0.005, 1)
+        let upper = max(roundedUpper, maxValue + headroom)
         return DashboardBalanceChartDomain(
             lowerBound: lower,
             upperBound: upper
@@ -225,6 +214,7 @@ struct DashboardBalanceTimeSeriesChart: View {
     let points: [NetWorthPoint]
     let period: DashboardPeriodContext
     let currencyCode: String
+    var compact = false
     var onPointTap: ((NetWorthPoint) -> Void)? = nil
 
     @Binding var hoverBucketStart: Date?
@@ -238,6 +228,8 @@ struct DashboardBalanceTimeSeriesChart: View {
         let domain = DashboardBalanceChartScale.domain(for: points)
         let latestID = points.last?.id
 
+        let axisValues = compact ? compactAxisValues : period.axisMarkValues()
+
         Chart {
             ForEach(points) { point in
                 LineMark(
@@ -248,25 +240,29 @@ struct DashboardBalanceTimeSeriesChart: View {
                 .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
                 .interpolationMethod(.stepEnd)
 
-                AreaMark(
-                    x: .value("Period", point.month),
-                    y: .value("Balance", point.balance.dashboardDoubleValue)
-                )
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.blue.opacity(0.22), .blue.opacity(0.03)],
-                        startPoint: .top,
-                        endPoint: .bottom
+                if !compact {
+                    AreaMark(
+                        x: .value("Period", point.month),
+                        y: .value("Balance", point.balance.dashboardDoubleValue)
                     )
-                )
-                .interpolationMethod(.stepEnd)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue.opacity(0.12), .blue.opacity(0.015)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .interpolationMethod(.stepEnd)
+                }
 
-                PointMark(
-                    x: .value("Period", point.month),
-                    y: .value("Balance", point.balance.dashboardDoubleValue)
-                )
-                .foregroundStyle(.blue.opacity(point.id == latestID ? 0.95 : 0.42))
-                .symbolSize(point.id == latestID ? 54 : 14)
+                if !compact || point.id == latestID {
+                    PointMark(
+                        x: .value("Period", point.month),
+                        y: .value("Balance", point.balance.dashboardDoubleValue)
+                    )
+                    .foregroundStyle(.blue.opacity(0.95))
+                    .symbolSize(point.id == latestID ? 54 : 14)
+                }
             }
 
             if let selectedPoint {
@@ -282,7 +278,7 @@ struct DashboardBalanceTimeSeriesChart: View {
                 .symbolSize(88)
             }
         }
-        .frame(height: 220)
+        .frame(height: compact ? 190 : 220)
         // Defense-in-depth: clip the chart to its frame so an AreaMark can never
         // render outside the card, even if a future domain change or a stray
         // data point would otherwise push the fill past the plot bounds.
@@ -290,14 +286,14 @@ struct DashboardBalanceTimeSeriesChart: View {
         .chartBackground { _ in Color.clear }
         .chartPlotStyle { plotArea in
             plotArea
-                .padding(.top, 6)
+                .padding(.top, compact ? 12 : 8)
                 .padding(.trailing, 10)
                 .padding(.bottom, 4)
         }
         .chartXScale(domain: period.plotDomain)
         .chartYScale(domain: domain.range)
         .chartXAxis {
-            AxisMarks(values: period.axisMarkValues()) { value in
+            AxisMarks(values: axisValues) { value in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                     .foregroundStyle(.secondary.opacity(0.12))
                 AxisValueLabel {
@@ -309,7 +305,7 @@ struct DashboardBalanceTimeSeriesChart: View {
             }
         }
         .chartYAxis {
-            AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { value in
+            AxisMarks(position: .trailing, values: .automatic(desiredCount: compact ? 3 : 4)) { value in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                     .foregroundStyle(.secondary.opacity(0.12))
                 AxisValueLabel {
@@ -348,6 +344,17 @@ struct DashboardBalanceTimeSeriesChart: View {
 
     private func point(for bucketStart: Date) -> NetWorthPoint? {
         points.first { period.bucketStart(forSelection: $0.month) == bucketStart }
+    }
+
+    private var compactAxisValues: [Date] {
+        let values = period.axisMarkValues()
+        guard values.count > 7 else { return values }
+        let stride = Int(ceil(Double(values.count) / 7))
+        var sampled = values.enumerated().compactMap { index, date in
+            index.isMultiple(of: stride) ? date : nil
+        }
+        if sampled.last != values.last, let last = values.last { sampled.append(last) }
+        return sampled
     }
 
     private func previousPoint(before point: NetWorthPoint) -> NetWorthPoint? {
@@ -410,6 +417,51 @@ struct DashboardPeriodBarGroup: Identifiable, Equatable {
 
 }
 
+enum DashboardGroupedBarAxisLabels {
+    static func indexes(groupCount: Int, availableWidth: CGFloat) -> [Int] {
+        guard groupCount > 0 else { return [] }
+        let targetCount = max(2, Int(availableWidth / 64))
+        let step = max(1, Int(ceil(Double(groupCount) / Double(targetCount))))
+        var indexes = Array(Swift.stride(from: 0, to: groupCount, by: step))
+        let lastIndex = groupCount - 1
+        if indexes.last != lastIndex { indexes.append(lastIndex) }
+        return indexes
+    }
+}
+
+struct DashboardGroupedBarScale: Equatable {
+    let maximum: Double
+    let truncatesOutliers: Bool
+
+    static func resolve(groups: [DashboardPeriodBarGroup], showsFirstSeries: Bool, showsSecondSeries: Bool) -> Self {
+        let values = groups.flatMap { group -> [Double] in
+            [
+                showsFirstSeries ? group.firstMagnitude.dashboardDoubleMagnitude : 0,
+                showsSecondSeries ? group.secondMagnitude.dashboardDoubleMagnitude : 0
+            ]
+        }
+        let maximum = max(values.max() ?? 0, 1)
+        let positiveValues = values.filter { $0.isFinite && $0 > 0 }.sorted()
+        guard positiveValues.count >= 8,
+              let highest = positiveValues.last else {
+            return Self(maximum: maximum, truncatesOutliers: false)
+        }
+
+        let percentileIndex = Int(Double(positiveValues.count - 1) * 0.9)
+        let percentile90 = positiveValues[percentileIndex]
+        guard percentile90 > 0, highest >= percentile90 * 4 else {
+            return Self(maximum: maximum, truncatesOutliers: false)
+        }
+
+        return Self(maximum: max(percentile90 * 2, 1), truncatesOutliers: true)
+    }
+
+    static func gridValues(maximum: Double) -> [Double] {
+        guard maximum > 0 else { return [0] }
+        return [maximum, maximum * 0.5, 0]
+    }
+}
+
 enum DashboardPeriodBarGroupBuilder {
     static func groups(
         period: DashboardPeriodContext,
@@ -461,6 +513,7 @@ struct DashboardGroupedPeriodBarChart: View {
     var footerText: ((DashboardPeriodBarGroup) -> String?)? = nil
     var onGroupTap: ((DashboardPeriodBarGroup) -> Void)? = nil
     var selectedGroupID: Date? = nil
+    var chartHeight: CGFloat = 220
 
     @State private var hoverGroupID: Date? = nil
 
@@ -471,7 +524,7 @@ struct DashboardGroupedPeriodBarChart: View {
     var body: some View {
         if groups.isEmpty || (!showsFirstSeries && !showsSecondSeries) {
             DashboardChartEmptyState(message: groups.isEmpty ? emptyMessage : "No series selected.")
-                .frame(height: 220)
+                .frame(height: chartHeight)
         } else {
             GeometryReader { geo in
                 let layout = DashboardGroupedBarLayout(
@@ -480,19 +533,25 @@ struct DashboardGroupedPeriodBarChart: View {
                     showsFirstSeries: showsFirstSeries,
                     showsSecondSeries: showsSecondSeries
                 )
-                let chartHeight = max(130, geo.size.height - 38)
+                let plotFrameHeight = max(130, geo.size.height - 38)
                 let plotTop: CGFloat = 16
-                let plotBottom: CGFloat = 24
-                let plotHeight = max(80, chartHeight - plotTop - plotBottom)
-                let maxValue = maxRenderedValue
-                let gridValues = DashboardGroupedBarLayout.gridValues(maxValue: maxValue)
+                let plotBottom: CGFloat = 30
+                let plotHeight = max(80, plotFrameHeight - plotTop - plotBottom)
+                let scale = renderedScale
+                let maxValue = scale.maximum
+                let gridValues = DashboardGroupedBarScale.gridValues(maximum: maxValue)
                 let plotWidth = max(1, geo.size.width - 62)
                 let contentLeft = max(0, (plotWidth - layout.contentWidth) / 2)
+                let labelIndexes = DashboardGroupedBarAxisLabels.indexes(
+                    groupCount: groups.count,
+                    availableWidth: plotWidth
+                )
 
                 ZStack(alignment: .topLeading) {
                     chartGrid(
                         gridValues: gridValues,
                         maxValue: maxValue,
+                        truncatesOutliers: scale.truncatesOutliers,
                         plotTop: plotTop,
                         plotHeight: plotHeight,
                         chartWidth: geo.size.width
@@ -507,34 +566,31 @@ struct DashboardGroupedPeriodBarChart: View {
                     .frame(width: layout.contentWidth, height: plotHeight, alignment: .bottom)
                     .offset(x: contentLeft, y: plotTop)
 
-                    HStack(alignment: .top, spacing: layout.groupSpacing) {
-                        ForEach(groups) { group in
-                            Text(group.label)
-                                .font(.caption2)
-                                .foregroundStyle(group.isPlaceholder ? .tertiary : .secondary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.75)
-                                .frame(width: layout.groupWidth)
-                        }
+                    ForEach(labelIndexes, id: \.self) { index in
+                        Text(groups[index].label)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(groups[index].isPlaceholder ? .tertiary : .secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .position(
+                                x: min(max(contentLeft + groupCenterX(index: index, layout: layout), 34), geo.size.width - 34),
+                                y: plotTop + plotHeight + 16
+                            )
                     }
-                    .frame(width: layout.contentWidth)
-                    .offset(x: contentLeft, y: plotTop + plotHeight + 7)
 
                     hoverLayer(layout: layout, contentLeft: contentLeft, plotTop: plotTop, plotHeight: plotHeight, geo: geo)
                 }
             }
-            .frame(height: 220)
+            .frame(height: chartHeight)
         }
     }
 
-    private var maxRenderedValue: Double {
-        let values = groups.flatMap { group -> [Double] in
-            [
-                showsFirstSeries ? group.firstMagnitude.dashboardDoubleMagnitude : 0,
-                showsSecondSeries ? group.secondMagnitude.dashboardDoubleMagnitude : 0
-            ]
-        }
-        return max(values.max() ?? 0, 1)
+    private var renderedScale: DashboardGroupedBarScale {
+        DashboardGroupedBarScale.resolve(
+            groups: groups,
+            showsFirstSeries: showsFirstSeries,
+            showsSecondSeries: showsSecondSeries
+        )
     }
 
     private func groupView(
@@ -586,10 +642,20 @@ struct DashboardGroupedPeriodBarChart: View {
         color: Color,
         isHovered: Bool
     ) -> some View {
-        let height = max(2, CGFloat(max(0, value) / maxValue) * plotHeight)
+        let overflows = value > maxValue
+        let height = max(2, CGFloat(min(max(0, value), maxValue) / maxValue) * plotHeight)
         return RoundedRectangle(cornerRadius: min(6, width / 2), style: .continuous)
             .fill(color.opacity(isHovered || activeGroupID == nil ? 1 : 0.42))
             .frame(width: width, height: height)
+            .overlay(alignment: .top) {
+                if overflows {
+                    DashboardBarOverflowMark()
+                        .stroke(.white.opacity(0.95), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+                        .frame(height: 8)
+                        .padding(.horizontal, 1)
+                        .padding(.top, 3)
+                }
+            }
             .overlay(alignment: .top) {
                 RoundedRectangle(cornerRadius: min(6, width / 2), style: .continuous)
                     .stroke(.white.opacity(isHovered ? 0.34 : 0), lineWidth: 1)
@@ -599,6 +665,7 @@ struct DashboardGroupedPeriodBarChart: View {
     private func chartGrid(
         gridValues: [Double],
         maxValue: Double,
+        truncatesOutliers: Bool,
         plotTop: CGFloat,
         plotHeight: CGFloat,
         chartWidth: CGFloat
@@ -610,7 +677,9 @@ struct DashboardGroupedPeriodBarChart: View {
                     .fill(.secondary.opacity(value == 0 ? 0.16 : 0.11))
                     .frame(width: max(1, chartWidth - 58), height: 1)
                     .offset(x: 0, y: y)
-                Text(dashboardCompactAmount(value, code: currencyCode))
+                Text(value == maxValue && truncatesOutliers
+                    ? ">\(dashboardCompactAmount(value, code: currencyCode))"
+                    : dashboardCompactAmount(value, code: currencyCode))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
                     .frame(width: 54, alignment: .trailing)
@@ -742,7 +811,7 @@ struct DashboardGroupedBarLayout {
     }
 
     var intraGroupSpacing: CGFloat {
-        groupCount > 18 ? 5 : 6
+        groupCount > 24 ? 1 : (groupCount > 18 ? 5 : 6)
     }
 
     var groupSpacing: CGFloat {
@@ -756,7 +825,8 @@ struct DashboardGroupedBarLayout {
         let preferredWidth = idealContentWidth(barWidth: preferredBarWidth, spacing: preferred)
         guard preferredWidth > maxContentWidth, groupCount > 1 else { return preferred }
         let groupTotal = CGFloat(groupCount) * groupWidth(for: preferredBarWidth)
-        return max(8, min(preferred, (maxContentWidth - groupTotal) / CGFloat(groupCount - 1)))
+        let minimumSpacing: CGFloat = groupCount > 24 ? 0 : 8
+        return max(minimumSpacing, min(preferred, (maxContentWidth - groupTotal) / CGFloat(groupCount - 1)))
     }
 
     var preferredBarWidth: CGFloat {
@@ -774,11 +844,12 @@ struct DashboardGroupedBarLayout {
         let preferredWidth = idealContentWidth(barWidth: preferred, spacing: groupSpacing)
         guard preferredWidth > maxContentWidth else { return preferred }
         let spacingTotal = CGFloat(max(0, groupCount - 1)) * groupSpacing
-        let availablePerGroup = max(4, (maxContentWidth - spacingTotal) / CGFloat(max(groupCount, 1)))
+        let minimumBarWidth: CGFloat = groupCount > 24 ? 2 : 4
+        let availablePerGroup = max(minimumBarWidth, (maxContentWidth - spacingTotal) / CGFloat(max(groupCount, 1)))
         if visibleSeriesCount <= 1 {
-            return max(4, min(preferred, availablePerGroup))
+            return max(minimumBarWidth, min(preferred, availablePerGroup))
         }
-        return max(4, min(preferred, (availablePerGroup - intraGroupSpacing) / 2))
+        return max(minimumBarWidth, min(preferred, (availablePerGroup - intraGroupSpacing) / 2))
     }
 
     var groupWidth: CGFloat {
@@ -802,6 +873,17 @@ struct DashboardGroupedBarLayout {
     static func gridValues(maxValue: Double) -> [Double] {
         guard maxValue > 0 else { return [0] }
         return [maxValue, maxValue * 0.5, 0]
+    }
+}
+
+private struct DashboardBarOverflowMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: 0, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.width * 0.35, y: rect.minY))
+        path.move(to: CGPoint(x: rect.width * 0.55, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        return path
     }
 }
 
@@ -867,14 +949,14 @@ struct DashboardCashFlowTrendChart: View {
                 ForEach(points) { point in
                     LineMark(
                         x: .value("Day", point.bucketStart, unit: period.bucket.component),
-                        y: .value("Month-to-date net", point.cumulativeNet.dashboardDoubleValue)
+                        y: .value("Cumulative net cash flow", point.cumulativeNet.dashboardDoubleValue)
                     )
                     .foregroundStyle(trendColor)
                     .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
 
                     AreaMark(
                         x: .value("Day", point.bucketStart, unit: period.bucket.component),
-                        y: .value("Month-to-date net", point.cumulativeNet.dashboardDoubleValue)
+                        y: .value("Cumulative net cash flow", point.cumulativeNet.dashboardDoubleValue)
                     )
                     .foregroundStyle(
                         LinearGradient(
@@ -895,7 +977,7 @@ struct DashboardCashFlowTrendChart: View {
 
                     PointMark(
                         x: .value("Selected day", selectedPoint.bucketStart, unit: period.bucket.component),
-                        y: .value("Selected month-to-date net", selectedPoint.cumulativeNet.dashboardDoubleValue)
+                        y: .value("Selected cumulative net cash flow", selectedPoint.cumulativeNet.dashboardDoubleValue)
                     )
                     .foregroundStyle(trendColor)
                     .symbolSize(82)
@@ -973,11 +1055,11 @@ struct DashboardCashFlowTrendChart: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(dashboardBucketLabel(for: point.bucketStart, bucket: period.bucket))
                 .font(.caption.weight(.semibold))
-            tooltipRow("Income", amount: point.income, color: DashboardChartSeriesColor.income)
-            tooltipRow("Expenses", amount: abs(point.expenses), color: DashboardChartSeriesColor.expense)
+            tooltipRow("Cash in", amount: point.income, color: DashboardChartSeriesColor.income)
+            tooltipRow("Cash out", amount: abs(point.expenses), color: DashboardChartSeriesColor.expense)
             tooltipRow("Net", amount: point.net, color: point.net >= 0 ? DashboardChartSeriesColor.income : DashboardChartSeriesColor.expense)
             Divider()
-            tooltipRow("Month to date", amount: point.cumulativeNet, color: .primary)
+            tooltipRow("Cumulative cash flow", amount: point.cumulativeNet, color: .primary)
         }
         .padding(8)
         .frame(width: 220, alignment: .leading)

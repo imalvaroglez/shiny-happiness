@@ -46,7 +46,7 @@ struct YearMonth: Hashable, Identifiable, Comparable {
     }
 }
 
-struct HouseholdSettlementSetup {
+struct HouseholdSettlementSetup: Equatable {
     var partnerIncomeEstimate: Decimal
     var useUserIncomeManualOverride: Bool
     var userIncomeManualOverride: Decimal?
@@ -241,7 +241,8 @@ enum HouseholdPartnerIncomeService {
         splitMethod: HouseholdSplitMethod = .monthlyDefault,
         customUserPercent: Decimal? = nil,
         customPartnerPercent: Decimal? = nil,
-        context: ModelContext
+        context: ModelContext,
+        commit: (ModelContext) throws -> Void = { try $0.save() }
     ) throws -> HouseholdPartnerIncomeEstimate {
         let monthStart = monthStart(for: month)
         let trimmedNotes = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -255,7 +256,7 @@ enum HouseholdPartnerIncomeService {
             existing.customUserPercent = customUserPercent
             existing.customPartnerPercent = customPartnerPercent
             existing.touch()
-            try context.save()
+            try commit(context)
             return existing
         }
 
@@ -270,7 +271,7 @@ enum HouseholdPartnerIncomeService {
             notes: cleanNotes
         )
         context.insert(estimate)
-        try context.save()
+        try commit(context)
         return estimate
     }
 }
@@ -392,8 +393,11 @@ enum HouseholdSettlementReportService {
         HouseholdSettlementCalculator.build(monthStart: monthStart, transactions: transactions, dueDates: [:], setup: setup, seedNames: CategoryCustomizationState.shared.seedNames)
     }
 
-    static func build(monthStart: Date, transactions: [Transaction], dueDates: [UUID: Date], setup: HouseholdSettlementSetup) -> HouseholdSettlementReport {
-        HouseholdSettlementCalculator.build(monthStart: monthStart, transactions: transactions, dueDates: dueDates, setup: setup, seedNames: CategoryCustomizationState.shared.seedNames)
+    static func build(monthStart: Date, transactions: [Transaction], dueDates: [UUID: Date], setup: HouseholdSettlementSetup,
+                      participatingUser: Bool = true, participatingPartner: Bool = true) -> HouseholdSettlementReport {
+        HouseholdSettlementCalculator.build(monthStart: monthStart, transactions: transactions, dueDates: dueDates, setup: setup,
+            seedNames: CategoryCustomizationState.shared.seedNames,
+            participatingUser: participatingUser, participatingPartner: participatingPartner)
     }
 
     static func isSettlementEligible(_ transaction: Transaction) -> Bool {
@@ -460,19 +464,28 @@ enum HouseholdAllocationRepairService {
 }
 
 enum HouseholdSettlementCalculator {
-    static func build(monthStart: Date, transactions: [Transaction], dueDates: [UUID: Date], setup: HouseholdSettlementSetup, seedNames: [UUID: String] = [:]) -> HouseholdSettlementReport {
+    static func build(monthStart: Date, transactions: [Transaction], dueDates: [UUID: Date], setup: HouseholdSettlementSetup,
+                      seedNames: [UUID: String] = [:], participatingUser: Bool = true,
+                      participatingPartner: Bool = true) -> HouseholdSettlementReport {
         let classifier = TransactionClassifier()
         let detectedSalary = transactions
             .filter { classifier.classify(transaction: $0).countsAsRegularIncome && isSalaryIncome($0, seedNames: seedNames) }
             .reduce(Decimal.zero) { $0 + $1.amount }
         let userSalary = setup.useUserIncomeManualOverride ? max(0, setup.userIncomeManualOverride ?? 0) : detectedSalary
-        let monthlyShares = shares(
+        let originalShares = shares(
             method: setup.splitMethod,
             userSalary: userSalary,
             partnerIncome: setup.partnerIncomeEstimate,
             customUser: setup.customUserPercent,
             customPartner: setup.customPartnerPercent
         )
+        let monthlyShares: (user: Decimal, partner: Decimal, available: Bool)
+        switch (participatingUser, participatingPartner) {
+        case (true, true): monthlyShares = originalShares
+        case (true, false): monthlyShares = userSalary > 0 ? (1, 0, true) : (0, 0, false)
+        case (false, true): monthlyShares = setup.partnerIncomeEstimate > 0 ? (0, 1, true) : (0, 0, false)
+        case (false, false): monthlyShares = (0, 0, false)
+        }
 
         let expenseRows = transactions.filter {
             classifier.classify(transaction: $0).countsAsRegularExpense
@@ -484,13 +497,15 @@ enum HouseholdSettlementCalculator {
         }
         let needsMonthlySplit = !sharedTransactions.isEmpty
         let blocked = needsMonthlySplit && !monthlyShares.available
-        let warnings = warnings(
+        let warnings = participatingUser && participatingPartner ? warnings(
             setup: setup,
             detectedSalary: detectedSalary,
             userSalary: userSalary,
             partnerIncome: setup.partnerIncomeEstimate,
             monthlySharesAvailable: monthlyShares.available
-        )
+        ) : (participatingUser || participatingPartner
+             ? (monthlyShares.available ? [] : [String(localized: "Confirm income to calculate the split.")])
+             : [String(localized: "There are no active members in this period.")])
         let blockedReason = blocked ? warnings.first ?? "Income assumptions are incomplete." : nil
 
         let reportYM = YearMonth(date: monthStart)

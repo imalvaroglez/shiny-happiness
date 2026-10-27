@@ -25,6 +25,11 @@ enum SettlementDueDateService {
             predicate: #Predicate<SettlementDueDateOverride> { ids.contains($0.transactionID) }
         )
         let rows = (try? context.fetch(descriptor)) ?? []
+        return resolveActiveDueDates(rows)
+    }
+
+    /// Shares the existing deterministic resolution with a workspace that fetches metadata once.
+    static func resolveActiveDueDates(_ rows: [SettlementDueDateOverride]) -> [UUID: Date] {
         // Resolve the newest row per transactionID deterministically, independent of
         // the (non-deterministic) order SwiftData returns tied rows in. For each
         // transactionID, keep the row that "wins" under: newer lastModifiedAt, then

@@ -24,6 +24,16 @@ struct AccountBalanceHistory {
     }
 }
 
+struct AccountBalanceChartAdjustment: Sendable {
+    enum Effect: Sendable {
+        case reset
+        case delta(Decimal)
+    }
+
+    let date: Date
+    let effect: Effect
+}
+
 struct AccountBalanceResolution {
     enum SourceKind: String, Hashable {
         case exactBalanceSnapshot
@@ -269,6 +279,149 @@ enum AccountBalanceResolver {
         }
 
         return series
+    }
+
+    static func balanceSeries(
+        account: Account,
+        history: AccountBalanceHistory,
+        manualInterestAllocations: [InterestDailyAllocation]
+    ) -> [NetWorthPoint] {
+        let basePoints = balanceSeries(account: account, history: history)
+        let adjustments = chartInterestAdjustments(
+            account: account,
+            history: history,
+            manualInterestAllocations: manualInterestAllocations
+        )
+        let sampleDates = Array(Set(basePoints.map(\.month) + adjustments.map(\.date))).sorted()
+        return balanceSeries(basePoints: basePoints, sampleDates: sampleDates, adjustments: adjustments)
+    }
+
+    static func chartInterestAdjustments(
+        account: Account,
+        history: AccountBalanceHistory,
+        manualInterestAllocations: [InterestDailyAllocation]
+    ) -> [AccountBalanceChartAdjustment] {
+        struct SourceGroup {
+            let transactionIDs: [UUID]
+            let sourceDate: Date
+            let captureDay: Date
+            let originalAmount: Decimal
+        }
+
+        let calendar = Calendar.current
+        let accountOpenedDay = calendar.startOfDay(for: account.openedAt)
+        let eligibleAllocations = manualInterestAllocations.filter { allocation in
+            allocation.accountID == account.id
+                && allocation.kind != .actual
+                && allocation.day >= accountOpenedDay
+        }
+        guard !eligibleAllocations.isEmpty else { return [] }
+
+        let anchors = history.anchors.sorted { $0.date < $1.date }
+        let effectiveTransactions: [Transaction]
+        if !history.hasStatementAnchors,
+           let firstAnchor = anchors.first,
+           case .manualSnapshot(let snapshot) = firstAnchor.source,
+           snapshot.kind == .manualOpening {
+            effectiveTransactions = history.transactions.filter { $0.postedAt >= account.openedAt }
+        } else {
+            effectiveTransactions = history.transactions
+        }
+        let effectiveTransactionIDs = Set(effectiveTransactions.map(\.id))
+
+        var groups: [UUID: SourceGroup] = [:]
+        for allocation in eligibleAllocations {
+            guard let representative = allocation.sourceTransactionIDs.first else { continue }
+            if groups[representative] == nil {
+                groups[representative] = SourceGroup(
+                    transactionIDs: allocation.sourceTransactionIDs,
+                    sourceDate: allocation.sourceDate,
+                    captureDay: calendar.startOfDay(for: allocation.sourceDate),
+                    originalAmount: allocation.originalAmount
+                )
+            }
+        }
+        let validRepresentatives = Set(groups.compactMap { representative, group in
+            group.transactionIDs.allSatisfy(effectiveTransactionIDs.contains) ? representative : nil
+        })
+        guard !validRepresentatives.isEmpty else { return [] }
+
+        var adjustments = anchors.map {
+            AccountBalanceChartAdjustment(date: $0.date, effect: .reset)
+        }
+        adjustments.reserveCapacity(anchors.count + eligibleAllocations.count + validRepresentatives.count)
+
+        for representative in validRepresentatives {
+            guard let group = groups[representative] else { continue }
+            adjustments.append(AccountBalanceChartAdjustment(
+                date: group.sourceDate,
+                effect: .delta(-group.originalAmount)
+            ))
+        }
+
+        var dayEndByDay: [Date: Date] = [:]
+        for allocation in eligibleAllocations {
+            guard let representative = allocation.sourceTransactionIDs.first,
+                  validRepresentatives.contains(representative),
+                  allocation.amount != 0 else { continue }
+            let dayEnd: Date
+            if let cached = dayEndByDay[allocation.day] {
+                dayEnd = cached
+            } else {
+                let nextDay = calendar.date(byAdding: .day, value: 1, to: allocation.day)
+                dayEnd = nextDay?.addingTimeInterval(-1) ?? allocation.day
+                dayEndByDay[allocation.day] = dayEnd
+            }
+            let eventDate = allocation.day == groups[representative]?.captureDay
+                ? min(allocation.sourceDate, dayEnd)
+                : dayEnd
+            adjustments.append(AccountBalanceChartAdjustment(date: eventDate, effect: .delta(allocation.amount)))
+        }
+
+        return adjustments.sorted { lhs, rhs in
+            if lhs.date == rhs.date {
+                if case .reset = lhs.effect, case .delta = rhs.effect { return true }
+                if case .delta = lhs.effect, case .reset = rhs.effect { return false }
+                return false
+            }
+            return lhs.date < rhs.date
+        }
+    }
+
+    static func balanceSeries(
+        basePoints: [NetWorthPoint],
+        sampleDates: [Date],
+        adjustments: [AccountBalanceChartAdjustment]
+    ) -> [NetWorthPoint] {
+        var adjustmentIndex = 0
+        var runningAdjustment: Decimal = 0
+        return sampleDates.compactMap { date in
+            while adjustmentIndex < adjustments.count, adjustments[adjustmentIndex].date <= date {
+                switch adjustments[adjustmentIndex].effect {
+                case .reset:
+                    runningAdjustment = 0
+                case .delta(let amount):
+                    runningAdjustment += amount
+                }
+                adjustmentIndex += 1
+            }
+            guard let base = balance(in: basePoints, asOf: date) else { return nil }
+            return NetWorthPoint(month: date, balance: base + runningAdjustment)
+        }
+    }
+
+    private static func balance(in points: [NetWorthPoint], asOf date: Date) -> Decimal? {
+        var low = 0
+        var high = points.count
+        while low < high {
+            let mid = (low + high) / 2
+            if points[mid].month <= date {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low > 0 ? points[low - 1].balance : nil
     }
 
     private static func appendPoint(date: Date, balance: Decimal, to series: inout [NetWorthPoint]) {

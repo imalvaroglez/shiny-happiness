@@ -53,6 +53,24 @@ struct SettingsDataHealthTests {
         #expect(summary.currenciesInUse == ["MXN"])
     }
 
+    @Test("Archived accounts do not count as operational accounts")
+    func archivedAccountsAreNotActive() {
+        let summary = DataHealthSummary(
+            accounts: [
+                DataHealthAccountInput(closedAt: nil, currency: "MXN"),
+                DataHealthAccountInput(closedAt: nil, currency: "USD", archivedAt: newDate),
+                DataHealthAccountInput(closedAt: oldDate, currency: "EUR", archivedAt: nil),
+            ],
+            transactions: [],
+            pendingImports: [],
+            activeCategoryCount: 0,
+            importedStatementCount: 0
+        )
+
+        #expect(summary.activeAccountCount == 1)
+        #expect(summary.currenciesInUse == ["MXN"])
+    }
+
     @Test("Empty store has explicit empty health state")
     func emptyStore() {
         let summary = DataHealthSummary(

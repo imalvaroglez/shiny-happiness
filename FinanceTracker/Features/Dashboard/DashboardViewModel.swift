@@ -22,6 +22,9 @@ private struct DashboardTransactionMetrics {
     let expenses: Decimal
     let interestEarned: Decimal
     let interestCharged: Decimal
+    let interestAllocations: [InterestDailyAllocation]
+    let interestSourceTransactions: [Transaction]
+    let matchedCardPaymentTransactionIDs: Set<UUID>
 }
 
 struct NetWorthPoint: Identifiable {
@@ -78,7 +81,9 @@ final class DashboardViewModel {
     private var context: ModelContext?
     private let transactionClassifier = TransactionClassifier()
     private var balanceSamplerCache: [UUID: DashboardBalanceSampler] = [:]
+    private var balanceChartAdjustmentCache: [UUID: (asOfDay: Date, adjustments: [AccountBalanceChartAdjustment])] = [:]
     private var consolidatedTransactionCache: (range: DateRange, transactions: [Transaction])?
+    private var interestAccrualCache: (asOfDay: Date, allocations: [InterestDailyAllocation], sources: [Transaction])?
     private var reuseBalanceSamplerCacheOnNextRefresh = false
     private var reuseSpendRequirementCacheOnNextRefresh = false
     private var spendRequirements: [UUID: SpendRequirement] = [:]
@@ -98,7 +103,9 @@ final class DashboardViewModel {
     func configure(context: ModelContext) {
         self.context = context
         balanceSamplerCache.removeAll()
+        balanceChartAdjustmentCache.removeAll()
         consolidatedTransactionCache = nil
+        interestAccrualCache = nil
         loadSpendRequirements(context: context)
         refresh()
     }
@@ -123,7 +130,9 @@ final class DashboardViewModel {
 
         if !reuseBalanceSamplerCacheOnNextRefresh {
             balanceSamplerCache.removeAll()
+            balanceChartAdjustmentCache.removeAll()
             consolidatedTransactionCache = nil
+            interestAccrualCache = nil
         }
         reuseBalanceSamplerCacheOnNextRefresh = false
         if !reuseSpendRequirementCacheOnNextRefresh { spendRequirementCache.removeAll() }
@@ -185,16 +194,97 @@ final class DashboardViewModel {
         TransactionClassifier.isSynthesizedMSIPurchase(tx)
     }
 
+    private func interestAccrualData(context: ModelContext, asOf: Date) -> (allocations: [InterestDailyAllocation], sources: [Transaction]) {
+        let calendar = Calendar.current
+        let asOfDay = calendar.startOfDay(for: asOf)
+        if let cached = interestAccrualCache, cached.asOfDay == asOfDay {
+            return (cached.allocations, cached.sources)
+        }
+
+        let cutoff = asOf
+        let categoryDescriptor = FetchDescriptor<Category>()
+        let interestCategoryIDs = (try? context.fetch(categoryDescriptor))?
+            .filter { CategorySemanticIdentity.matches($0, name: "Interest") }
+            .map(\.id) ?? []
+        guard !interestCategoryIDs.isEmpty else {
+            interestAccrualCache = (asOfDay, [], [])
+            return ([], [])
+        }
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { tx in
+                tx.postedAt <= cutoff
+                    && tx.amount > 0
+                    && tx.deletedAt == nil
+                    && tx.category != nil
+                    && interestCategoryIDs.contains(tx.category!.id)
+            },
+            sortBy: [SortDescriptor(\.postedAt)]
+        )
+        let fetched = (try? context.fetch(descriptor)) ?? []
+        let sources = fetched.filter { tx in
+            tx.account != nil
+                && tx.category?.kind == .income
+                && !tx.isDuplicate
+                && CategorySemanticIdentity.matches(tx.category, name: "Interest")
+                && !transactionClassifier.classify(transaction: tx).countsAsInvestmentReturn
+        }
+        let inputs = sources.compactMap { tx -> InterestAccrualInput? in
+            guard let account = tx.account else { return nil }
+            return InterestAccrualInput(
+                transactionID: tx.id,
+                accountID: account.id,
+                currency: tx.currency,
+                postedAt: tx.postedAt,
+                amount: tx.amount,
+                accountOpenedAt: account.openedAt,
+                source: tx.source == .manual ? .manual : .imported,
+                regularIncomeEligible: transactionClassifier.classify(transaction: tx).countsAsRegularIncome
+            )
+        }
+        let allocations = InterestAccrualAllocator.allocate(inputs, through: asOf, calendar: calendar)
+        interestAccrualCache = (asOfDay, allocations, sources)
+        return (allocations, sources)
+    }
+
+    private func hasUnmatchedCardPayment(in transactions: [Transaction]) -> Bool {
+        let matchedIDs = DashboardCashFlowClassifier.matchedCardPaymentTransactionIDs(in: transactions)
+        let hasReceipt = transactions.contains {
+            DashboardCashFlowClassifier.isCardPaymentReceipt($0, matchedCardPaymentIDs: matchedIDs)
+        }
+        let hasOutflow = transactions.contains {
+            DashboardCashFlowClassifier.isCardPaymentOutflow($0, matchedCardPaymentIDs: matchedIDs)
+        }
+        return hasReceipt && !hasOutflow
+    }
+
+    private func includingInterestAccrualStart(
+        in dataRange: DateRange?,
+        allocations: [InterestDailyAllocation]
+    ) -> DateRange? {
+        guard let dataRange,
+              let firstAccrualDay = allocations.map(\.day).min() else { return dataRange }
+        return DateRange(start: min(dataRange.start, firstAccrualDay), end: dataRange.end)
+    }
+
     // MARK: - Consolidated
 
     private func buildConsolidated(context: ModelContext) -> ConsolidatedSnapshot {
+        let interestData = interestAccrualData(context: context, asOf: periodNow)
         let accounts = fetchAccounts(context: context)
         let latestDataRange = fetchFinancialDateSpan(context: context, now: periodNow)
-        let dataRange = periodKind == .all ? latestDataRange : nil
+        let dataRange = periodKind == .all
+            ? includingInterestAccrualStart(in: latestDataRange, allocations: interestData.allocations)
+            : nil
         let period = dashboardPeriodContext(context: context, dataRange: dataRange)
         let transactions = windowedTransactions(context: context)
 
-        let metrics = computeTransactionMetrics(transactions, period: period)
+        let metrics = computeTransactionMetrics(
+            transactions,
+            period: period,
+            interestAllocations: interestData.allocations,
+            interestSourceTransactions: interestData.sources,
+            allPeriodTransactions: transactions
+        )
 
         let netWorthAccounts = accounts.filter(\.effectiveIncludeInNetWorth)
         let (netWorth, netWorthSeries, availableNetWorthSeries, accountSummaries, retirementAssets, liquidNetWorth, samplers) = computeNetWorth(
@@ -261,7 +351,11 @@ final class DashboardViewModel {
             liquidNetWorth: liquidNetWorth,
             cardPace: cardPace,
             upcomingPayments: upcomingPayments,
-            spendingAnomaly: spendingAnomaly
+            spendingAnomaly: spendingAnomaly,
+            interestAllocations: metrics.interestAllocations,
+            interestSourceTransactions: metrics.interestSourceTransactions,
+            hasUnmatchedCardPayment: hasUnmatchedCardPayment(in: transactions),
+            matchedCardPaymentTransactionIDs: metrics.matchedCardPaymentTransactionIDs
         )
     }
 
@@ -298,8 +392,17 @@ final class DashboardViewModel {
         }
 
         let transactions = windowedTransactions(context: context, accountId: accountId)
-        let period = dashboardPeriodContext(context: context)
+        let allPeriodTransactions = windowedTransactions(context: context)
         let balanceSampler = balanceSamplers(context: context, accounts: [account]).first
+        let interestData = interestAccrualData(context: context, asOf: periodNow)
+        let accountInterestAllocations = interestData.allocations.filter { $0.accountID == accountId }
+        let periodDataRange = periodKind == .all && account.type.isLiability == false
+            ? includingInterestAccrualStart(
+                in: fetchFinancialDateSpan(context: context, now: periodNow),
+                allocations: accountInterestAllocations
+            )
+            : nil
+        let period = dashboardPeriodContext(context: context, dataRange: periodDataRange)
 
         let latestStatement = AccountBalanceResolver.latestStatement(accountId: accountId, context: context)
         let latestBalanceStatement = AccountBalanceResolver.latestBalanceStatement(accountId: accountId, context: context)
@@ -323,6 +426,9 @@ final class DashboardViewModel {
                 period: period,
                 account: account,
                 transactions: transactions,
+                allPeriodTransactions: allPeriodTransactions,
+                interestAllocations: accountInterestAllocations,
+                interestSourceTransactions: interestData.sources.filter { $0.account?.id == accountId },
                 latestStatement: latestStatement,
                 currentBalance: currentBalance,
                 balanceSampler: balanceSampler
@@ -335,12 +441,27 @@ final class DashboardViewModel {
         period: DashboardPeriodContext,
         account: Account,
         transactions: [Transaction],
+        allPeriodTransactions: [Transaction],
+        interestAllocations: [InterestDailyAllocation],
+        interestSourceTransactions: [Transaction],
         latestStatement: Statement?,
         currentBalance: Decimal,
         balanceSampler: DashboardBalanceSampler?
     ) -> AssetAccountSnapshot {
-        let metrics = computeTransactionMetrics(transactions, period: period)
-        let balanceSeries = computeBalanceSeries(context: context, accountId: account.id, period: period, sampler: balanceSampler)
+        let metrics = computeTransactionMetrics(
+            transactions,
+            period: period,
+            interestAllocations: interestAllocations,
+            interestSourceTransactions: interestSourceTransactions,
+            allPeriodTransactions: allPeriodTransactions
+        )
+        let balanceSeries = computeBalanceSeries(
+            context: context,
+            accountId: account.id,
+            period: period,
+            sampler: balanceSampler,
+            manualInterestAllocations: interestAllocations
+        )
         let portfolio = account.type == .investment
             ? Self.buildPortfolioViewData(context: context, account: account, period: period)
             : nil
@@ -357,7 +478,18 @@ final class DashboardViewModel {
             totalInterestEarned: metrics.interestEarned,
             recentTransactions: transactions,
             totalTransactions: transactions.count,
-            portfolio: portfolio
+            portfolio: portfolio,
+            interestAllocations: metrics.interestAllocations,
+            interestSourceTransactions: metrics.interestSourceTransactions,
+            matchedCardPaymentTransactionIDs: metrics.matchedCardPaymentTransactionIDs,
+            // Scoped to this account's rows, like the consolidated flag is
+            // scoped to the consolidated rows. A card-payment receipt (the only
+            // row kind that can lack a matching bank withdrawal) lives on the
+            // credit-card account, which is never in an asset snapshot, so the
+            // drill-down note ("payments without a bank withdrawal") can't be
+            // truthfully raised from data this sheet doesn't show. Computed —
+            // not hardcoded — so it stays correct if the scoping ever changes.
+            hasUnmatchedCardPayment: hasUnmatchedCardPayment(in: transactions)
         )
     }
 
@@ -548,8 +680,14 @@ final class DashboardViewModel {
 
     // MARK: - Computations (kept compatible with the old VM)
 
-    private func computeTransactionMetrics(_ transactions: [Transaction], period: DashboardPeriodContext) -> DashboardTransactionMetrics {
-        let calendar = Calendar(identifier: .gregorian)
+    private func computeTransactionMetrics(
+        _ transactions: [Transaction],
+        period: DashboardPeriodContext,
+        interestAllocations: [InterestDailyAllocation],
+        interestSourceTransactions: [Transaction],
+        allPeriodTransactions: [Transaction]
+    ) -> DashboardTransactionMetrics {
+        let calendar = Calendar.current
         let intervals = period.intervals(calendar: calendar)
         var grouped = Dictionary(uniqueKeysWithValues: intervals.map { ($0.bucketStart, (income: Decimal(0), expenses: Decimal(0))) })
         var hasIncludedTransaction = false
@@ -562,21 +700,33 @@ final class DashboardViewModel {
         var expenses: Decimal = 0
         var interestEarned: Decimal = 0
         var interestCharged: Decimal = 0
+        let matchedPaymentIDs = DashboardCashFlowClassifier.matchedCardPaymentTransactionIDs(in: allPeriodTransactions)
+        let rangeStart = calendar.startOfDay(for: period.dateRange.start)
+        let rangeEnd = calendar.startOfDay(for: period.dateRange.end)
+        let periodInterestAllocations = interestAllocations.filter { $0.day >= rangeStart && $0.day <= rangeEnd }
+        let periodInterestSourceIDs = Set(periodInterestAllocations.flatMap(\.sourceTransactionIDs))
+        let periodInterestSourceTransactions = interestSourceTransactions.filter { periodInterestSourceIDs.contains($0.id) }
 
         for tx in transactions {
             let classification = transactionClassifier.classify(transaction: tx)
+            let isInterestIncome = tx.amount > 0 && CategorySemanticIdentity.matches(tx.category, name: "Interest")
 
-            if classification.countsAsRegularIncome { income += tx.amount }
+            if classification.countsAsRegularIncome && !isInterestIncome { income += tx.amount }
             if classification.countsAsRegularExpense { expenses += tx.amount }
 
-            if classification.countsAsRegularIncome || classification.countsAsRegularExpense {
+            if let movement = DashboardCashFlowClassifier.movement(
+                for: tx,
+                classification: classification,
+                matchedCardPaymentIDs: matchedPaymentIDs
+            ), !isInterestIncome {
                 let bucketStart = period.bucket.start(for: tx.postedAt, calendar: calendar)
                 if grouped[bucketStart] != nil {
                     hasIncludedTransaction = true
                     let existing = grouped[bucketStart] ?? (0, 0)
-                    if classification.countsAsRegularIncome {
+                    switch movement {
+                    case .inflow:
                         grouped[bucketStart] = (existing.income + tx.amount, existing.expenses)
-                    } else if classification.countsAsRegularExpense {
+                    case .outflow:
                         grouped[bucketStart] = (existing.income, existing.expenses + tx.amount)
                     }
                 }
@@ -594,13 +744,20 @@ final class DashboardViewModel {
             }
 
             if !tx.isDuplicate {
-                if CategorySemanticIdentity.matches(tx.category, name: "Interest"), tx.amount > 0, !classification.countsAsInvestmentReturn {
-                    interestEarned += tx.amount
-                }
                 if CategorySemanticIdentity.matches(tx.category, name: "Interest Charges"), tx.amount < 0 {
                     interestCharged += abs(tx.amount)
                 }
             }
+        }
+
+        for allocation in periodInterestAllocations {
+            interestEarned += allocation.amount
+            guard allocation.incomeAmount != 0 else { continue }
+            income += allocation.incomeAmount
+            let bucketStart = period.bucket.start(for: allocation.day, calendar: calendar)
+            guard let existing = grouped[bucketStart] else { continue }
+            grouped[bucketStart] = (existing.income + allocation.incomeAmount, existing.expenses)
+            hasIncludedTransaction = true
         }
 
         let cashFlow: [MonthlyCashFlow] = hasIncludedTransaction
@@ -619,7 +776,10 @@ final class DashboardViewModel {
             income: income,
             expenses: expenses,
             interestEarned: interestEarned,
-            interestCharged: interestCharged
+            interestCharged: interestCharged,
+            interestAllocations: periodInterestAllocations,
+            interestSourceTransactions: periodInterestSourceTransactions,
+            matchedCardPaymentTransactionIDs: matchedPaymentIDs
         )
     }
 
@@ -812,7 +972,13 @@ final class DashboardViewModel {
         }
     }
 
-    private func computeBalanceSeries(context: ModelContext, accountId: UUID, period: DashboardPeriodContext, sampler providedSampler: DashboardBalanceSampler? = nil) -> [NetWorthPoint] {
+    private func computeBalanceSeries(
+        context: ModelContext,
+        accountId: UUID,
+        period: DashboardPeriodContext,
+        sampler providedSampler: DashboardBalanceSampler? = nil,
+        manualInterestAllocations: [InterestDailyAllocation] = []
+    ) -> [NetWorthPoint] {
         let sampler: DashboardBalanceSampler?
         if let providedSampler {
             sampler = providedSampler
@@ -823,6 +989,27 @@ final class DashboardViewModel {
         }
         guard let sampler else { return [] }
         let sampleDates = balanceSampleDates(samplers: [sampler], period: period)
+        if !sampler.needsResolver,
+           manualInterestAllocations.contains(where: { $0.kind == .estimated || $0.kind == .undistributed }) {
+            let asOfDay = Calendar.current.startOfDay(for: periodNow)
+            let adjustments: [AccountBalanceChartAdjustment]
+            if let cached = balanceChartAdjustmentCache[accountId], cached.asOfDay == asOfDay {
+                adjustments = cached.adjustments
+            } else {
+                let calculated = AccountBalanceResolver.chartInterestAdjustments(
+                    account: sampler.account,
+                    history: sampler.history,
+                    manualInterestAllocations: manualInterestAllocations
+                )
+                balanceChartAdjustmentCache[accountId] = (asOfDay, calculated)
+                adjustments = calculated
+            }
+            return AccountBalanceResolver.balanceSeries(
+                basePoints: sampler.points,
+                sampleDates: sampleDates,
+                adjustments: adjustments
+            )
+        }
 
         return sampleDates.compactMap { date in
             guard let balance = sampler.balance(asOf: date) else {

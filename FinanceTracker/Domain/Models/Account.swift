@@ -11,6 +11,7 @@ final class Account: LastModifiedTracking {
     var accountNumber: String?
     var openedAt: Date
     var closedAt: Date?
+    var archivedAt: Date?
     var creditLimit: Decimal?
     var statementDayOfMonth: Int?
     var paymentDayOfMonth: Int?
@@ -35,6 +36,7 @@ final class Account: LastModifiedTracking {
         accountNumber: String? = nil,
         openedAt: Date = .now,
         closedAt: Date? = nil,
+        archivedAt: Date? = nil,
         creditLimit: Decimal? = nil,
         statementDayOfMonth: Int? = nil,
         paymentDayOfMonth: Int? = nil,
@@ -55,6 +57,7 @@ final class Account: LastModifiedTracking {
         self.accountNumber = accountNumber
         self.openedAt = openedAt
         self.closedAt = closedAt
+        self.archivedAt = archivedAt
         self.creditLimit = creditLimit
         self.statementDayOfMonth = statementDayOfMonth
         self.paymentDayOfMonth = paymentDayOfMonth
@@ -93,6 +96,8 @@ final class Account: LastModifiedTracking {
 }
 
 extension Account {
+    var isArchived: Bool { archivedAt != nil }
+
     var retirementKind: RetirementKind? {
         get { retirementKindRaw.flatMap(RetirementKind.init(rawValue:)) }
         set {

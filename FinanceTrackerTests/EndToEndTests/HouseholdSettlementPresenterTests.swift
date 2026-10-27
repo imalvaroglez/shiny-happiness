@@ -32,7 +32,7 @@ struct HouseholdSettlementPresenterTests {
     func fixturePresentationCopy() {
         let result = state()
 
-        #expect(result.navigationTitle == "Cuentas del hogar")
+        #expect(result.navigationTitle == "Paseo de los Parques")
         #expect(result.reportMonthTitle == "June 2026")
         #expect(result.subtitle == "Revisa los gastos que incluiste en Cuentas del hogar: tuyos, compartidos y de Fer.")
         #expect(!result.monthlySetup.rowLabels.contains("Mes del reporte"))

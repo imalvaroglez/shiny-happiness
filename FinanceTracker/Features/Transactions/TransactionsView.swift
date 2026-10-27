@@ -43,6 +43,13 @@ enum AssignmentFilter: Hashable, CaseIterable {
     }
 }
 
+enum TransactionDestinationFilter: Hashable {
+    case all
+    case personal
+    case household
+    case property(UUID)
+}
+
 enum HouseholdInclusionFilter: Hashable, CaseIterable {
     case all
     case included
@@ -82,6 +89,7 @@ struct TransactionSessionState {
     var categoryFilter: CategoryFilter = .all
     var assignmentFilter: AssignmentFilter = .all
     var householdInclusionFilter: HouseholdInclusionFilter = .all
+    var destinationFilter: TransactionDestinationFilter = .all
     var presetMonth: YearMonth?
     var sortMode: TransactionSortMode = .dateDesc
     var showingRecentlyDeleted = false
@@ -97,6 +105,7 @@ struct TransactionSessionState {
             categoryFilter = .all
             assignmentFilter = .all
             householdInclusionFilter = .all
+            destinationFilter = .all
             presetMonth = nil
             sortMode = .dateDesc
             showingRecentlyDeleted = false
@@ -125,6 +134,9 @@ struct TransactionsView: View {
     @State private var appliedResetSignal = 0
     @State private var promotionsModel = PromotionLedgerViewModel()
     @State private var categoryTintTick = 0
+    @State private var propertyLedger = PropertyLedger()
+    @State private var propertyAttributionsByTransaction: [UUID: PropertyTransactionAttribution] = [:]
+    @State private var propertyLedgerLoadError: String?
 
     /// Cuántas promos vivas tiene cada tx (badge discreto en la fila). Las
     /// adjudicaciones a promos eliminadas son huérfanas: no cuentan aquí
@@ -141,6 +153,51 @@ struct TransactionsView: View {
         }
     }
 
+    private func refreshPropertyAttributions() {
+        do {
+            propertyLedger = try PropertyLedgerStore.read()
+            propertyAttributionsByTransaction = Dictionary(
+                propertyLedger.attributions.filter { $0.deletedAt == nil }.map { ($0.transactionID, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            if case .property(let id) = sessionState.destinationFilter,
+               !propertyLedger.properties.contains(where: { $0.id == id }) {
+                sessionState.destinationFilter = .all
+            }
+            propertyLedgerLoadError = nil
+        } catch {
+            propertyLedger = PropertyLedger()
+            propertyAttributionsByTransaction = [:]
+            propertyLedgerLoadError = error.localizedDescription
+        }
+    }
+
+    private func propertyLabel(for transaction: Transaction) -> String? {
+        guard let attribution = propertyAttributionsByTransaction[transaction.id],
+              let property = propertyLedger.properties.first(where: { $0.id == attribution.propertyID }) else {
+            return nil
+        }
+        let kind: String
+        switch attribution.kind {
+        case .operation: kind = "Operación"
+        case .maintenance: kind = "Mantenimiento"
+        case .other: kind = "Otro"
+        case .reimbursement: kind = "Reembolso"
+        }
+        let responsibility: String
+        switch attribution.responsibility {
+        case .shared: responsibility = "Compartido"
+        case .owner: responsibility = "Propietario"
+        case .individual(let residentID):
+            responsibility = propertyLedger.residents.first(where: { $0.id == residentID })?.name ?? "Residente"
+        case .selected(let residentIDs):
+            let names = residentIDs.compactMap { id in propertyLedger.residents.first(where: { $0.id == id })?.name }
+            responsibility = names.isEmpty ? "Residentes seleccionados" : names.joined(separator: ", ")
+        }
+        let inactive = property.deletedAt == nil ? "" : " · Inactiva"
+        return "\(property.name)\(inactive) · \(kind) · \(responsibility)"
+    }
+
     private func ledgerRow(for tx: Transaction, wideLayout: Bool) -> some View {
         TransactionLedgerRow(
             transaction: tx,
@@ -151,6 +208,7 @@ struct TransactionsView: View {
             wideLayout: wideLayout,
             showsAccount: sessionState.accountFilterID == nil,
             promotionCount: promotionCountsByTransaction[tx.id] ?? 0,
+            propertyDestinationLabel: propertyLabel(for: tx),
             onOpenDetail: { editingTransaction = tx },
             onOpenCategoryPicker: {
                 editingTransaction = tx
@@ -269,6 +327,19 @@ struct TransactionsView: View {
             }
         }
 
+        switch sessionState.destinationFilter {
+        case .all:
+            break
+        case .personal:
+            result = result.filter {
+                propertyAttributionsByTransaction[$0.id] == nil && !$0.isIncludedInHouseholdSettlement
+            }
+        case .household:
+            result = result.filter { $0.isIncludedInHouseholdSettlement }
+        case .property(let propertyID):
+            result = result.filter { propertyAttributionsByTransaction[$0.id]?.propertyID == propertyID }
+        }
+
         if let month = sessionState.presetMonth {
             let calendar = Calendar(identifier: .gregorian)
             result = result.filter { calendar.isDate($0.postedAt, equalTo: month.startDate, toGranularity: .month) }
@@ -298,12 +369,22 @@ struct TransactionsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let propertyLedgerLoadError {
+                Label("No se pudieron cargar las atribuciones de propiedades. El filtro usa los destinos personales y del hogar hasta resolver el registro. \(propertyLedgerLoadError)",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+            }
             TransactionFilterBar(
                 searchText: $sessionState.searchText,
                 accountFilterID: $sessionState.accountFilterID,
                 categoryFilter: $sessionState.categoryFilter,
                 assignmentFilter: $sessionState.assignmentFilter,
                 householdInclusionFilter: $sessionState.householdInclusionFilter,
+                destinationFilter: $sessionState.destinationFilter,
                 presetMonth: $sessionState.presetMonth,
                 sortMode: $sessionState.sortMode,
                 showingRecentlyDeleted: $sessionState.showingRecentlyDeleted,
@@ -316,6 +397,7 @@ struct TransactionsView: View {
                 deletedCount: deletedTransactions.count,
                 visibleCount: dayGroups.reduce(0) { $0 + $1.count },
                 accounts: accounts,
+                properties: propertyLedger.properties,
                 parentCategories: parentCategories,
                 childrenOf: children(of:),
                 onAssignSelected: applyAssignment,
@@ -367,6 +449,7 @@ struct TransactionsView: View {
         .onChange(of: sessionState.categoryFilter) { recomputeDisplay() }
         .onChange(of: sessionState.assignmentFilter) { recomputeDisplay() }
         .onChange(of: sessionState.householdInclusionFilter) { recomputeDisplay() }
+        .onChange(of: sessionState.destinationFilter) { recomputeDisplay() }
         .onChange(of: sessionState.presetMonth) { recomputeDisplay() }
         .onChange(of: sessionState.searchText) { recomputeDisplay() }
         .onChange(of: sessionState.sortMode) { recomputeDisplay() }
@@ -383,12 +466,18 @@ struct TransactionsView: View {
             fetchTransactions()
             recomputeDisplay()
             refreshPromotionCounts()
+            refreshPropertyAttributions()
+            recomputeDisplay()
         }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
             refreshPromotionCounts()
         }
         .onReceive(NotificationCenter.default.publisher(for: CategoryCustomizationStore.didChangeNotification)) { _ in
             categoryTintTick &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PropertyLedgerStore.didChangeNotification)) { _ in
+            refreshPropertyAttributions()
+            recomputeDisplay()
         }
         .onChange(of: preset) {
             consumePresetIfNeeded()
@@ -439,8 +528,10 @@ struct TransactionsView: View {
             if dayGroups.isEmpty {
                 EmptyStateView(
                     icon: "list.bullet.rectangle",
-                    title: sessionState.showingRecentlyDeleted ? "No deleted transactions" : "No transactions",
-                    subtitle: sessionState.showingRecentlyDeleted ? nil : "Import a statement to get started"
+                    title: String(localized: sessionState.showingRecentlyDeleted
+                        ? "No deleted transactions" : "No transactions"),
+                    subtitle: sessionState.showingRecentlyDeleted ? nil
+                        : String(localized: "Import a statement to get started")
                 )
             } else {
                 let wideLayout = geometry.size.width >= 900

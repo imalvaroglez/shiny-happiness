@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Propiedades registra cobros en cuentas activas MXN de cualquier tipo desde una captura común para ambas casas, los distribuye por antigüedad y conserva excedentes como anticipos del integrante. El historial agrupa las aplicaciones por ingreso y permite abrir su movimiento.
+- Accounts can be archived and restored from Settings while their transactions, balances, positions, and installment plans remain intact and included in financial reports.
+- Backups now use schema 14, preserving account archive state and the versioned property ledger; backups without that ledger clear it on replace and leave it untouched on merge.
+- Propiedades now supports monthly resident income confirmations, historical rent, actual expense attribution and reimbursements, partial collections and advances, immutable settlement closes, maintenance recovery, and a manually managed future reserve without creating duplicate financial transactions.
+
+### Changed
+
+- Deuda anterior y anticipos se muestran junto al importe por aportar de cada integrante. La conciliación de ingresos ya existentes queda como acción secundaria, y un fallo al guardar la vinculación ofrece reintento sin duplicar el ingreso bancario.
+- El selector de cobros muestra todas las cuentas y señala las incompatibles; los importes sugeridos se presentan con dos decimales. La captura rechaza importes mal formados y detiene la reutilización de anticipos cuyo movimiento de origen cambió.
+- Property reports show each member's shared contribution percentage, a four-column spending Sankey (members → total → categories → subcategories) using monthly contribution percentages and exact cent allocation, with expandable detail and a compact hierarchy below 720 points, and visible-row counts with totals/subtotals by currency and movement type. Property screens now inherit the shared Liquid Glass backdrop and card materials used by Accounts.
+- Account sidebar rows show the account icon, name and institution without credit-card utilization bars or their balance queries.
+- Propiedades uses full-width member and activity tables with compact layouts, aligned section headings, source accounts, unsigned display amounts with explicit movement types, and inline/bulk responsibility assignment for rental homes and Household.
+- Member rows offer direct Rename and Remove actions in both homes. Rename edits only the name; removal ends participation from the later of the selected and current month, preserves history and closed reports, and retains individual charges for reconciliation. Household shared expenses use the remaining active roles.
+- Property UI follows the documented existing tokens and a unified es-MX catalog; source transactions and frozen financial calculations retain their signs and history.
+- The linked activity table can sort any data column in either direction, using ascending date as a secondary criterion outside date sorting. Account and responsibility column titles open one menu for sorting and multiple filter selections, stay on one line, and remain available when filters return no rows.
+
+- Propiedades adopts the approved Mac workspace: a single native sidebar with identical home rows, shared monthly summaries and detail sections, a consolidated overview, adaptive layouts, and no redundant property counter. Cached period data is reused across home and section navigation; recoverable errors remain visible.
+- Household Settlement is now part of the single Properties section as “Paseo de los Parques”; its monthly expenses and recoverable amount appear alongside the other homes, while existing household setup and transaction data remain intact.
+- Asset-account dashboards fit Cash Flow, Balance Over Time, and category spending in one row with 300-point minimum panels. When three do not fit, the card keeps only Cash Flow and category spending, side by side or stacked on narrow windows. Dense daily charts retain readable date labels and outlier handling.
+- Overview and asset-account Cash Flow now show cash received and paid. Credit-card purchases enter Cash Flow when the bank payment is recorded; consumption and category reports retain purchase dates. Manually captured interest is distributed as a clearly labeled daily estimate across its accrual interval, including in per-account Balance Over Time charts; imported interest keeps its recorded date.
+- Cash Flow charts omit repeated methodology notes and reserve inline text for exceptions that need attention.
+
 ## [0.17.0] - 2026-10-21
 
 ### Added

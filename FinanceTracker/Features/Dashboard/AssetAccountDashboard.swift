@@ -4,6 +4,11 @@ import Charts
 /// Per-account dashboard for checking / savings / investment accounts. Same
 /// pattern as ConsolidatedDashboard but scoped to one account.
 struct AssetAccountDashboard: View {
+    private enum ActivityLayout {
+        static let minimumPanelWidth: CGFloat = 300
+        static let spacing = DashboardCardTokens.compactPadding
+    }
+
     let snapshot: AssetAccountSnapshot
     var onTransactionTap: ((Transaction) -> Void)? = nil
     var onViewAllTransactions: (() -> Void)? = nil
@@ -19,17 +24,11 @@ struct AssetAccountDashboard: View {
         VStack(spacing: 20) {
             summaryCards
             portfolioSection
-            if !snapshot.monthlyCashFlow.isEmpty { cashFlowChart }
-            if snapshot.balanceOverTime.isEmpty {
-                insufficientBalanceCard
-            } else {
-                balanceChart
-            }
-            if !snapshot.spendingByCategory.isEmpty { spendingDonut }
+            activityCharts
             recentList
         }
         .sheet(item: $breakdown) { req in
-            BreakdownSheet(request: req)
+            BreakdownSheet(request: req, onTransactionTap: onTransactionTap)
         }
     }
 
@@ -187,7 +186,12 @@ struct AssetAccountDashboard: View {
         HStack(spacing: 16) {
             SummaryCard(title: "Balance", amount: snapshot.currentBalance, currencyCode: snapshot.currencyCode, copyableAmount: true)
             SummaryCard(title: "Income", amount: snapshot.totalIncome, currencyCode: snapshot.currencyCode, tint: .green) {
-                breakdown = .income(transactions: snapshot.recentTransactions, total: snapshot.totalIncome)
+                breakdown = .income(
+                    transactions: snapshot.recentTransactions,
+                    total: snapshot.totalIncome,
+                    interestAllocations: snapshot.interestAllocations,
+                    interestSources: snapshot.interestSourceTransactions
+                )
             }
             SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), currencyCode: snapshot.currencyCode, tint: .red) {
                 breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses)
@@ -209,32 +213,85 @@ struct AssetAccountDashboard: View {
             )
         } else {
             SummaryCard(title: "Interest Earned", amount: snapshot.totalInterestEarned, currencyCode: snapshot.currencyCode, tint: .mint) {
-                breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
+                breakdown = .interest(
+                    total: snapshot.totalInterestEarned,
+                    allocations: snapshot.interestAllocations,
+                    sources: snapshot.interestSourceTransactions
+                )
             }
         }
     }
 
-    private var cashFlowChart: some View {
-        ChartCard(title: "Cash Flow") {
+    private var activityCharts: some View {
+        ChartCard(title: "Charts", subtitle: periodLabel) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: ActivityLayout.spacing) {
+                    cashFlowPanel
+                        .frame(minWidth: ActivityLayout.minimumPanelWidth, maxWidth: .infinity, alignment: .topLeading)
+                    chartColumnDivider
+                    balancePanel
+                        .frame(minWidth: ActivityLayout.minimumPanelWidth, maxWidth: .infinity, alignment: .topLeading)
+                    chartColumnDivider
+                    spendingPanel
+                        .frame(minWidth: ActivityLayout.minimumPanelWidth, maxWidth: .infinity, alignment: .topLeading)
+                }
+
+                HStack(alignment: .top, spacing: ActivityLayout.spacing) {
+                    cashFlowPanel
+                        .frame(minWidth: ActivityLayout.minimumPanelWidth, maxWidth: .infinity, alignment: .topLeading)
+                    chartColumnDivider
+                    spendingPanel
+                        .frame(minWidth: ActivityLayout.minimumPanelWidth, maxWidth: .infinity, alignment: .topLeading)
+                }
+
+                VStack(alignment: .leading, spacing: 18) {
+                    cashFlowPanel
+                    Divider()
+                    spendingPanel
+                }
+            }
+        }
+    }
+
+    private var chartColumnDivider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.08))
+            .frame(width: 1, height: 220)
+            .padding(.top, 26)
+    }
+
+    private var cashFlowPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Cash Flow")
+                .font(.subheadline.weight(.semibold))
             DashboardGroupedPeriodBarChart(
                 groups: cashFlowBarGroups,
-                firstSeriesName: "Income",
-                secondSeriesName: "Expenses",
+                firstSeriesName: "Cash in",
+                secondSeriesName: "Cash out",
                 firstColor: DashboardChartSeriesColor.income,
                 secondColor: DashboardChartSeriesColor.expense,
                 currencyCode: snapshot.currencyCode,
                 emptyMessage: "No cash flow activity for this period.",
                 footerText: { group in
                     guard let entry = cashFlowEntry(for: group.bucketStart) else { return nil }
-                    var parts = ["Net: \(MoneyFormat.string(code: snapshot.currencyCode, entry.savings))"]
+                    var parts = [String(localized: "Net: \(MoneyFormat.string(code: snapshot.currencyCode, entry.savings))")]
                     if entry.income > 0 {
-                        parts.append("Savings Rate: \(cashFlowSavingsRateText(entry))")
+                        parts.append(String(localized: "Savings Rate: \(cashFlowSavingsRateText(entry))"))
                     }
                     return parts.joined(separator: " · ")
                 },
                 onGroupTap: { group in
-                    breakdown = .cashFlowPeriod(start: group.bucketStart, bucket: snapshot.period.bucket, transactions: snapshot.recentTransactions)
-                }
+                    breakdown = .cashFlowPeriod(
+                        start: group.bucketStart,
+                        bucket: snapshot.period.bucket,
+                        transactions: snapshot.recentTransactions,
+                        interestAllocations: snapshot.interestAllocations,
+                        interestSources: snapshot.interestSourceTransactions,
+                        matchedCardPaymentIDs: snapshot.matchedCardPaymentTransactionIDs,
+                        hasUnmatchedCardPayment: snapshot.hasUnmatchedCardPayment
+                    )
+                },
+                chartHeight: 200
             )
         }
     }
@@ -258,44 +315,66 @@ struct AssetAccountDashboard: View {
         return snapshot.monthlyCashFlow.first { $0.month == bucketStart }
     }
 
+    /// Display-only percentage (savings / income); the money itself stays
+    /// Decimal via MoneyFormat.
     private func cashFlowSavingsRateText(_ entry: MonthlyCashFlow) -> String {
         guard entry.income > 0 else { return "0.0%" }
         let rate = ((entry.savings / entry.income) as NSDecimalNumber).doubleValue * 100
         return String(format: "%.1f%%", rate)
     }
 
-    private var balanceChart: some View {
-        ChartCard(title: "Balance Over Time", subtitle: periodLabel) {
-            DashboardBalanceTimeSeriesChart(
-                points: snapshot.balanceOverTime,
-                period: snapshot.period,
-                currencyCode: snapshot.currencyCode,
-                hoverBucketStart: $balanceHover
-            )
+    private var balancePanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Balance Over Time")
+                .font(.subheadline.weight(.semibold))
+            if snapshot.balanceOverTime.isEmpty {
+                DashboardChartEmptyState(message: "Not enough balance history to calculate this account balance for the selected period.")
+                    .frame(height: 190)
+            } else {
+                DashboardBalanceTimeSeriesChart(
+                    points: snapshot.balanceOverTime,
+                    period: snapshot.period,
+                    currencyCode: snapshot.currencyCode,
+                    compact: true,
+                    hoverBucketStart: $balanceHover
+                )
+            }
         }
     }
 
-    private var insufficientBalanceCard: some View {
-        ChartCard(title: "Balance Over Time", subtitle: periodLabel) {
-            DashboardChartEmptyState(message: "Not enough balance history to calculate this account balance for the selected period.")
-        }
-    }
-
-    private var spendingDonut: some View {
-        let top = Array(snapshot.spendingByCategory.prefix(8))
-        return ChartCard(title: "Spending by Category") {
-            SpendingCategoryDonut(
-                entries: top,
-                currencyCode: snapshot.currencyCode
-            ) { entry in
-                breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
+    private var spendingPanel: some View {
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Spending by Category")
+                .font(.subheadline.weight(.semibold))
+            if snapshot.spendingByCategory.isEmpty {
+                DashboardChartEmptyState(message: "No spending by category for this period.")
+                    .frame(height: 190)
+            } else {
+                SpendingCategoryDonut(
+                    entries: snapshot.spendingByCategory,
+                    currencyCode: snapshot.currencyCode,
+                    chartHeight: 130,
+                    visibleEntryLimit: 5,
+                    compactRows: true,
+                    aggregatesOther: true,
+                    onSelect: { entry in
+                        breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
+                    },
+                    onSelectOther: {
+                        breakdown = .categoryList(
+                            entries: snapshot.spendingByCategory,
+                            currencyCode: snapshot.currencyCode,
+                            transactions: snapshot.recentTransactions
+                        )
+                    }
+                )
             }
         }
     }
 
     private var recentList: some View {
         DashboardListCard(title: "Recent Transactions") {
-            let rows = Array(snapshot.recentTransactions.prefix(10))
+            let rows = Array(snapshot.recentTransactions.prefix(15))
             if rows.isEmpty {
                 Text("No transactions for this period")
                     .font(.caption)
@@ -395,4 +474,71 @@ enum PortfolioDashboardCopy {
         recentTransactions: [],
         totalTransactions: 0
     ))
+}
+
+@MainActor
+private func assetAccountAnalyticsPreview(width: CGFloat) -> some View {
+    let calendar = Calendar.current
+    let end = calendar.date(from: DateComponents(year: 2026, month: 10, day: 21)) ?? .now
+    let period = DashboardPeriodResolver.context(
+        kind: .month,
+        requestedRange: DashboardPeriodKind.month.resolvedRange(now: end),
+        dataRange: nil,
+        now: end
+    )
+    let categories = ["Food", "Transport", "Health", "Home"].enumerated().map { index, name in
+        CategorySpending(
+            category: Category(name: name),
+            amount: Decimal(420 - index * 65)
+        )
+    }
+    let cashFlow = period.intervals(calendar: calendar).map { interval in
+        let day = calendar.component(.day, from: interval.bucketStart)
+        return MonthlyCashFlow(
+            month: interval.bucketStart,
+            income: 65,
+            expenses: day == 9 ? -1_000 : -12
+        )
+    }
+    let balancePoints = period.intervals(calendar: calendar).compactMap { interval -> NetWorthPoint? in
+        let day = calendar.component(.day, from: interval.bucketStart)
+        guard day == 1 || day == 9 || day == 10 || day == 14 || day == 21 else { return nil }
+        let balance: Decimal = day < 9 ? 500_000 : (day < 14 ? 470_000 : 495_000)
+        return NetWorthPoint(month: interval.bucketStart, balance: balance)
+    }
+
+    return AssetAccountDashboard(snapshot: AssetAccountSnapshot(
+        period: period,
+        account: DashboardAccountIdentity(
+            id: UUID(),
+            displayName: "Cuenta de prueba",
+            institution: "Institución de prueba",
+            type: .savings,
+            currency: "MXN",
+            tintHex: nil,
+            creditLimit: nil
+        ),
+        currentBalance: 495_000,
+        balanceOverTime: balancePoints,
+        monthlyCashFlow: cashFlow,
+        spendingByCategory: categories,
+        totalIncome: 1_800,
+        totalExpenses: -1_500,
+        totalInterestEarned: 2_334.33,
+        recentTransactions: [],
+        totalTransactions: 0
+    ))
+    .frame(width: width)
+}
+
+#Preview("Account charts: three in one row") {
+    assetAccountAnalyticsPreview(width: 1280)
+}
+
+#Preview("Account charts: cash flow and categories") {
+    assetAccountAnalyticsPreview(width: 820)
+}
+
+#Preview("Account charts: narrow window") {
+    assetAccountAnalyticsPreview(width: 540)
 }

@@ -535,6 +535,10 @@ struct PromotionEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Account.nickname) private var accounts: [Account]
 
+    private var selectableAccounts: [Account] {
+        accounts.filter { $0.archivedAt == nil || $0.id == existing?.accountID }
+    }
+
     @State private var name = ""
     @State private var accountID: UUID?
     @State private var currency = "MXN"
@@ -557,8 +561,11 @@ struct PromotionEditorSheet: View {
                 }
                 fieldRow("Cuenta") {
                     Picker("", selection: $accountID) {
-                        ForEach(accounts) { account in
-                            Text(account.displayName).tag(Optional(account.id))
+                        ForEach(selectableAccounts) { account in
+                            Text(account.archivedAt == nil
+                                 ? account.displayName
+                                 : "\(account.displayName) (Archived)")
+                                .tag(Optional(account.id))
                         }
                     }
                     .labelsHidden()
@@ -627,13 +634,13 @@ struct PromotionEditorSheet: View {
         .onChange(of: accountID) {
             // Al crear, la moneda por defecto es la de la cuenta ancla (PA-05).
             guard existing == nil, let accountID,
-                  let account = accounts.first(where: { $0.id == accountID }) else { return }
+                  let account = accounts.first(where: { $0.id == accountID && $0.archivedAt == nil }) else { return }
             currency = account.currency
         }
     }
 
     private var availableCurrencies: [String] {
-        var codes = Set(accounts.map(\.currency))
+        var codes = Set(accounts.filter { $0.archivedAt == nil }.map(\.currency))
         codes.insert(currency)
         return codes.sorted()
     }
@@ -663,8 +670,9 @@ struct PromotionEditorSheet: View {
             rewardNote = existing.rewardNote ?? ""
             notes = existing.notes ?? ""
         } else {
-            accountID = anchorAccountID ?? accounts.first?.id
-            if let anchored = accounts.first(where: { $0.id == anchorAccountID }) {
+            accountID = accounts.first(where: { $0.id == anchorAccountID && $0.archivedAt == nil })?.id
+                ?? accounts.first(where: { $0.archivedAt == nil })?.id
+            if let anchored = accounts.first(where: { $0.id == accountID }) {
                 currency = anchored.currency
             }
         }

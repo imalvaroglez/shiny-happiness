@@ -7,6 +7,13 @@ import SwiftData
 struct DataHealthAccountInput: Equatable, Sendable {
     let closedAt: Date?
     let currency: String
+    let archivedAt: Date?
+
+    init(closedAt: Date?, currency: String, archivedAt: Date? = nil) {
+        self.closedAt = closedAt
+        self.currency = currency
+        self.archivedAt = archivedAt
+    }
 }
 
 struct DataHealthTransactionInput: Equatable, Sendable {
@@ -37,7 +44,7 @@ struct DataHealthSummary: Equatable, Sendable {
         activeCategoryCount: Int,
         importedStatementCount: Int
     ) {
-        activeAccountCount = accounts.count(where: { $0.closedAt == nil })
+        activeAccountCount = accounts.count(where: { $0.closedAt == nil && $0.archivedAt == nil })
 
         let activeTransactions = transactions.filter { $0.deletedAt == nil && !$0.isDuplicate }
         historyStart = activeTransactions.map(\.postedAt).min()
@@ -48,7 +55,7 @@ struct DataHealthSummary: Equatable, Sendable {
         self.activeCategoryCount = max(0, activeCategoryCount)
         self.importedStatementCount = max(0, importedStatementCount)
 
-        let accountCurrencies = accounts.filter { $0.closedAt == nil }.map(\.currency)
+        let accountCurrencies = accounts.filter { $0.closedAt == nil && $0.archivedAt == nil }.map(\.currency)
         let transactionCurrencies = activeTransactions.map(\.currency)
         currenciesInUse = Set((accountCurrencies + transactionCurrencies).compactMap { currency in
             let normalized = currency.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -65,7 +72,11 @@ struct DataHealthSummary: Equatable, Sendable {
 actor DataHealthSnapshotLoader {
     func load(activeCategoryCount: Int) throws -> DataHealthSummary {
         let accounts = try modelContext.fetch(FetchDescriptor<Account>()).map {
-            DataHealthAccountInput(closedAt: $0.closedAt, currency: $0.currency)
+            DataHealthAccountInput(
+                closedAt: $0.closedAt,
+                currency: $0.currency,
+                archivedAt: $0.archivedAt
+            )
         }
         let transactions = try modelContext.fetch(FetchDescriptor<Transaction>()).map {
             DataHealthTransactionInput(

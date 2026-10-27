@@ -77,7 +77,7 @@ struct DashboardSectionHeader: View {
             if let systemImage {
                 Image(systemName: systemImage)
             }
-            Text(title.uppercased())
+            Text(LocalizedStringKey(title.uppercased()))
         }
         .font(DashboardCardTokens.Typography.sectionTitle())
         .foregroundStyle(.secondary)
@@ -107,6 +107,28 @@ enum DashboardPeriodLabel: Hashable {
             return label
         case .calendarMonthToDate(let label):
             return label
+        }
+    }
+
+    var accessibilityText: String {
+        switch self {
+        case .asOf(let date):
+            return "\(String(localized: "As of")) \(Self.shortDate(date))"
+        case .period(let label), .calendarMonthToDate(let label):
+            return String(localized: String.LocalizationValue(label))
+        }
+    }
+
+    @ViewBuilder
+    var localizedView: some View {
+        switch self {
+        case .asOf(let date):
+            HStack(spacing: 3) {
+                Text("As of")
+                Text(verbatim: Self.shortDate(date))
+            }
+        case .period(let label), .calendarMonthToDate(let label):
+            Text(LocalizedStringKey(label))
         }
     }
 
@@ -156,7 +178,7 @@ struct DashboardMetricCard: View {
                             .minimumScaleFactor(0.72)
 
                         if let subtitle {
-                            Text(subtitle)
+                            Text(LocalizedStringKey(subtitle))
                                 .font(prominent ? .subheadline : .caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
@@ -166,7 +188,7 @@ struct DashboardMetricCard: View {
                             accessory
                         }
 
-                        Text(periodLabel.text)
+                        periodLabel.localizedView
                             .font(DashboardCardTokens.Typography.meta().monospacedDigit())
                             .foregroundStyle(.tertiary)
                     }
@@ -187,8 +209,8 @@ struct DashboardMetricCard: View {
     /// VoiceOver-friendly summary: title, amount, period, optional delta.
     private var accessibilityDescription: String {
         let amountText = MoneyFormat.string(code: currencyCode, amount)
-        var parts = ["\(title)", amountText, periodLabel.text]
-        if let subtitle { parts.append(subtitle) }
+        var parts = [String(localized: String.LocalizationValue(title)), amountText, periodLabel.accessibilityText]
+        if let subtitle { parts.append(String(localized: String.LocalizationValue(subtitle))) }
         if prominent, let deltaPercent {
             parts.append(String(format: "%+.1f%% versus previous period", deltaPercent))
         }
@@ -205,7 +227,7 @@ struct DashboardMetricCard: View {
 
     private var headerRow: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(prominent ? .headline : DashboardCardTokens.Typography.cardTitle())
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
@@ -295,7 +317,7 @@ struct DashboardInsightCard<Accessory: View>: View {
                     Image(systemName: systemImage)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(status.tone.color)
-                    Text(title)
+                    Text(LocalizedStringKey(title))
                         .font(DashboardCardTokens.Typography.cardTitle())
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
@@ -321,7 +343,7 @@ struct DashboardInsightCard<Accessory: View>: View {
 
                 accessory()
 
-                Text(periodLabel.text)
+                periodLabel.localizedView
                     .font(DashboardCardTokens.Typography.meta().monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
@@ -379,9 +401,9 @@ struct DashboardChartPanel<Content: View>: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(.headline)
+                        Text(LocalizedStringKey(title)).font(.headline)
                         if let subtitle {
-                            Text(subtitle)
+                            Text(LocalizedStringKey(subtitle))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    nonisolated private static let schemaVersion = 11
+    nonisolated private static let schemaVersion = 14
     nonisolated private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -93,6 +93,15 @@ enum BackupArchive {
                   let snapshots = try? decoder.decode([CategoryCustomizationCatalog].self, from: data),
                   snapshots.count == 1, snapshots[0].schemaVersion == 1 else { return false }
         }
+        if manifest.schemaVersion >= 13 {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let data = arrayData(for: "PropertyLedger", in: modelsDir),
+                  let snapshots = try? decoder.decode([PropertyLedger].self, from: data),
+                  snapshots.count == 1, PropertyLedgerStore.validate(snapshots[0]).isEmpty,
+                  manifest.modelCounts["PropertyLedger"] == 1,
+                  manifest.contentHashes["PropertyLedger"] != nil else { return false }
+        }
         return true
     }
 
@@ -123,12 +132,13 @@ enum BackupArchive {
         if schemaVersion >= 9 { names.append("SpendRequirement") }
         if schemaVersion >= 10 { names.append("PromotionLedger") }
         if schemaVersion >= 11 { names.append("CategoryCustomization") }
+        if schemaVersion >= 13 { names.append("PropertyLedger") }
         return names
     }
 
     static func export(to bundleURL: URL, from context: ModelContext, promotionLedgerURL: URL? = nil,
                        spendRequirementsURL: URL? = nil, categoryCustomizationURL: URL? = nil,
-                       statementsSource: URL? = nil) async throws {
+                       statementsSource: URL? = nil, propertyLedgerURL: URL? = nil) async throws {
         let fm = FileManager.default
         let modelsDir = bundleURL.appendingPathComponent(modelsSubdirectory)
         let statementsDir = bundleURL.appendingPathComponent(statementsSubdirectory)
@@ -217,6 +227,7 @@ enum BackupArchive {
         try writeJSON("CategoryCustomization", [try CategoryCustomizationStore.read(fileURL: categoryCustomizationURL)])
         let spendStoreURL = try spendRequirementsURL ?? SpendRequirementStore.defaultURL()
         try writeJSON("SpendRequirement", [try SpendRequirementStore.read(fileURL: spendStoreURL)])
+        try writeJSON("PropertyLedger", [try PropertyLedgerStore.read(fileURL: propertyLedgerURL)])
 
         let sourceStatements = try statementsSource ?? PromotionLedgerStore.defaultURL()
             .deletingLastPathComponent().appendingPathComponent("Statements")
@@ -242,7 +253,7 @@ enum BackupArchive {
     }
 
     enum RestoreCheckpoint: String, CaseIterable {
-        case modelsStaged, ledgerPublished, customizationPublished, spendPublished, statementsPrepared, beforeSave
+        case modelsStaged, ledgerPublished, customizationPublished, spendPublished, propertyLedgerPublished, statementsPrepared, beforeSave
     }
 
     @discardableResult
@@ -250,7 +261,8 @@ enum BackupArchive {
                         promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil,
                         categoryCustomizationURL: URL? = nil, statementsDestination: URL? = nil,
                         checkpoint: ((RestoreCheckpoint) throws -> Void)? = nil,
-                        saveContext: ((ModelContext) throws -> Void)? = nil) async throws -> [String] {
+                        saveContext: ((ModelContext) throws -> Void)? = nil,
+                        propertyLedgerURL: URL? = nil) async throws -> [String] {
         // Never discard unrelated drafts in the caller's context.
         guard !callerContext.hasChanges else { throw RestoreError.unsavedChanges }
         let ledgerURL = try promotionLedgerURL ?? PromotionLedgerStore.defaultURL()
@@ -259,7 +271,9 @@ enum BackupArchive {
         _ = try SpendRequirementStore.read(fileURL: spendURL)
         let customURL = try categoryCustomizationURL ?? CategoryCustomizationStore.defaultURL()
         _ = try CategoryCustomizationStore.read(fileURL: customURL)
-        let files = try SidecarFileTransaction(urls: [ledgerURL, customURL, spendURL])
+        let propertyURL = try propertyLedgerURL ?? PropertyLedgerStore.defaultURL()
+        _ = try PropertyLedgerStore.read(fileURL: propertyURL)
+        let files = try SidecarFileTransaction(urls: [ledgerURL, customURL, spendURL, propertyURL])
         let context = ModelContext(callerContext.container)
         context.autosaveEnabled = false
         let destination = try statementsDestination ?? PromotionLedgerStore.defaultURL()
@@ -269,6 +283,7 @@ enum BackupArchive {
                                     promotionLedgerURL: files.stagedURL(for: ledgerURL),
                                     spendRequirementsURL: files.stagedURL(for: spendURL),
                                     categoryCustomizationURL: files.stagedURL(for: customURL),
+                                    propertyLedgerURL: files.stagedURL(for: propertyURL),
                                     files: files, statementsDestination: destination)
             try checkpoint?(.modelsStaged)
             try files.publish(ledgerURL)
@@ -277,6 +292,8 @@ enum BackupArchive {
             try checkpoint?(.customizationPublished)
             try files.publish(spendURL)
             try checkpoint?(.spendPublished)
+            try files.publish(propertyURL)
+            try checkpoint?(.propertyLedgerPublished)
             try checkpoint?(.statementsPrepared)
             try checkpoint?(.beforeSave)
             if let saveContext { try saveContext(context) } else { try context.save() }
@@ -285,6 +302,7 @@ enum BackupArchive {
             files.discard()
             NotificationCenter.default.post(name: PromotionLedgerStore.didChangeNotification, object: nil)
             NotificationCenter.default.post(name: CategoryCustomizationStore.didChangeNotification, object: customURL)
+            NotificationCenter.default.post(name: PropertyLedgerStore.didChangeNotification, object: propertyURL)
             return warnings
         } catch {
             context.rollback()
@@ -297,7 +315,7 @@ enum BackupArchive {
 
     private static func restoreStaged(from bundleURL: URL, into context: ModelContext, strategy: RestoreStrategy,
                         promotionLedgerURL: URL? = nil, spendRequirementsURL: URL? = nil,
-                        categoryCustomizationURL: URL? = nil,
+                        categoryCustomizationURL: URL? = nil, propertyLedgerURL: URL? = nil,
                         files: SidecarFileTransaction, statementsDestination: URL) async throws -> [String] {
         var warnings: [String] = []
         let fm = FileManager.default
@@ -306,7 +324,7 @@ enum BackupArchive {
 
         let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
-        guard (1...11).contains(manifest.schemaVersion) else {
+        guard (1...schemaVersion).contains(manifest.schemaVersion) else {
             throw RestoreError.unsupportedSchema(manifest.schemaVersion)
         }
         guard isValidBundle(manifest, at: bundleURL) else {
@@ -372,6 +390,14 @@ enum BackupArchive {
             guard snapshots.count == 1, snapshots[0].schemaVersion == 1 else { throw RestoreError.invalidBundle }
             categoryCustomizationSnap = snapshots.first
         } else { categoryCustomizationSnap = nil }
+        let propertyLedgerSnap: PropertyLedger?
+        if manifest.schemaVersion >= 13 {
+            let snapshots = try loadJSON(PropertyLedger.self, "PropertyLedger")
+            guard snapshots.count == 1, PropertyLedgerStore.validate(snapshots[0]).isEmpty else {
+                throw RestoreError.invalidBundle
+            }
+            propertyLedgerSnap = snapshots.first
+        } else { propertyLedgerSnap = nil }
         let spendRequirementsSnap: SpendRequirementSettings?
         if manifest.schemaVersion >= 9 {
             let snapshots = try loadJSON(SpendRequirementSettings.self, "SpendRequirement")
@@ -457,13 +483,14 @@ enum BackupArchive {
             existingModifiedAt: \StockPosition.lastModifiedAt)
 
         func resolveOrInsertAccount(_ id: UUID, _ snap: AccountSnapshot) -> Account {
+            let restoreArchiveState = manifest.schemaVersion >= 12
             if let existing = accountMap[id] {
                 if case .mergeKeepingNewer = strategy, snap.lastModifiedAt > existing.lastModifiedAt {
-                    existing.apply(snap)
+                    existing.apply(snap, restoreArchiveState: restoreArchiveState)
                 }
                 return existing
             }
-            let obj = Account(snap)
+            let obj = Account(snap, restoreArchiveState: restoreArchiveState)
             context.insert(obj)
             accountMap[id] = obj
             return obj
@@ -805,6 +832,19 @@ enum BackupArchive {
                     accountCurrencies: Dictionary(uniqueKeysWithValues: accountMap.map { ($0.key, $0.value.currency) }))
             }
         }
+        let propertiesURL = try propertyLedgerURL ?? PropertyLedgerStore.defaultURL()
+        switch strategy {
+        case .replaceAll:
+            if let propertyLedgerSnap {
+                try PropertyLedgerStore.replace(with: propertyLedgerSnap, at: propertiesURL, notify: false)
+            } else {
+                try PropertyLedgerStore.reset(fileURL: propertiesURL, notify: false)
+            }
+        case .mergeKeepingNewer:
+            if let propertyLedgerSnap {
+                warnings += try PropertyLedgerStore.merge(propertyLedgerSnap, at: propertiesURL, notify: false)
+            }
+        }
         try files.prepareStatements(from: bundleURL.appendingPathComponent(statementsSubdirectory),
                                     into: statementsDestination)
         return warnings
@@ -858,7 +898,7 @@ private enum RestoreError: LocalizedError {
 }
 
 extension Account {
-    convenience init(_ snap: AccountSnapshot) {
+    convenience init(_ snap: AccountSnapshot, restoreArchiveState: Bool = true) {
         self.init(
             id: snap.id,
             institution: snap.institution,
@@ -868,6 +908,7 @@ extension Account {
             accountNumber: snap.accountNumber,
             openedAt: snap.openedAt,
             closedAt: snap.closedAt,
+            archivedAt: restoreArchiveState ? snap.archivedAt : nil,
             creditLimit: snap.creditLimit,
             statementDayOfMonth: snap.statementDayOfMonth,
             paymentDayOfMonth: snap.paymentDayOfMonth,
@@ -883,7 +924,7 @@ extension Account {
         applyBackupMetadataDefaults(from: snap)
     }
 
-    func apply(_ snap: AccountSnapshot) {
+    func apply(_ snap: AccountSnapshot, restoreArchiveState: Bool = true) {
         institution = snap.institution
         type = AccountType(rawValue: snap.type) ?? .other
         currency = snap.currency
@@ -891,6 +932,9 @@ extension Account {
         accountNumber = snap.accountNumber
         openedAt = snap.openedAt
         closedAt = snap.closedAt
+        if restoreArchiveState {
+            archivedAt = snap.archivedAt
+        }
         creditLimit = snap.creditLimit
         statementDayOfMonth = snap.statementDayOfMonth
         paymentDayOfMonth = snap.paymentDayOfMonth
@@ -933,6 +977,7 @@ extension AccountSnapshot {
             accountNumber: account.accountNumber,
             openedAt: account.openedAt,
             closedAt: account.closedAt,
+            archivedAt: account.archivedAt,
             creditLimit: account.creditLimit,
             statementDayOfMonth: account.statementDayOfMonth,
             paymentDayOfMonth: account.paymentDayOfMonth,

@@ -78,6 +78,8 @@
 **Decision:** Add `CategoryKind.creditCardPayment` and a seed rule that classifies the HSBC SPEI payment line. `DashboardViewModel` excludes `.creditCardPayment` AND `.transfer` kinds from cash flow / spending-by-category aggregates. Net worth uses signed-stored balances (AD-010) so the payment naturally moves the right amount between asset and liability accounts.
 **Consequence:** Importing both sides of a transfer doesn't double-count. The Transactions view still shows both rows so the user can reconcile.
 
+**Update (2026-10-25):** Cash Flow is now cash-basis (AGENTS.md invariants). A bank outflow categorized as a card payment, or paired by `transferGroupID` with a credit-card receipt, counts once as a cash outflow on its posted date; credit-card purchases themselves stay out of Cash Flow until that payment exists. Consumption, category spending, and Household reporting keep purchase-date semantics. The `.creditCardPayment` classification and the no-double-count intent of this decision stand.
+
 ## AD-014: Learning hooks — every manual fix teaches the system
 **Date:** 2026-05-12
 **Context:** Manual review of ambiguous rows is acceptable once; doing it on every import is not.

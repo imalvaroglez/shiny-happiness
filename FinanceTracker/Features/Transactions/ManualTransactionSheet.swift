@@ -9,6 +9,10 @@ struct ManualTransactionSheet: View {
     @Query(filter: #Predicate<Category> { $0.deletedAt == nil },
            sort: \Category.name) private var categories: [Category]
 
+    private var activeAccounts: [Account] {
+        accounts.filter { $0.archivedAt == nil }
+    }
+
     let defaultAccountID: UUID?
     let lockedAccountID: UUID?
     let onSaved: () -> Void
@@ -33,16 +37,40 @@ struct ManualTransactionSheet: View {
     @State private var promotionsModel = PromotionLedgerViewModel()
     @State private var selectedPromotionIDs: Set<UUID> = []
     @State private var attributionFailure: AttributionFailure?
+    @State private var propertyLedger = PropertyLedger()
+    @State private var propertyID: UUID?
+    @State private var propertyExpenseKind: PropertyExpenseKind = .operation
+    @State private var propertyResponsibility: PropertyCaptureResponsibility = .shared
+    @State private var propertyResidentID: UUID?
+    @State private var propertySelectedResidentIDs: Set<UUID> = []
+    @State private var propertyMaintenanceProgramID: UUID?
+    @State private var pendingPropertyTransaction: Transaction?
+    @State private var propertySaveError: String?
     @State private var didEditDate = false
     @State private var saveIntent: SaveAndNewFlow.Intent = .close
     @FocusState private var focusedField: SaveAndNewFlow.Field?
 
     private var selectedAccount: Account? {
-        accounts.first { $0.id == accountID }
+        activeAccounts.first { $0.id == accountID }
+    }
+
+    private var lockedAccountIsArchived: Bool {
+        guard let lockedAccountID else { return false }
+        return accounts.first(where: { $0.id == lockedAccountID })?.archivedAt != nil
     }
 
     private var selectedCategory: Category? {
         categoryID.flatMap { id in categories.first { $0.id == id } }
+    }
+
+    private var selectedPropertyResidents: [PropertyResident] {
+        guard let propertyID else { return [] }
+        return propertyLedger.residents(for: propertyID, month: date)
+    }
+
+    private var selectedPropertyPrograms: [PropertyMaintenanceProgram] {
+        guard let propertyID else { return [] }
+        return propertyLedger.maintenancePrograms.filter { $0.propertyID == propertyID && $0.deletedAt == nil }
     }
 
     private var availableKinds: [ManualTransactionKind] {
@@ -84,11 +112,26 @@ struct ManualTransactionSheet: View {
             promotionsSection
             attributionFailureAlert
 
+            if lockedAccountIsArchived {
+                Text("This account is archived. Restore it in Settings → Accounts before adding a transaction.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let propertySaveError {
+                Label(propertySaveError, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+                if pendingPropertyTransaction != nil {
+                    Button("Cerrar sin vincular") { dismiss() }
+                        .buttonStyle(.borderless)
+                }
             }
 
             HStack {
@@ -99,35 +142,50 @@ struct ManualTransactionSheet: View {
                     saveIntent = .addAnother
                     save()
                 }
-                .disabled(accounts.isEmpty || attributionFailure != nil)
+                .disabled(activeAccounts.isEmpty || lockedAccountIsArchived || attributionFailure != nil)
                 Button(attributionFailure == nil ? "Save" : "Guardada ✓") {
                     saveIntent = .close
                     save()
                 }
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(accounts.isEmpty || attributionFailure != nil)
+                .disabled(activeAccounts.isEmpty || lockedAccountIsArchived || attributionFailure != nil)
             }
         }
         .padding(24)
         .frame(width: 560)
         .onAppear {
-            accountID = defaultAccountID ?? lockedAccountID ?? accounts.first?.id
+            do { propertyLedger = try PropertyLedgerStore.read() }
+            catch { propertySaveError = "No se pudo leer el registro de propiedades: \(error.localizedDescription)" }
+            accountID = preferredActiveAccountID
             normalizeKindAndCategory()
             updateCounterparty()
             applyDateSuggestion()
+        }
+        .onChange(of: accounts.map { "\($0.id.uuidString):\($0.archivedAt?.timeIntervalSince1970 ?? 0)" }) {
+            if selectedAccount == nil {
+                accountID = preferredActiveAccountID
+            }
+            updateCounterparty()
         }
         .onChange(of: accountID) {
             normalizeKindAndCategory()
             updateCounterparty()
             purgeStalePromotionSelection()
             applyDateSuggestion()
+            if selectedAccount?.currency != "MXN" { propertyID = nil }
         }
         .onChange(of: kind) {
             normalizeKindAndCategory()
             updateCounterparty()
             purgeStalePromotionSelection()
+            if kind == .payment || kind == .transfer || kind == .cardCredit { propertyID = nil }
+            if kind == .income && propertyExpenseKind != .reimbursement { propertyExpenseKind = .operation }
+            if kind != .income && propertyExpenseKind == .reimbursement { propertyExpenseKind = .operation }
         }
+        .onChange(of: propertyID) { if propertyID != nil { includeInHousehold = false } }
+        .onChange(of: includeInHousehold) { if includeInHousehold { propertyID = nil } }
+        .onChange(of: propertyExpenseKind) { if propertyExpenseKind == .maintenance { propertyResponsibility = .owner } }
         .task { promotionsModel.reload(context: modelContext, includeTransactions: false) }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
             promotionsModel.scheduleReload(context: modelContext, includeTransactions: false)
@@ -292,6 +350,13 @@ struct ManualTransactionSheet: View {
         selectedPromotionIDs = []
         expenseAssignment = .user
         includeInHousehold = false
+        propertyID = nil
+        propertyResponsibility = .shared
+        propertyResidentID = nil
+        propertySelectedResidentIDs = []
+        propertyMaintenanceProgramID = nil
+        pendingPropertyTransaction = nil
+        propertySaveError = nil
         errorMessage = nil
         didEditDate = false
         applyDateSuggestion()
@@ -359,6 +424,96 @@ struct ManualTransactionSheet: View {
                 panelDivider
                 expenseAssignmentRow
             }
+        }
+        if (kind == .income || kind == .expense || kind == .charge), selectedAccount?.currency == "MXN" {
+            panelDivider
+            row("Propiedad") {
+                Picker("Propiedad", selection: $propertyID) {
+                    Text("Sin propiedad").tag(UUID?.none)
+                    ForEach(propertyLedger.activeProperties) { property in
+                        Text(property.name).tag(UUID?.some(property.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 200)
+            }
+            if propertyID != nil {
+                if kind == .income {
+                    panelDivider
+                    row("Tipo de ingreso") {
+                        Picker("Tipo de ingreso", selection: $propertyExpenseKind) {
+                            Text("Cobro de residente").tag(PropertyExpenseKind.operation)
+                            Text("Reembolso recibido").tag(PropertyExpenseKind.reimbursement)
+                        }.labelsHidden().frame(width: 200)
+                    }
+                    panelDivider
+                    Text(propertyExpenseKind == .reimbursement
+                        ? "Registra el reembolso real; se reflejará en el resultado operativo."
+                        : "Registra el cobro real aquí y aplícalo a residentes desde Propiedades.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.bottom, 8)
+                } else {
+                    panelDivider
+                    row("Tipo de gasto") {
+                        Picker("Tipo de gasto", selection: $propertyExpenseKind) {
+                            Text("Operación").tag(PropertyExpenseKind.operation)
+                            Text("Mantenimiento").tag(PropertyExpenseKind.maintenance)
+                            Text("Otro").tag(PropertyExpenseKind.other)
+                        }.labelsHidden().frame(width: 200)
+                    }
+                    panelDivider
+                    row("Responsabilidad") {
+                        Picker("Responsabilidad", selection: $propertyResponsibility) {
+                            Text("Compartido").tag(PropertyCaptureResponsibility.shared)
+                            Text("Individual").tag(PropertyCaptureResponsibility.individual)
+                            Text("Entre residentes elegidos").tag(PropertyCaptureResponsibility.selected)
+                            Text("Propietario").tag(PropertyCaptureResponsibility.owner)
+                        }.labelsHidden().frame(width: 200)
+                    }
+                    if propertyResponsibility == .individual {
+                        panelDivider
+                        row("Residente") {
+                            Picker("Residente", selection: $propertyResidentID) {
+                                Text("Elige").tag(UUID?.none)
+                                ForEach(selectedPropertyResidents) { resident in Text(resident.name).tag(UUID?.some(resident.id)) }
+                            }.labelsHidden().frame(width: 200)
+                        }
+                    }
+                    if propertyResponsibility == .selected {
+                        ForEach(selectedPropertyResidents) { resident in
+                            Toggle(resident.name, isOn: Binding(get: {
+                                propertySelectedResidentIDs.contains(resident.id)
+                            }, set: { isOn in
+                                if isOn { propertySelectedResidentIDs.insert(resident.id) }
+                                else { propertySelectedResidentIDs.remove(resident.id) }
+                            }))
+                            .padding(.horizontal, 14)
+                        }
+                    }
+                    if propertyExpenseKind == .maintenance {
+                        if !selectedPropertyPrograms.isEmpty {
+                            panelDivider
+                            row("Programa") {
+                                Picker("Programa", selection: $propertyMaintenanceProgramID) {
+                                    Text("Sin programa").tag(UUID?.none)
+                                    ForEach(selectedPropertyPrograms) { program in
+                                        Text("\(program.startsAt.formatted(.dateTime.month(.wide).year()))–\(program.endsAt.formatted(.dateTime.month(.wide).year()))")
+                                            .tag(UUID?.some(program.id))
+                                    }
+                                }.labelsHidden().frame(width: 200)
+                            }
+                        }
+                        Text("El mantenimiento se asigna al propietario por defecto. Puedes cambiar la responsabilidad arriba.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.bottom, 8)
+                    }
+                }
+            }
+        } else if kind == .income || kind == .expense || kind == .charge {
+            panelDivider
+            Text("Las liquidaciones de propiedades requieren movimientos en MXN.")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.bottom, 8)
         }
     }
 
@@ -438,10 +593,22 @@ struct ManualTransactionSheet: View {
         }
     }
 
+    private var preferredActiveAccountID: UUID? {
+        if let lockedAccountID {
+            return activeAccounts.first(where: { $0.id == lockedAccountID })?.id
+        }
+        for preferredID in [defaultAccountID].compactMap({ $0 }) {
+            if activeAccounts.contains(where: { $0.id == preferredID }) {
+                return preferredID
+            }
+        }
+        return activeAccounts.first?.id
+    }
+
     private func accountPickerRow(_ label: String, selection: Binding<UUID?>, filter: @escaping (Account) -> Bool = { _ in true }) -> some View {
         row(label) {
             Picker(label, selection: selection) {
-                ForEach(accounts.filter(filter)) { account in
+                ForEach(activeAccounts.filter(filter)) { account in
                     Text(account.displayName).tag(UUID?.some(account.id))
                 }
             }
@@ -465,9 +632,9 @@ struct ManualTransactionSheet: View {
 
     private func updateCounterparty() {
         if kind == .payment {
-            counterpartyAccountID = accounts.first { !$0.type.isLiability && $0.id != accountID }?.id
+            counterpartyAccountID = activeAccounts.first { !$0.type.isLiability && $0.id != accountID }?.id
         } else {
-            counterpartyAccountID = accounts.first { $0.id != accountID }?.id
+            counterpartyAccountID = activeAccounts.first { $0.id != accountID }?.id
         }
     }
 
@@ -485,6 +652,15 @@ struct ManualTransactionSheet: View {
     }
 
     private func save() {
+        if let pendingPropertyTransaction {
+            do {
+                try persistPropertyAttribution(for: pendingPropertyTransaction)
+                self.pendingPropertyTransaction = nil
+                propertySaveError = nil
+                finishAfterSuccess()
+            } catch { propertySaveError = "El movimiento se guardó, pero falló la asociación con la propiedad: \(error.localizedDescription)" }
+            return
+        }
         var createdTransaction: Transaction?
         do {
             switch kind {
@@ -566,6 +742,14 @@ struct ManualTransactionSheet: View {
                 )
             }
             if let createdTransaction {
+                if propertyID != nil {
+                    do { try persistPropertyAttribution(for: createdTransaction) }
+                    catch {
+                        pendingPropertyTransaction = createdTransaction
+                        propertySaveError = "El movimiento se guardó, pero falló la asociación con la propiedad: \(error.localizedDescription)"
+                        return
+                    }
+                }
                 applyAttributions(to: createdTransaction)
             }
             guard attributionFailure == nil else { return }
@@ -573,6 +757,44 @@ struct ManualTransactionSheet: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func persistPropertyAttribution(for transaction: Transaction) throws {
+        guard let propertyID else { return }
+        guard transaction.currency == "MXN" else {
+            throw PropertyLedgerStore.StoreError.invalid("las liquidaciones de propiedades requieren importes en MXN")
+        }
+        var ledger = try PropertyLedgerStore.read()
+        for index in ledger.attributions.indices where ledger.attributions[index].transactionID == transaction.id
+            && ledger.attributions[index].deletedAt == nil {
+            ledger.attributions[index].deletedAt = .now
+            ledger.attributions[index].updatedAt = .now
+        }
+        let responsibility: PropertyResponsibility
+        if transaction.amount > 0 || (propertyExpenseKind == .maintenance && propertyResponsibility == .shared) {
+            responsibility = .owner
+        } else {
+            switch propertyResponsibility {
+            case .shared: responsibility = .shared
+            case .owner: responsibility = .owner
+            case .individual:
+                guard let propertyResidentID else { throw PropertyLedgerStore.StoreError.invalid("elige al residente responsable") }
+                responsibility = .individual(residentID: propertyResidentID)
+            case .selected:
+                guard !propertySelectedResidentIDs.isEmpty else { throw PropertyLedgerStore.StoreError.invalid("elige al menos un residente") }
+                responsibility = .selected(residentIDs: propertySelectedResidentIDs.sorted { $0.uuidString < $1.uuidString })
+            }
+        }
+        let attributionKind: PropertyExpenseKind = transaction.amount > 0
+            ? (propertyExpenseKind == .reimbursement ? .reimbursement : .operation)
+            : propertyExpenseKind
+        ledger.attributions.append(PropertyTransactionAttribution(propertyID: propertyID,
+            transactionID: transaction.id, kind: attributionKind, responsibility: responsibility,
+            maintenanceProgramID: propertyMaintenanceProgramID,
+            sourceAmountSnapshot: transaction.amount, sourcePostedAtSnapshot: transaction.postedAt,
+            sourceCurrencySnapshot: transaction.currency, sourceDescriptionSnapshot: transaction.descriptionRaw,
+            notes: transaction.amount > 0 ? "Cobro registrado; aplica el importe desde Propiedades." : ""))
+        try PropertyLedgerStore.replace(with: ledger)
     }
 }
 

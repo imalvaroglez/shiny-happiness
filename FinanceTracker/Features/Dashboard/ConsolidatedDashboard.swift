@@ -39,7 +39,7 @@ struct ConsolidatedDashboard: View {
             if snapshot.totalTransactions == 0 { emptyState }
         }
         .sheet(item: $breakdown) { req in
-            BreakdownSheet(request: req)
+            BreakdownSheet(request: req, onTransactionTap: onTransactionTap)
         }
     }
 
@@ -47,7 +47,7 @@ struct ConsolidatedDashboard: View {
 
     private var financialSnapshotSection: some View {
         VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
-            DashboardSectionHeader(title: "Financial Snapshot", systemImage: "square.grid.2x2")
+            DashboardSectionHeader(title: String(localized: "Financial Snapshot"), systemImage: "square.grid.2x2")
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 14) {
                     availableNetWorthCard
@@ -77,7 +77,7 @@ struct ConsolidatedDashboard: View {
         // retirement) — refinement #2.
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 18) {
-                splitItem(label: "Liquidity", value: composition.netLiquidity)
+                splitItem(label: String(localized: "Liquidity"), value: composition.netLiquidity)
                 splitItem(label: "Patrimonial", value: composition.patrimonial)
             }
             DashboardNetWorthSparkline(points: snapshot.availableNetWorthOverTime, tint: .secondary)
@@ -96,13 +96,13 @@ struct ConsolidatedDashboard: View {
 
     private var availableNetWorthCard: some View {
         DashboardMetricCard(
-            title: "Available Net Worth",
+            title: String(localized: "Available Net Worth"),
             amount: composition.availableNetWorth,
             currencyCode: snapshot.currencyCode,
             periodLabel: .asOf(snapshot.snapshotAsOfDate),
             systemImage: "banknote",
             tone: DashboardTone.signed(composition.availableNetWorth),
-            subtitle: "Excluding retirement",
+            subtitle: String(localized: "Excluding retirement"),
             prominent: true,
             deltaPercent: availableNetWorthHeroDelta?.percent,
             deltaTone: availableNetWorthHeroDelta?.tone ?? .positive,
@@ -115,49 +115,53 @@ struct ConsolidatedDashboard: View {
     private var secondaryMetricGrid: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], alignment: .leading, spacing: 12) {
             DashboardMetricCard(
-                title: "Total Net Worth",
+                title: String(localized: "Total Net Worth"),
                 amount: composition.totalNetWorth,
                 currencyCode: snapshot.currencyCode,
                 periodLabel: .asOf(snapshot.snapshotAsOfDate),
                 systemImage: "chart.pie",
                 tone: DashboardTone.signed(composition.totalNetWorth),
-                subtitle: "Includes retirement"
+                subtitle: String(localized: "Includes retirement")
             ) {
                 breakdown = .netWorth(period: latestSnapshotPeriod, accounts: snapshot.overviewAccountSummaries)
             }
 
             DashboardMetricCard(
-                title: "Card Liabilities",
+                title: String(localized: "Card Liabilities"),
                 amount: composition.totalLiabilities,
                 currencyCode: snapshot.currencyCode,
                 periodLabel: .asOf(snapshot.snapshotAsOfDate),
                 systemImage: "creditcard",
                 tone: .negative,
-                subtitle: "Short-term debt"
+                subtitle: String(localized: "Short-term debt")
             ) {
                 breakdown = .netWorth(period: latestSnapshotPeriod, accounts: snapshot.overviewAccountSummaries)
             }
 
             DashboardMetricCard(
-                title: "Net Cash Flow",
+                title: String(localized: "Net Cash Flow"),
                 amount: snapshot.netCashFlow,
                 currencyCode: snapshot.currencyCode,
                 periodLabel: .period(periodLabel),
                 systemImage: "arrow.left.arrow.right",
                 tone: DashboardTone.signed(snapshot.netCashFlow),
-                subtitle: "Income − expenses"
+                subtitle: String(localized: "Cash in − cash out")
             )
 
             DashboardMetricCard(
-                title: "Interest Earned",
+                title: String(localized: "Interest Earned"),
                 amount: snapshot.totalInterestEarned,
                 currencyCode: snapshot.currencyCode,
                 periodLabel: .period(periodLabel),
                 systemImage: "percent",
                 tone: .yield,
-                subtitle: "Period interest"
+                subtitle: String(localized: "Period interest")
             ) {
-                breakdown = .interest(transactions: snapshot.recentTransactions, total: snapshot.totalInterestEarned)
+                breakdown = .interest(
+                    total: snapshot.totalInterestEarned,
+                    allocations: snapshot.interestAllocations,
+                    sources: snapshot.interestSourceTransactions
+                )
             }
         }
     }
@@ -167,7 +171,7 @@ struct ConsolidatedDashboard: View {
 
     private var trendsSection: some View {
         VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
-            DashboardSectionHeader(title: "Trends", systemImage: "chart.line.uptrend.xyaxis")
+            DashboardSectionHeader(title: String(localized: "Trends"), systemImage: "chart.line.uptrend.xyaxis")
             ViewThatFits(in: .horizontal) {
                 LazyVGrid(columns: twoChartColumns, alignment: .leading, spacing: 16) {
                     cashFlowChart
@@ -186,7 +190,7 @@ struct ConsolidatedDashboard: View {
 
     private var breakdownsSection: some View {
         VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
-            DashboardSectionHeader(title: "Breakdowns", systemImage: "chart.pie")
+            DashboardSectionHeader(title: String(localized: "Breakdowns"), systemImage: "chart.pie")
             ViewThatFits(in: .horizontal) {
                 LazyVGrid(columns: twoChartColumns, alignment: .leading, spacing: 16) {
                     netWorthCompositionCard
@@ -215,8 +219,8 @@ struct ConsolidatedDashboard: View {
     // MARK: - Cash flow
 
     enum CashFlowSeries: String, CaseIterable, Identifiable {
-        case income = "Income"
-        case expenses = "Expenses"
+        case income = "Cash in"
+        case expenses = "Cash out"
         var id: String { rawValue }
         var color: Color { self == .income ? DashboardChartSeriesColor.income : DashboardChartSeriesColor.expense }
     }
@@ -233,9 +237,16 @@ struct ConsolidatedDashboard: View {
             strokePlot: false
         ) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Transfers between your own accounts are excluded.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if snapshot.hasUnmatchedCardPayment {
+                    Text("Some card payments have no matching bank withdrawal recorded in this period; cash flow may be incomplete.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                if snapshot.interestAllocations.contains(where: { $0.kind == .undistributed }) {
+                    Text("Some manual interest could not be distributed because the capture predates the account opening date.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
 
                 if DashboardCashFlowTrendBuilder.usesTrendCard(period: snapshot.period) {
                     DashboardCashFlowTrendChart(
@@ -243,7 +254,7 @@ struct ConsolidatedDashboard: View {
                         period: snapshot.period,
                         currencyCode: snapshot.currencyCode,
                         onPointTap: { point in
-                            breakdown = .cashFlowPeriod(start: point.bucketStart, bucket: snapshot.period.bucket, transactions: snapshot.recentTransactions)
+                            breakdown = cashFlowBreakdownRequest(start: point.bucketStart)
                         },
                         hoverBucketStart: $cashFlowTrendHover
                     )
@@ -255,19 +266,19 @@ struct ConsolidatedDashboard: View {
                         firstColor: DashboardChartSeriesColor.income,
                         secondColor: DashboardChartSeriesColor.expense,
                         currencyCode: snapshot.currencyCode,
-                        emptyMessage: "No cash flow activity for this period.",
+                        emptyMessage: String(localized: "No cash flow activity for this period."),
                         showsFirstSeries: cashFlowSeries.contains(.income),
                         showsSecondSeries: cashFlowSeries.contains(.expenses),
                         footerText: { group in
                             guard let entry = cashFlowEntry(for: group.bucketStart) else { return nil }
-                            var parts = ["Net: \(MoneyFormat.string(code: snapshot.currencyCode, entry.savings))"]
+                            var parts = [String(localized: "Net: \(MoneyFormat.string(code: snapshot.currencyCode, entry.savings))")]
                             if entry.income > 0 {
-                                parts.append("Savings Rate: \(cashFlowSavingsRateText(entry))")
+                                parts.append(String(localized: "Savings Rate: \(cashFlowSavingsRateText(entry))"))
                             }
-                            return parts.joined(separator: " . ")
+                            return parts.joined(separator: " · ")
                         },
                         onGroupTap: { group in
-                            breakdown = .cashFlowPeriod(start: group.bucketStart, bucket: snapshot.period.bucket, transactions: snapshot.recentTransactions)
+                            breakdown = cashFlowBreakdownRequest(start: group.bucketStart)
                         }
                     )
                 }
@@ -286,7 +297,7 @@ struct ConsolidatedDashboard: View {
                 )) {
                     HStack(spacing: 4) {
                         Circle().fill(series.color).frame(width: 8, height: 8)
-                        Text(series.rawValue).font(.caption)
+                        Text(LocalizedStringKey(series.rawValue)).font(.caption)
                     }
                 }
                 .toggleStyle(.button)
@@ -308,12 +319,26 @@ struct ConsolidatedDashboard: View {
         )
     }
 
+    private func cashFlowBreakdownRequest(start: Date) -> BreakdownRequest {
+        .cashFlowPeriod(
+            start: start,
+            bucket: snapshot.period.bucket,
+            transactions: snapshot.recentTransactions,
+            interestAllocations: snapshot.interestAllocations,
+            interestSources: snapshot.interestSourceTransactions,
+            matchedCardPaymentIDs: snapshot.matchedCardPaymentTransactionIDs,
+            hasUnmatchedCardPayment: snapshot.hasUnmatchedCardPayment
+        )
+    }
+
     private func cashFlowEntry(for selection: Date) -> MonthlyCashFlow? {
         guard selection >= snapshot.period.dateRange.start && selection <= snapshot.period.dateRange.end else { return nil }
         let bucketStart = snapshot.period.bucketStart(forSelection: selection)
         return snapshot.monthlyCashFlow.first { $0.month == bucketStart }
     }
 
+    /// Display-only percentage (savings / income); the money itself stays
+    /// Decimal via MoneyFormat.
     private func cashFlowSavingsRateText(_ entry: MonthlyCashFlow) -> String {
         guard entry.income > 0 else { return "0.0%" }
         let rate = ((entry.savings / entry.income) as NSDecimalNumber).doubleValue * 100
@@ -324,7 +349,7 @@ struct ConsolidatedDashboard: View {
 
     private var netWorthChart: some View {
         DashboardChartPanel(
-            title: "Net Worth Trend",
+            title: String(localized: "Net Worth Trend"),
             subtitle: periodLabel,
             headerAccessory: AnyView(netWorthDeltaAccessory),
             strokePlot: false
@@ -341,7 +366,7 @@ struct ConsolidatedDashboard: View {
                         hoverBucketStart: $netWorthHover
                     )
                 } else {
-                    DashboardChartEmptyState(message: "Net worth trend will appear after more balance snapshots.")
+                    DashboardChartEmptyState(message: String(localized: "Net worth trend will appear after more balance snapshots."))
                 }
             }
         }
@@ -375,7 +400,7 @@ struct ConsolidatedDashboard: View {
     // MARK: - Spending (matte bars + Other warning, D9/refinement #5)
 
     private var spendingBars: some View {
-        DashboardBreakdownPanel(title: "Spending by Category", subtitle: spendingTotalSubtitle, strokePlot: false) {
+        DashboardBreakdownPanel(title: String(localized: "Spending by Category"), subtitle: spendingTotalSubtitle, strokePlot: false) {
             VStack(alignment: .leading, spacing: 8) {
                 DashboardSpendingCategoryBars(
                     entries: snapshot.spendingByCategory,
@@ -413,7 +438,7 @@ struct ConsolidatedDashboard: View {
     }
 
     private var spendingTotalSubtitle: String {
-        "Total expenses \(MoneyFormat.string(code: snapshot.currencyCode, abs(snapshot.totalExpenses)))"
+        String(localized: "Total expenses \(MoneyFormat.string(code: snapshot.currencyCode, abs(snapshot.totalExpenses)))")
     }
 
     /// Warning copy when "Other" (the aggregation remainder beyond the top 5
@@ -432,9 +457,9 @@ struct ConsolidatedDashboard: View {
 
     private var cashFlowSummarySubtitle: String {
         let net = MoneyFormat.string(code: snapshot.currencyCode, snapshot.netCashFlow)
-        let income = MoneyFormat.string(code: snapshot.currencyCode, snapshot.totalIncome)
-        let out = MoneyFormat.string(code: snapshot.currencyCode, abs(snapshot.totalExpenses))
-        return "Net \(net) · In \(income) · Out \(out)"
+        let income = MoneyFormat.string(code: snapshot.currencyCode, snapshot.cashFlowIncome)
+        let out = MoneyFormat.string(code: snapshot.currencyCode, abs(snapshot.cashFlowExpenses))
+        return String(format: NSLocalizedString("Net %@ · Cash in %@ · Cash out %@", comment: "Cash flow summary subtitle"), net, income, out)
     }
 
     // MARK: - Accounts
@@ -589,11 +614,11 @@ struct ConsolidatedDashboard: View {
     }
 
     private var snapshotAsOfText: String {
-        "As of \(shortDate(snapshot.snapshotAsOfDate))"
+        String(localized: "As of \(shortDate(snapshot.snapshotAsOfDate))")
     }
 
     private var periodLabel: String {
-        snapshot.period.kind == .all ? "All time" : NetWorthBreakdownCopy.periodRange(snapshot.period.dateRange)
+        snapshot.period.kind == .all ? String(localized: "All time") : NetWorthBreakdownCopy.periodRange(snapshot.period.dateRange)
     }
 
     private func shortDate(_ date: Date) -> String {

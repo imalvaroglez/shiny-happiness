@@ -92,8 +92,20 @@ struct ConsolidatedSnapshot {
     let cardPace: CardPaceSnapshot
     let upcomingPayments: UpcomingPaymentsSnapshot
     let spendingAnomaly: SpendingAnomalySnapshot
+    var interestAllocations: [InterestDailyAllocation] = []
+    var interestSourceTransactions: [Transaction] = []
+    var hasUnmatchedCardPayment: Bool = false
+    var matchedCardPaymentTransactionIDs: Set<UUID> = []
 
-    var netCashFlow: Decimal { totalIncome + totalExpenses }
+    var cashFlowIncome: Decimal {
+        monthlyCashFlow.reduce(Decimal.zero) { $0 + $1.income }
+    }
+
+    var cashFlowExpenses: Decimal {
+        monthlyCashFlow.reduce(Decimal.zero) { $0 + $1.expenses }
+    }
+
+    var netCashFlow: Decimal { cashFlowIncome + cashFlowExpenses }
 
     /// Most common currency across the user's accounts; used for the consolidated
     /// summary cards. Falls back to "MXN" when no accounts exist yet.
@@ -128,6 +140,12 @@ struct AssetAccountSnapshot {
     let recentTransactions: [Transaction]
     let totalTransactions: Int
     var portfolio: PortfolioViewData? = nil
+    var interestAllocations: [InterestDailyAllocation] = []
+    var interestSourceTransactions: [Transaction] = []
+    var matchedCardPaymentTransactionIDs: Set<UUID> = []
+    /// Card-payment receipt with no matching bank withdrawal, computed over
+    /// this account's own transactions only. See `DashboardViewModel.buildAsset`.
+    var hasUnmatchedCardPayment: Bool = false
 
     var currencyCode: String { account.currency }
 
