@@ -147,20 +147,10 @@ enum PropertyCollectionPosting {
                 guard capacity > 0 else { continue }
                 // An advance never pays an obligation before its calendar month arrives.
                 if month <= Calendar.current.propertyMonthStart(for: asOf) {
-                    for index in advances.indices where capacity > 0 && advances[index].amount > 0 {
-                        guard let source = byID[advances[index].paymentTransactionID] else { continue }
-                        let used = min(capacity, advances[index].amount)
-                        additions.append(PropertyPaymentApplication(propertyID: propertyID,
-                            paymentTransactionID: source.id, obligationID: obligation.id,
-                            residentID: residentID, amount: used, snapshots: PropertySourceSnapshots(capturing: source)))
-                        advances[index].amount -= used
-                        advances[index].updatedAt = .now
-                        if advances[index].amount == 0 {
-                            advances[index].deletedAt = .now
-                            advances[index].amount = ledger.paymentApplications.first { $0.id == advances[index].id }?.amount ?? used
-                        }
-                        capacity -= used; monthRemaining -= used
-                    }
+                    spendAdvances(advances: &advances, ledger: ledger, propertyID: propertyID,
+                                  residentID: residentID, obligationID: obligation.id, byID: byID,
+                                  capacity: &capacity, monthRemaining: &monthRemaining,
+                                  additions: &additions)
                 }
                 if month <= Calendar.current.propertyMonthStart(for: receipt.postedAt), capacity > 0, remaining > 0 {
                     let used = min(capacity, remaining)
@@ -230,25 +220,43 @@ enum PropertyCollectionPosting {
                 guard capacity > 0 else { continue }
                 // An advance never pays an obligation before its calendar month arrives.
                 if month <= Calendar.current.propertyMonthStart(for: asOf) {
-                    for index in advances.indices where capacity > 0 && advances[index].amount > 0 {
-                        guard let source = byID[advances[index].paymentTransactionID] else { continue }
-                        let used = min(capacity, advances[index].amount)
-                        additions.append(PropertyPaymentApplication(propertyID: propertyID,
-                            paymentTransactionID: source.id, obligationID: obligation.id,
-                            residentID: residentID, amount: used, snapshots: PropertySourceSnapshots(capturing: source)))
-                        advances[index].amount -= used
-                        advances[index].updatedAt = .now
-                        if advances[index].amount == 0 {
-                            advances[index].deletedAt = .now
-                            advances[index].amount = ledger.paymentApplications.first { $0.id == advances[index].id }?.amount ?? used
-                        }
-                        capacity -= used; monthRemaining -= used
-                    }
+                    spendAdvances(advances: &advances, ledger: ledger, propertyID: propertyID,
+                                  residentID: residentID, obligationID: obligation.id, byID: byID,
+                                  capacity: &capacity, monthRemaining: &monthRemaining,
+                                  additions: &additions)
                 }
             }
         }
         return Plan(applications: additions, updatedAdvances: advances.filter { previous in
             ledger.paymentApplications.first { $0.id == previous.id } != previous
         })
+    }
+
+    /// The advance walk shared by `plan` and `applyAdvances`: spends the member's
+    /// still-live advances against one obligation with capacity left. An advance
+    /// that reaches zero is soft-deleted with its original ledger amount restored
+    /// (the ledger rejects `amount <= 0`); requiring `deletedAt == nil` here keeps
+    /// a later obligation in the same walk from respending that restored amount,
+    /// which would count one real movement twice.
+    private static func spendAdvances(advances: inout [PropertyPaymentApplication],
+                                      ledger: PropertyLedger, propertyID: UUID, residentID: UUID,
+                                      obligationID: UUID, byID: [UUID: PropertyTransactionInput],
+                                      capacity: inout Decimal, monthRemaining: inout Decimal,
+                                      additions: inout [PropertyPaymentApplication]) {
+        for index in advances.indices
+        where capacity > 0 && advances[index].amount > 0 && advances[index].deletedAt == nil {
+            guard let source = byID[advances[index].paymentTransactionID] else { continue }
+            let used = min(capacity, advances[index].amount)
+            additions.append(PropertyPaymentApplication(propertyID: propertyID,
+                paymentTransactionID: source.id, obligationID: obligationID,
+                residentID: residentID, amount: used, snapshots: PropertySourceSnapshots(capturing: source)))
+            advances[index].amount -= used
+            advances[index].updatedAt = .now
+            if advances[index].amount == 0 {
+                advances[index].deletedAt = .now
+                advances[index].amount = ledger.paymentApplications.first { $0.id == advances[index].id }?.amount ?? used
+            }
+            capacity -= used; monthRemaining -= used
+        }
     }
 }

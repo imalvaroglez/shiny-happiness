@@ -284,6 +284,130 @@ struct PropertyCollectionPostingTests {
             includeCurrent: false)?.applications.isEmpty == true)
     }
 
+    @Test("An advance exhausted mid-walk is never respent against a later month")
+    func exhaustedAdvanceIsNeverRespentLaterInTheWalk() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8), ledger: ledger,
+            transactions: inputs, asOf: date(10))
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        let september = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let movement = PropertyTransactionInput(id: UUID(), amount: 130, postedAt: date(8, 20),
+            description: "Cobro adelantado", isCashAccount: true)
+        inputs.append(movement)
+        let advanceID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: movement.id)
+        ledger.paymentApplications = [PropertyPaymentApplication(id: advanceID, propertyID: house.id,
+            paymentTransactionID: movement.id, obligationID: advanceID, residentID: resident.id,
+            amount: 130, snapshots: PropertySourceSnapshots(capturing: movement))]
+        // A 130 advance covers August's rent (100) and part of its fee (30); it
+        // can never also pay September's rent, which would spend 230 from one
+        // 130 movement.
+        let explicit = try #require(PropertyCollectionPosting.applyAdvances(propertyID: house.id,
+            residentID: resident.id, report: september, ledger: ledger, inputs: inputs, asOf: date(10)))
+        #expect(explicit.applications.map(\.amount) == [100, 30])
+        #expect(!explicit.applications.contains {
+            $0.obligationID == september.obligations.first(where: \.isRent)!.id })
+        #expect(explicit.applications.filter { $0.paymentTransactionID == movement.id }
+            .reduce(Decimal.zero) { $0 + $1.amount } == 130)
+        #expect(explicit.updatedAdvances.map(\.id) == [advanceID])
+        #expect(explicit.updatedAdvances[0].deletedAt != nil)
+        #expect(explicit.updatedAdvances[0].amount == 130)
+        ledger.paymentApplications[0] = explicit.updatedAdvances[0]
+        ledger.paymentApplications += explicit.applications
+        #expect(PropertyLedgerStore.validate(ledger).isEmpty)
+        // September's rent stays fully due on top of August's 20 residual, and
+        // a second pass finds nothing left to spend.
+        let settled = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        #expect(settled.residents.first?.balance == 100)
+        #expect(settled.residents.first?.priorDebt == 20)
+        #expect(PropertyCollectionPosting.applyAdvances(propertyID: house.id, residentID: resident.id,
+            report: september, ledger: ledger, inputs: inputs, asOf: date(10))?.applications.isEmpty == true)
+        // The same walk behind a receipt: the member still holds a live 130
+        // advance against closed August and now brings a 120 receipt. Each
+        // source spends at most itself, and September's rent is receipt money.
+        var (freshLedger, freshHouse, freshResident, freshInputs) = fixture()
+        let freshAugust = PropertySettlementCalculator.report(propertyID: freshHouse.id, month: date(8),
+            ledger: freshLedger, transactions: freshInputs, asOf: date(10))
+        freshLedger.closes = [try #require(PropertySettlementCalculator.close(freshAugust, at: date(8, 31)))]
+        let freshSeptember = PropertySettlementCalculator.report(propertyID: freshHouse.id, month: date(9),
+            ledger: freshLedger, transactions: freshInputs, asOf: date(10))
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 120, postedAt: date(9, 15),
+            description: "Cobro adicional", isCashAccount: true)
+        freshInputs += [movement, receipt]
+        let freshAdvanceID = PropertyPaymentAdvance.obligationID(propertyID: freshHouse.id,
+            paymentTransactionID: movement.id)
+        freshLedger.paymentApplications = [PropertyPaymentApplication(id: freshAdvanceID,
+            propertyID: freshHouse.id, paymentTransactionID: movement.id, obligationID: freshAdvanceID,
+            residentID: freshResident.id, amount: 130, snapshots: PropertySourceSnapshots(capturing: movement))]
+        let reconciliation = try #require(PropertyCollectionPosting.plan(propertyID: freshHouse.id,
+            residentID: freshResident.id, report: freshSeptember, ledger: freshLedger,
+            inputs: freshInputs, receipt: receipt, asOf: date(10)))
+        #expect(reconciliation.applications.map(\.amount) == [100, 30, 20, 100])
+        #expect(reconciliation.applications.filter { $0.paymentTransactionID == movement.id }
+            .reduce(Decimal.zero) { $0 + $1.amount } == 130)
+        #expect(reconciliation.applications.filter { $0.paymentTransactionID == receipt.id }
+            .reduce(Decimal.zero) { $0 + $1.amount } == 120)
+        #expect(reconciliation.applications.filter {
+            $0.obligationID == freshSeptember.obligations.first(where: \.isRent)!.id }
+            .allSatisfy { $0.paymentTransactionID == receipt.id })
+    }
+
+    @Test("Multiple advances spend oldest-first by posted date")
+    func multipleAdvancesSpendOldestFirstByPostedDate() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8), ledger: ledger,
+            transactions: inputs, asOf: date(10))
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        let september = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let february = PropertyTransactionInput(id: UUID(), amount: 80, postedAt: date(2, 10),
+            description: "Anticipo de febrero", isCashAccount: true)
+        let april = PropertyTransactionInput(id: UUID(), amount: 70, postedAt: date(4, 10),
+            description: "Anticipo de abril", isCashAccount: true)
+        inputs += [february, april]
+        let februaryID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: february.id)
+        let aprilID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: april.id)
+        func advanceRows() -> [PropertyPaymentApplication] {
+            [PropertyPaymentApplication(id: februaryID, propertyID: house.id,
+                 paymentTransactionID: february.id, obligationID: februaryID, residentID: resident.id,
+                 amount: 80, snapshots: PropertySourceSnapshots(capturing: february)),
+             PropertyPaymentApplication(id: aprilID, propertyID: house.id,
+                 paymentTransactionID: april.id, obligationID: aprilID, residentID: resident.id,
+                 amount: 70, snapshots: PropertySourceSnapshots(capturing: april))]
+        }
+        ledger.paymentApplications = advanceRows()
+        // Against the closed month's 100 debt, the older February advance drains
+        // first (80) and April covers only the remaining 20 of its 70.
+        let explicit = try #require(PropertyCollectionPosting.applyAdvances(propertyID: house.id,
+            residentID: resident.id, report: september, ledger: ledger, inputs: inputs,
+            asOf: date(10), includeCurrent: false))
+        #expect(explicit.applications.map(\.paymentTransactionID) == [february.id, april.id])
+        #expect(explicit.applications.map(\.amount) == [80, 20])
+        #expect(explicit.updatedAdvances.map(\.id) == [februaryID, aprilID])
+        #expect(explicit.updatedAdvances[0].deletedAt != nil)
+        #expect(explicit.updatedAdvances[0].amount == 80)
+        #expect(explicit.updatedAdvances[1].deletedAt == nil)
+        #expect(explicit.updatedAdvances[1].amount == 50)
+        // The same oldest-first order inside a receipt reconciliation: after the
+        // closed month is covered, April's remainder and the receipt share
+        // September's rent.
+        ledger.paymentApplications = advanceRows()
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 30, postedAt: date(9, 15),
+            description: "Cobro adicional", isCashAccount: true)
+        inputs.append(receipt)
+        let reconciliation = try #require(PropertyCollectionPosting.plan(propertyID: house.id,
+            residentID: resident.id, report: september, ledger: ledger, inputs: inputs,
+            receipt: receipt, asOf: date(10)))
+        #expect(reconciliation.applications.map(\.paymentTransactionID)
+            == [february.id, april.id, april.id, receipt.id])
+        #expect(reconciliation.applications.map(\.amount) == [80, 20, 50, 30])
+        #expect(reconciliation.applications.filter { $0.paymentTransactionID == february.id }
+            .reduce(Decimal.zero) { $0 + $1.amount } == 80)
+        #expect(reconciliation.applications.filter { $0.paymentTransactionID == april.id }
+            .reduce(Decimal.zero) { $0 + $1.amount } == 70)
+    }
+
     @Test("Suggested prior debt excludes a future-dated receipt until it is posted")
     func suggestedAmountAsOf() throws {
         var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)

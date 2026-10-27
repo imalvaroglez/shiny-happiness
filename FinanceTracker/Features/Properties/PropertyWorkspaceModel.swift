@@ -707,12 +707,14 @@ final class PropertyWorkspaceModel {
             guard let proposal = PropertyCollectionPosting.applyAdvances(propertyID: propertyID,
                 residentID: residentID, report: report, ledger: updated, inputs: verifiedInputs,
                 asOf: max(asOf, .now), includeCurrent: includeCurrent) else {
-                return .rejected(String(localized: "A previous advance changed. Review its receipt and applications before applying it."))
+                // nil can come from any guard inside the walk, not only a stale
+                // advance source, so the fallback stays generic and honest.
+                return .rejected(String(localized: "The advance could not be applied. Try again."))
             }
-            // Nothing to change means the member has no due debt the advance
-            // can cover yet; an apply must save visibly or fail visibly.
+            // Nothing to change: either no advance is pending or no due debt is
+            // left for it to cover; an apply must save visibly or fail visibly.
             if proposal.applications.isEmpty && proposal.updatedAdvances.isEmpty {
-                return .rejected(String(localized: "This advance has no outstanding debt to cover."))
+                return .rejected(String(localized: "No pending balance is available for this advance."))
             }
             for changed in proposal.updatedAdvances {
                 guard let index = updated.paymentApplications.firstIndex(where: { $0.id == changed.id }) else { continue }

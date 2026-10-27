@@ -839,5 +839,5 @@
 "A previous advance changed. Review its receipt and applications before registering another collection." = "Un anticipo anterior cambió. Revisa su cobro y sus aplicaciones antes de registrar otro.";
 "Choose a member of this property." = "Elige un integrante de esta propiedad.";
 "A previous advance changed. Review its receipt and applications before applying it." = "Un anticipo anterior cambió. Revisa su cobro y sus aplicaciones antes de aplicarlo.";
-"This advance has no outstanding debt to cover." = "Este anticipo no tiene deuda pendiente que cubrir.";
+"No pending balance is available for this advance." = "No hay saldo pendiente disponible para este anticipo.";
 "The advance could not be applied. Try again." = "No se pudo aplicar el anticipo. Inténtalo de nuevo.";
