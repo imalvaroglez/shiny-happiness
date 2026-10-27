@@ -1183,4 +1183,233 @@ struct PropertyCollectionPostingTests {
             asOf: date(8, 10), includeCurrent: false) == 0)
     }
 
+    // MARK: - PropertyMemberAccount
+
+    @Test("The account breakdown reproduces the settlement due exactly")
+    func accountBreakdownReconcilesWithSettlementDue() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        let individualID = UUID()
+        let sharedSeptemberID = UUID()
+        ledger.attributions += [
+            PropertyTransactionAttribution(propertyID: house.id, transactionID: individualID,
+                kind: .operation, responsibility: .individual(residentID: resident.id)),
+            PropertyTransactionAttribution(propertyID: house.id, transactionID: sharedSeptemberID,
+                kind: .operation, responsibility: .shared)]
+        inputs += [
+            PropertyTransactionInput(id: individualID, amount: -30, postedAt: date(9, 3),
+                description: "Cargo individual", isCashAccount: true),
+            PropertyTransactionInput(id: sharedSeptemberID, amount: -80, postedAt: date(9, 6),
+                description: "Servicio de septiembre", isCashAccount: true)]
+        ledger.adjustments = [PropertyAdjustment(propertyID: house.id, monthStart: date(9),
+            residentID: resident.id, amount: 10, reason: "Ajuste sintético")]
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let augustRentID = try #require(august.obligations.first(where: \.isRent)?.id)
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let septemberRentID = try #require(report.obligations.first(where: \.isRent)?.id)
+        // One receipt partially covers the closed August rent (70) and this
+        // month's rent (30).
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(9, 12),
+            description: "Cobro parcial", isCashAccount: true)
+        inputs.append(receipt)
+        ledger.paymentApplications = [
+            PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: receipt.id,
+                obligationID: augustRentID, residentID: resident.id, amount: 70,
+                snapshots: PropertySourceSnapshots(capturing: receipt)),
+            PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: receipt.id,
+                obligationID: septemberRentID, residentID: resident.id, amount: 30,
+                snapshots: PropertySourceSnapshots(capturing: receipt))]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(10), context: context)
+        // Month components: rent 100 + shared 80 + individual 30 + adjustment 10.
+        // The closed August debt is 150 with 70 already collected.
+        #expect(account.rent == 100)
+        #expect(account.houseSharedTotal == 80)
+        #expect(account.memberSharedShare == 80)
+        #expect(account.individualCharges == 30)
+        #expect(account.adjustments == 10)
+        #expect(account.appliedPayments == 100)
+        #expect(account.priorDebt == 80)
+        #expect(account.status == .partial)
+        // Conservation invariant: the breakdown reproduces the settlement due.
+        let monthPaid = settlement.monthPaid
+        #expect(account.balanceDue == account.priorDebt
+            + max(0, (account.rent ?? 0) + (account.memberSharedShare ?? 0)
+                + (account.individualCharges ?? 0) + (account.adjustments ?? 0) - monthPaid))
+        #expect(account.balanceDue == settlement.due)
+        #expect(account.balanceDue == 270)
+    }
+
+    @Test("The shared pot excludes individual charges and reimbursements")
+    func houseSharedTotalExcludesIndividualChargesAndReimbursements() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 60)
+        // The fixture's shared charge is posted in August; move it into the
+        // month under review so it belongs to September's pot.
+        inputs[0].postedAt = date(9, 4)
+        let individualID = UUID()
+        let reimbursementID = UUID()
+        ledger.attributions += [
+            PropertyTransactionAttribution(propertyID: house.id, transactionID: individualID,
+                kind: .operation, responsibility: .individual(residentID: resident.id)),
+            PropertyTransactionAttribution(propertyID: house.id, transactionID: reimbursementID,
+                kind: .reimbursement, responsibility: .owner)]
+        inputs += [
+            PropertyTransactionInput(id: individualID, amount: -25, postedAt: date(9, 3),
+                description: "Cargo individual", isCashAccount: true),
+            PropertyTransactionInput(id: reimbursementID, amount: 40, postedAt: date(9, 7),
+                description: "Reembolso", isCashAccount: true)]
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 28))
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(9, 28),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        // Only the shared charge forms the pot; the individual charge belongs
+        // to the member row and the reimbursement never enters the split.
+        #expect(account.houseSharedTotal == 60)
+        #expect(account.memberSharedShare == 60)
+        #expect(account.individualCharges == 25)
+        #expect(account.rent == 100)
+        #expect(account.balanceDue == 185)
+    }
+
+    @Test("A member share carries the exact custom split amounts, not the monthly percentage")
+    @MainActor
+    func memberShareIncludesCustomSplits() throws {
+        let roles = PropertyHouseholdAdapter.link
+        let month = date(9)
+        let account = Account(institution: "Banco sintético", type: .checking)
+        let custom = Transaction(account: account, postedAt: date(9, 3), amount: -1_000,
+            descriptionRaw: "Monto fijo para Fer")
+        custom.setHouseholdScope(.included)
+        try custom.setHouseholdAllocation(.custom(ferAmount: 400))
+        let splitRow = Transaction(account: account, postedAt: date(9, 5), amount: -600,
+            descriptionRaw: "Gasto 50/50")
+        splitRow.setHouseholdScope(.included)
+        splitRow.setExpenseAssignment(.shared)
+        splitRow.setSplitMethodOverride(.fiftyFifty)
+        // The monthly default would assign Fer 75% (incomes 1_000 vs 3_000);
+        // the rows carry exact amounts instead: 400 + 300 of a 1_600 pot.
+        let household = HouseholdSettlementReportService.build(monthStart: month,
+            transactions: [custom, splitRow],
+            setup: HouseholdSettlementSetup(partnerIncomeEstimate: 3_000,
+                useUserIncomeManualOverride: true, userIncomeManualOverride: 1_000))
+        var ledger = PropertyLedger()
+        ledger.householdLink = roles
+        ledger.properties = [PropertyRecord(id: roles.propertyID, name: "Casa sintética")]
+        ledger.residents = [PropertyResident(id: roles.userID, propertyID: roles.propertyID,
+            name: "Tú", activeFrom: .distantPast),
+            PropertyResident(id: roles.partnerID, propertyID: roles.propertyID,
+                name: "Fer", activeFrom: .distantPast)]
+        let inputs = [PropertyTransactionInput(capturing: custom),
+                      PropertyTransactionInput(capturing: splitRow)]
+        let report = PropertyHouseholdAdapter.report(household, ledger: ledger,
+            transactions: inputs, asOf: date(9, 10))
+        let fer = PropertyMemberAccount.account(propertyID: roles.propertyID,
+            residentID: roles.partnerID, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(9, 10),
+            context: .init(canCalculate: household.splitAvailable, isClosed: false,
+                historical: false, includeCurrent: true))
+        #expect(fer.houseSharedTotal == 1_600)
+        #expect(fer.memberSharedShare == 700)
+        #expect(fer.balanceDue == 700)
+    }
+
+    @Test("A month after the asOf month is a projection without month components")
+    func accountMarksFutureMonthAsProjection() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let october = PropertySettlementCalculator.report(propertyID: house.id, month: date(10),
+            ledger: ledger, transactions: inputs, asOf: date(9, 15))
+        let projection = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: october, ledger: ledger, inputs: inputs, asOf: date(9, 15), context: context)
+        #expect(projection.isProjection)
+        #expect(projection.houseSharedTotal == nil)
+        #expect(projection.memberSharedShare == nil)
+        #expect(projection.individualCharges == nil)
+        #expect(projection.rent == nil)
+        #expect(projection.adjustments == nil)
+        #expect(projection.priorDebt == 0)
+        // The asOf calendar month is the boundary: it is already a fact.
+        let september = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 15))
+        let current = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: september, ledger: ledger, inputs: inputs, asOf: date(9, 15), context: context)
+        #expect(!current.isProjection)
+        #expect(current.rent == 100)
+    }
+
+    @Test("A valid advance counts while a broken advance only flags repair")
+    func validAdvancesAreSeparateFromRepairReferences() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        let valid = PropertyTransactionInput(id: UUID(), amount: 40, postedAt: date(9, 2),
+            description: "Anticipo válido", isCashAccount: true)
+        let validID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: valid.id)
+        let original = PropertyTransactionInput(id: UUID(), amount: 60, postedAt: date(9, 3),
+            description: "Anticipo cambiado", isCashAccount: true)
+        let staleID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: original.id)
+        ledger.paymentApplications = [
+            PropertyPaymentApplication(id: validID, propertyID: house.id,
+                paymentTransactionID: valid.id, obligationID: validID, residentID: resident.id,
+                amount: 40, snapshots: PropertySourceSnapshots(capturing: valid)),
+            PropertyPaymentApplication(id: staleID, propertyID: house.id,
+                paymentTransactionID: original.id, obligationID: staleID, residentID: resident.id,
+                amount: 60, snapshots: PropertySourceSnapshots(capturing: original))]
+        var changed = original
+        changed.amount = 25
+        inputs += [valid, changed]
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 20))
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(9, 20),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        // The live 40 advance is money; the 60 whose source changed is repair
+        // work, never spendable, and it blocks any debt figure.
+        #expect(account.advanceAvailable == 40)
+        #expect(account.advancesNeedRepair)
+        #expect(account.status == .review)
+        #expect(account.balanceDue == nil)
+    }
+
+    @Test("An uncalculable split keeps nil month figures and never zeroes the prior debt")
+    func uncalculableAccountKeepsNilInsteadOfZero() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        resident.referenceMonthlyIncome = 0
+        ledger.residents = [resident]
+        ledger.incomes = [PropertyIncome(propertyID: house.id, residentID: resident.id,
+            monthStart: date(8), amount: 1_000, confirmedAt: date(8))]
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        let september = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        // The same canCalculate check PropertiesView.monthlyDetail performs.
+        let canCalculate = september.residents.reduce(Decimal.zero) { $0 + $1.income } > 0
+            && september.obligations.allSatisfy {
+                if case .owner = $0.responsibility { return true }
+                return $0.allocations.values.reduce(Decimal.zero, +) == $0.amount
+            }
+        #expect(!canCalculate)
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: september, ledger: ledger, inputs: inputs, asOf: date(10),
+            context: .init(canCalculate: canCalculate, isClosed: false, historical: false, includeCurrent: true))
+        #expect(account.status == .toCalculate)
+        #expect(account.houseSharedTotal == nil)
+        #expect(account.memberSharedShare == nil)
+        #expect(account.individualCharges == nil)
+        #expect(account.rent == nil)
+        #expect(account.adjustments == nil)
+        #expect(account.balanceDue == nil)
+        #expect(account.priorDebt == 150)
+    }
+
 }

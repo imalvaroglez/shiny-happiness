@@ -203,6 +203,7 @@
 		C72C5960F02239A02B6371A3 /* HouseholdPartnerIncomeEstimate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E52F1AD39DAC615CECFFA9 /* HouseholdPartnerIncomeEstimate.swift */; };
 		C80B8FA576C355F255DC67C0 /* EndToEndPDFTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76945E0492AC714D84088096 /* EndToEndPDFTests.swift */; };
 		C8849DB023F5244E7A936824 /* DashboardPeriod.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31E69074CC39EE81C9890E73 /* DashboardPeriod.swift */; };
+		C8AFF444779D9EE6CF4EA033 /* PropertyMemberAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 815DDFA26C99CB3D8A38F89B /* PropertyMemberAccount.swift */; };
 		C8C5AC4595A198CEEFE05BF5 /* DashboardInsightBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB404350F819D865D89629CD /* DashboardInsightBuilderTests.swift */; };
 		CE18EEF0A87AF21D55D3A771 /* RetirementDashboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67DCEB0832ADA26837DC4401 /* RetirementDashboardTests.swift */; };
 		CEBCC41FFC6CD5B63B21A840 /* ManualAccountServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8AEED416815C85A155E0055 /* ManualAccountServices.swift */; };
@@ -373,6 +374,7 @@
 		7F4CE314C518F15D01402DA5 /* es-MX.lproj */ = {isa = PBXFileReference; path = "es-MX.lproj"; sourceTree = "<group>"; };
 		807AA00A55D09F5CEFB799FB /* PortfolioPriceRefresherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioPriceRefresherTests.swift; sourceTree = "<group>"; };
 		80B71C60D82DE22BA237E95B /* DashboardNetWorthSparkline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardNetWorthSparkline.swift; sourceTree = "<group>"; };
+		815DDFA26C99CB3D8A38F89B /* PropertyMemberAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyMemberAccount.swift; sourceTree = "<group>"; };
 		820058456236DE88D63C47FE /* TransactionDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionDetailSheet.swift; sourceTree = "<group>"; };
 		83C46CF95F0C05481ECC75D7 /* PersistentModel+Touch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PersistentModel+Touch.swift"; sourceTree = "<group>"; };
 		84A5D91EBAF85871F0C8763A /* PropertyManagementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PropertyManagementTests.swift; sourceTree = "<group>"; };
@@ -963,6 +965,7 @@
 				9D749FD56AC697C8F3760BA3 /* PropertyCollectionPosting.swift */,
 				74989DA659C9D6ED2DB5CF3D /* PropertyExpenseFlow.swift */,
 				044916A9D45D12CDA7EEC804 /* PropertyHouseholdAdapter.swift */,
+				815DDFA26C99CB3D8A38F89B /* PropertyMemberAccount.swift */,
 				60553D2688EC718D09D263E4 /* PropertyMemberSettlement.swift */,
 				704D36A498A48056B8BC9ADA /* PropertyMonthlyTable.swift */,
 				E0707140F2A9924C265818BE /* PropertySankeyLayout.swift */,
@@ -1302,6 +1305,7 @@
 				F5D3CB96E8051CB4D419C40E /* PropertyHouseholdLink.swift in Sources */,
 				74A34765DD3865D2FE5E29DA /* PropertyLedger.swift in Sources */,
 				2DD2C644AF216E306D306269 /* PropertyLedgerStore.swift in Sources */,
+				C8AFF444779D9EE6CF4EA033 /* PropertyMemberAccount.swift in Sources */,
 				A35A1EB6D0295F6EEE93458A /* PropertyMemberSettlement.swift in Sources */,
 				B07ADA526D9AD86C893910FC /* PropertyMonthlyTable.swift in Sources */,
 				BC10B083A644C964BB51CDBE /* PropertySankeyLayout.swift in Sources */,
