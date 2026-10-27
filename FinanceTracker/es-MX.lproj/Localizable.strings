@@ -874,6 +874,8 @@
 "Choose a member of this property." = "Elige un integrante de esta propiedad.";
 "A previous advance changed. Review its receipt and applications before applying it." = "Un anticipo anterior cambió. Revisa su cobro y sus aplicaciones antes de aplicarlo.";
 "No pending balance is available for this advance." = "No hay saldo pendiente disponible para este anticipo.";
+"Register payment" = "Registrar pago";
+"Could not rename. The name is unchanged." = "No se pudo renombrar; se conserva el nombre.";
 "The advance could not be applied. Try again." = "No se pudo aplicar el anticipo. Inténtalo de nuevo.";
 "Configuration" = "Configuración";
 "No rent agreements yet." = "Aún no hay acuerdos de renta.";
