@@ -181,4 +181,74 @@ enum PropertyCollectionPosting {
             ledger.paymentApplications.first { $0.id == previous.id } != previous
         })
     }
+
+    /// Explicit spending of a member's unspent advances against their outstanding
+    /// months. An exact replica of `plan`'s advance walk without a new receipt:
+    /// every application keeps the financial movement that already backs the
+    /// advance, so this entry point never creates money or transactions. Only
+    /// the member's own advances are spent — a placeholder advance adopts a
+    /// member exclusively through receipt reconciliation in `plan`, so the
+    /// amounts here can never exceed the member's published `advanceAvailable`.
+    /// Receipt guards do not apply (no new receipt exists); the resident and
+    /// stale-source guards are `plan`'s. Returns nil on a failed guard.
+    static func applyAdvances(propertyID: UUID, residentID: UUID, report: PropertyMonthlyReport,
+                              ledger: PropertyLedger, inputs: [PropertyTransactionInput],
+                              asOf: Date, includeCurrent: Bool = true) -> Plan? {
+        guard ledger.residents.contains(where: { $0.id == residentID && $0.propertyID == propertyID }),
+              !hasChangedAdvanceSource(propertyID: propertyID, residentID: residentID,
+                                       ledger: ledger, inputs: inputs) else { return nil }
+        let candidates = ledger.closes.filter { $0.propertyID == propertyID && $0.monthStart <= report.monthStart }
+            .map { ($0.monthStart, $0.obligations,
+                    monthOutstanding(close: $0, residentID: residentID, ledger: ledger)) }
+            + (includeCurrent && !ledger.closes.contains { $0.propertyID == propertyID && $0.monthStart == report.monthStart }
+                ? [(report.monthStart, report.obligations,
+                    max(0, report.residents.first { $0.id == residentID }?.balance ?? 0))] : [])
+        let sorted = candidates.sorted { $0.0 < $1.0 }
+        let byID = Dictionary(inputs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var advances = ledger.paymentApplications.filter {
+            $0.propertyID == propertyID && $0.residentID == residentID && $0.deletedAt == nil
+                && PropertyPaymentAdvance.isAdvance($0)
+                && PropertySettlementCalculator.isValidCollectionPayment(byID[$0.paymentTransactionID], asOf: asOf)
+        }.sorted {
+            let first = byID[$0.paymentTransactionID]?.postedAt ?? .distantPast
+            let second = byID[$1.paymentTransactionID]?.postedAt ?? .distantPast
+            return first == second ? $0.id.uuidString < $1.id.uuidString : first < second
+        }
+        var additions: [PropertyPaymentApplication] = []
+        for (month, obligations, outstanding) in sorted {
+            var monthRemaining = outstanding
+            let ordered = obligations.sorted {
+                if $0.isRent != $1.isRent { return $0.isRent }
+                return $0.id.uuidString < $1.id.uuidString
+            }
+            for obligation in ordered where monthRemaining > 0 {
+                let assigned = obligation.allocations[residentID] ?? 0
+                let already = ledger.paymentApplications.filter {
+                    $0.propertyID == propertyID && $0.residentID == residentID && $0.obligationID == obligation.id && $0.deletedAt == nil
+                }.reduce(Decimal.zero) { $0 + $1.amount }
+                var capacity = min(monthRemaining, max(0, assigned - already))
+                guard capacity > 0 else { continue }
+                // An advance never pays an obligation before its calendar month arrives.
+                if month <= Calendar.current.propertyMonthStart(for: asOf) {
+                    for index in advances.indices where capacity > 0 && advances[index].amount > 0 {
+                        guard let source = byID[advances[index].paymentTransactionID] else { continue }
+                        let used = min(capacity, advances[index].amount)
+                        additions.append(PropertyPaymentApplication(propertyID: propertyID,
+                            paymentTransactionID: source.id, obligationID: obligation.id,
+                            residentID: residentID, amount: used, snapshots: PropertySourceSnapshots(capturing: source)))
+                        advances[index].amount -= used
+                        advances[index].updatedAt = .now
+                        if advances[index].amount == 0 {
+                            advances[index].deletedAt = .now
+                            advances[index].amount = ledger.paymentApplications.first { $0.id == advances[index].id }?.amount ?? used
+                        }
+                        capacity -= used; monthRemaining -= used
+                    }
+                }
+            }
+        }
+        return Plan(applications: additions, updatedAdvances: advances.filter { previous in
+            ledger.paymentApplications.first { $0.id == previous.id } != previous
+        })
+    }
 }

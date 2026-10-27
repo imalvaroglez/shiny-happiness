@@ -665,6 +665,73 @@ final class PropertyWorkspaceModel {
         }
     }
 
+    /// Explicit "apply advance": spends the member's available advances against
+    /// their outstanding months through the movements that already back them.
+    /// No financial transaction is created, so there is no `.needsLink`
+    /// recovery path: the outcome is either saved or rejected.
+    func applyMemberAdvance(propertyID: UUID, residentID: UUID) -> CollectionOutcome {
+        guard ledgerAvailable, periodReady, let context else {
+            return .rejected(String(localized: "Property report unavailable. Retry loading."))
+        }
+        guard member(id: residentID)?.propertyID == propertyID,
+              propertyID == (destination == .household ? (ledger.householdLink ?? PropertyHouseholdAdapter.link).propertyID : self.propertyID)
+        else { return .rejected(String(localized: "Choose a member of this property.")) }
+        let report: PropertyMonthlyReport?
+        if destination == .household { report = householdMonthlyReport }
+        else { report = reports[propertyID] }
+        guard let report else { return .rejected(String(localized: "Property report unavailable. Retry loading.")) }
+        let verifiedInputs: [PropertyTransactionInput]
+        do {
+            verifiedInputs = try inputsWithFreshAdvanceSources(propertyID: propertyID,
+                                                               residentID: residentID, context: context)
+        } catch { return .rejected(error.localizedDescription) }
+        if PropertyCollectionPosting.hasChangedAdvanceSource(propertyID: propertyID, residentID: residentID,
+                                                            ledger: ledger, inputs: verifiedInputs) {
+            return .rejected(String(localized: "A previous advance changed. Review its receipt and applications before applying it."))
+        }
+        do {
+            try checkAssignmentRevision()
+            var updated = ledger
+            if destination == .household, updated.householdLink == nil {
+                let link = PropertyHouseholdAdapter.link
+                updated.householdLink = link
+                updated.properties.append(PropertyRecord(id: link.propertyID, name: PropertyDestination.householdName))
+                updated.residents.append(PropertyResident(id: link.userID, propertyID: link.propertyID,
+                    name: String(localized: "You"), activeFrom: .distantPast))
+                updated.residents.append(PropertyResident(id: link.partnerID, propertyID: link.propertyID,
+                    name: "Fer", activeFrom: .distantPast))
+            }
+            let includeCurrent = destination != .household
+                || updated.closes.contains(where: { $0.propertyID == propertyID && $0.monthStart == selectedMonth })
+                || householdMonth(selectedMonth) != nil
+            guard let proposal = PropertyCollectionPosting.applyAdvances(propertyID: propertyID,
+                residentID: residentID, report: report, ledger: updated, inputs: verifiedInputs,
+                asOf: max(asOf, .now), includeCurrent: includeCurrent) else {
+                return .rejected(String(localized: "A previous advance changed. Review its receipt and applications before applying it."))
+            }
+            // Nothing to change means the member has no due debt the advance
+            // can cover yet; an apply must save visibly or fail visibly.
+            if proposal.applications.isEmpty && proposal.updatedAdvances.isEmpty {
+                return .rejected(String(localized: "This advance has no outstanding debt to cover."))
+            }
+            for changed in proposal.updatedAdvances {
+                guard let index = updated.paymentApplications.firstIndex(where: { $0.id == changed.id }) else { continue }
+                updated.paymentApplications[index] = changed
+            }
+            updated.paymentApplications.append(contentsOf: proposal.applications)
+            ledger = updated
+            guard save() else {
+                return .rejected(self.error ?? String(localized: "The advance could not be applied. Try again."))
+            }
+            asOf = max(asOf, .now)
+            Task { await refreshPeriod(force: true) }
+            return .saved
+        } catch {
+            self.error = error.localizedDescription
+            return .rejected(error.localizedDescription)
+        }
+    }
+
     @discardableResult
     func save() -> Bool {
         guard ledgerAvailable else {
