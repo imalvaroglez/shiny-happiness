@@ -172,6 +172,16 @@ struct PropertyCollectionPostingTests {
             report: before, ledger: ledger, inputs: inputs, asOf: date(9, 10), includeCurrent: false) == 100)
         #expect(PropertyCollectionPosting.suggestedAmount(propertyID: house.id, residentID: resident.id,
             report: after, ledger: ledger, inputs: inputs, asOf: date(10, 10), includeCurrent: false) == 0)
+        // A future-dated receipt is not a review case: it is simply not yet
+        // collected, and the advance parity holds on both surfaces.
+        let futureSettlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: before, ledger: ledger, inputs: inputs, asOf: date(9, 10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: false))
+        #expect(futureSettlement.payable == 100)
+        #expect(futureSettlement.advanceAvailable == PropertyCollectionPosting.memberAdvances(
+            propertyID: house.id, residentID: resident.id, ledger: ledger, inputs: inputs, asOf: date(9, 10)))
+        #expect(futureSettlement.advanceStale == PropertyCollectionPosting.hasChangedAdvanceSource(
+            propertyID: house.id, residentID: resident.id, ledger: ledger, inputs: inputs))
     }
 
     @Test("Paseo de los Parques suggests Fer's exact balance and links one real receipt")
@@ -422,6 +432,12 @@ struct PropertyCollectionPostingTests {
         #expect(PropertyCollectionPosting.suggestedAmount(propertyID: house.id, residentID: resident.id,
             report: report, ledger: ledger, inputs: inputs, asOf: date(10),
             includeCurrent: includeCurrent) == settlement.payable)
+        // Parity guard: the duplicated advance math must keep tracking the
+        // live PropertyCollectionPosting entry points member for member.
+        #expect(settlement.advanceAvailable == PropertyCollectionPosting.memberAdvances(
+            propertyID: house.id, residentID: resident.id, ledger: ledger, inputs: inputs, asOf: date(10)))
+        #expect(settlement.advanceStale == PropertyCollectionPosting.hasChangedAdvanceSource(
+            propertyID: house.id, residentID: resident.id, ledger: ledger, inputs: inputs))
         return settlement
     }
 
@@ -632,6 +648,43 @@ struct PropertyCollectionPostingTests {
         #expect(settlement.payable == nil)
         #expect(settlement.advanceAvailable == 0)
         #expect(settlement.due == 100)
+        #expect(settlement.advanceAvailable == PropertyCollectionPosting.memberAdvances(
+            propertyID: staleHouse.id, residentID: staleResident.id,
+            ledger: staleLedger, inputs: staleInputs, asOf: date(9, 10)))
+        #expect(settlement.advanceStale == PropertyCollectionPosting.hasChangedAdvanceSource(
+            propertyID: staleHouse.id, residentID: staleResident.id,
+            ledger: staleLedger, inputs: staleInputs))
+    }
+
+    @Test("An overallocated month receipt forces review and never suggests a payable")
+    func overallocatedMonthReceiptNeedsReview() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let septemberRentID = try #require(report.obligations.first(where: \.isRent)?.id)
+        // One 100 receipt applied twice against the month rent: 120 collected
+        // on a 100 receipt is over-allocation, not money.
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(9, 5),
+            description: "Cobro sobreasignado", isCashAccount: true)
+        inputs.append(receipt)
+        ledger.paymentApplications = [
+            PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: receipt.id,
+                obligationID: septemberRentID, residentID: resident.id, amount: 60,
+                snapshots: PropertySourceSnapshots(capturing: receipt)),
+            PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: receipt.id,
+                obligationID: septemberRentID, residentID: resident.id, amount: 60,
+                snapshots: PropertySourceSnapshots(capturing: receipt))]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(settlement.receiptsNeedReview)
+        #expect(!settlement.sourcesMissing)
+        #expect(settlement.status == .review)
+        #expect(settlement.payable == nil)
+        #expect(PropertyCollectionPosting.suggestedAmount(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10)) == 0)
     }
 
     @Test("A member without obligations has nothing due, not paid")

@@ -56,11 +56,13 @@ struct PropertyMemberSettlement: Equatable, Sendable {
     var advanceAvailable: Decimal
     /// An advance of this member no longer matches its backing transaction.
     var advanceStale: Bool
-    /// An application of this member lost its backing transaction.
+    /// An application of this member lost its backing transaction, or the
+    /// transaction changed or stopped being a valid collection receipt.
     var sourcesMissing: Bool
     /// A receipt of this member is overallocated or used as reimbursement and collection.
     var receiptsNeedReview: Bool
-    /// Receipts backing the valid collections, newest first.
+    /// Receipts backing the valid collections, newest first. Prior receipts can
+    /// include overallocated or double-used ones, inherited from `priorBalances`.
     var paymentTransactionIDs: [UUID]
     /// The member no longer participates in the report month.
     var participationEnded: Bool
@@ -143,10 +145,14 @@ struct PropertyMemberSettlement: Equatable, Sendable {
             let grossObligation = (priorDebt + priorPaid + (monthObligation ?? 0)).currencyRounded
             let collected = (monthPaid + priorPaid).currencyRounded
             if dueValue <= 0 {
-                // Exact frontier: nothing due means either the debt never existed
-                // or the valid collections already covered it.
-                status = grossObligation > 0 ? .paid : .nothingDue
-            } else if collected >= grossObligation && collected >= dueValue {
+                // Exact frontier: nothing due only when no debt ever existed;
+                // a covered debt stays paid even if over-application pushed
+                // the net closed balances to zero or below.
+                status = collected > 0 || grossObligation > 0 ? .paid : .nothingDue
+            } else if collected >= grossObligation
+                // Defensive against manual over-application, which can leave
+                // the net `due` above the gross obligation.
+                && collected >= dueValue {
                 // Month collections were applied beyond the month obligation, so
                 // they already cover debt the net `due` still carries.
                 status = .paid
@@ -192,6 +198,22 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         var sourcesMissingByResident: Set<UUID> = []
         var receiptsNeedReviewByResident: Set<UUID> = []
 
+        /// The receipt gate `report()` warns about, applied to the money math:
+        /// an application only counts as collected when its source is a valid
+        /// collection payment as of `asOf` and still matches the snapshots
+        /// captured at reconciliation time.
+        static func countsAsCollected(_ application: PropertyPaymentApplication,
+                                       inputsByID: [UUID: PropertyTransactionInput], asOf: Date) -> Bool {
+            guard let source = inputsByID[application.paymentTransactionID],
+                  PropertySettlementCalculator.isValidCollectionPayment(source, asOf: asOf),
+                  !PropertySettlementCalculator.hasSourceChanged(
+                    amount: application.sourceAmountSnapshot, postedAt: application.sourcePostedAtSnapshot,
+                    currencyCode: application.sourceCurrencySnapshot,
+                    description: application.sourceDescriptionSnapshot, versus: source)
+            else { return false }
+            return true
+        }
+
         init(propertyID: UUID, report: PropertyMonthlyReport, ledger: PropertyLedger,
              inputs: [PropertyTransactionInput], asOf: Date) {
             for input in inputs { inputsByID[input.id] = input }
@@ -217,8 +239,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                 && monthObligationIDs.contains(application.obligationID)
                 && !reconciliation.overallocatedPaymentIDs.contains(application.paymentTransactionID)
                 && !reconciliation.doubleUsedReceipts.contains(application.paymentTransactionID)
-                && PropertySettlementCalculator.isValidCollectionPayment(
-                    inputsByID[application.paymentTransactionID], asOf: asOf) {
+                && Self.countsAsCollected(application, inputsByID: inputsByID, asOf: asOf) {
                 monthReceiptIDsByResident[application.residentID, default: []]
                     .insert(application.paymentTransactionID)
             }
@@ -237,8 +258,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                 for application in propertyApplications
                 where obligationIDs.contains(application.obligationID)
                     && !reimbursementTransactionIDs.contains(application.paymentTransactionID)
-                    && PropertySettlementCalculator.isValidCollectionPayment(
-                        inputsByID[application.paymentTransactionID], asOf: asOf) {
+                    && Self.countsAsCollected(application, inputsByID: inputsByID, asOf: asOf) {
                     priorPaidByResident[application.residentID, default: 0] += application.amount
                     priorReceiptIDsByResident[application.residentID, default: []]
                         .insert(application.paymentTransactionID)
@@ -246,8 +266,13 @@ struct PropertyMemberSettlement: Equatable, Sendable {
             }
 
             for application in propertyApplications {
-                let source = inputsByID[application.paymentTransactionID]
-                if source == nil || source?.deletedAt != nil || source?.isDuplicate == true {
+                // The gate mirrors report()'s receipt warnings: an application
+                // whose source is absent, stopped being a valid collection
+                // receipt (deleted, duplicate, converted to a transfer,
+                // accountless, household-assigned, non-MXN or non-positive), or
+                // no longer matches its captured snapshots forces review
+                // instead of silently counting as collected.
+                if !Self.countsAsCollected(application, inputsByID: inputsByID, asOf: .distantFuture) {
                     sourcesMissingByResident.insert(application.residentID)
                 }
                 if reconciliation.overallocatedPaymentIDs.contains(application.paymentTransactionID)
