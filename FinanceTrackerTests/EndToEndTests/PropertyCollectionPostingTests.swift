@@ -28,6 +28,79 @@ struct PropertyCollectionPostingTests {
         return (ledger, house, resident, inputs)
     }
 
+    /// A real household month — shared 1,000 split half and half by equal
+    /// incomes, Fer-only 300, user-only 200 — with its residents wired into the
+    /// Paseo de los Parques ledger.
+    @MainActor
+    private func householdFixture() -> (household: HouseholdSettlementReport,
+        roles: PropertyHouseholdLink, ledger: PropertyLedger, inputs: [PropertyTransactionInput]) {
+        let roles = PropertyHouseholdAdapter.link
+        let month = date(9)
+        let account = Account(institution: "Banco sintético", type: .checking)
+        let shared = Transaction(account: account, postedAt: date(9, 2), amount: -1_000,
+            descriptionRaw: "Gasto compartido")
+        shared.setHouseholdScope(.included)
+        shared.setExpenseAssignment(.shared)
+        let ferOnly = Transaction(account: account, postedAt: date(9, 3), amount: -300,
+            descriptionRaw: "Gasto solo Fer")
+        ferOnly.setHouseholdScope(.included)
+        ferOnly.setExpenseAssignment(.partner)
+        let userOnly = Transaction(account: account, postedAt: date(9, 4), amount: -200,
+            descriptionRaw: "Gasto solo mío")
+        userOnly.setHouseholdScope(.included)
+        userOnly.setExpenseAssignment(.user)
+        let household = HouseholdSettlementReportService.build(monthStart: month,
+            transactions: [shared, ferOnly, userOnly],
+            setup: HouseholdSettlementSetup(partnerIncomeEstimate: 1_000,
+                useUserIncomeManualOverride: true, userIncomeManualOverride: 1_000))
+        var ledger = PropertyLedger()
+        ledger.householdLink = roles
+        ledger.properties = [PropertyRecord(id: roles.propertyID, name: "Casa sintética")]
+        ledger.residents = [PropertyResident(id: roles.userID, propertyID: roles.propertyID,
+            name: "Tú", activeFrom: .distantPast),
+            PropertyResident(id: roles.partnerID, propertyID: roles.propertyID,
+                name: "Fer", activeFrom: .distantPast)]
+        let inputs = [PropertyTransactionInput(capturing: shared),
+                      PropertyTransactionInput(capturing: ferOnly),
+                      PropertyTransactionInput(capturing: userOnly)]
+        return (household, roles, ledger, inputs)
+    }
+
+    /// The same fixture closed under the classification this adapter used
+    /// before individual rows existed: every obligation `.shared`. Persisted
+    /// household closes carry exactly this shape.
+    @MainActor
+    private func householdLedgerWithLegacyClose() -> (household: HouseholdSettlementReport,
+        roles: PropertyHouseholdLink, ledger: PropertyLedger, inputs: [PropertyTransactionInput],
+        close: PropertySettlementClose) {
+        let (household, roles, ledger, inputs) = householdFixture()
+        let month = date(9)
+        let rows = household.sharedRows + household.ferRows + household.userRows
+        let obligations = rows.map { row in
+            PropertyObligationSnapshot(id: .deterministic(row.id, month, "household-obligation"),
+                title: row.transaction.descriptionRaw, kind: .operation, amount: row.amount,
+                allocations: [roles.userID: row.userShare, roles.partnerID: row.partnerShare],
+                transactionID: row.id, responsibility: .shared,
+                sourcePostedAt: row.transaction.postedAt,
+                sourceCurrencyCode: row.transaction.currency)
+        }
+        let members = [
+            PropertyResidentSnapshot(id: roles.userID, name: "Tú", income: household.userSalaryIncome,
+                share: household.userIncomeShare,
+                obligation: household.userFairShare + household.userOnlyTotal, paid: 0),
+            PropertyResidentSnapshot(id: roles.partnerID, name: "Fer", income: household.partnerIncomeEstimate,
+                share: household.partnerIncomeShare,
+                obligation: household.amountToRecoverFromPartner, paid: 0)
+        ]
+        let close = PropertySettlementClose(id: .deterministic(roles.propertyID, month, "household-preview"),
+            propertyID: roles.propertyID, monthStart: month, closedAt: date(9, 28),
+            residents: members, obligations: obligations,
+            totalObligations: members.reduce(Decimal.zero) { $0 + $1.obligation }, warnings: [])
+        var closedLedger = ledger
+        closedLedger.closes = [close]
+        return (household, roles, closedLedger, inputs, close)
+    }
+
     @Test("Oldest month, rent then expenses, then current rent; exact partial amount")
     func oldDebtPriority() throws {
         var (ledger, house, resident, inputs) = fixture()
@@ -499,6 +572,54 @@ struct PropertyCollectionPostingTests {
             inputs: [expenseInput, receipt], receipt: receipt, asOf: date(9, 10)))
         #expect(plan.applications.map(\.amount) == [1_000])
         #expect(plan.applications.first?.residentID == roles.partnerID)
+    }
+
+    @Test("Household adapter classifies shared, Fer-only, and user-only rows")
+    @MainActor
+    func householdAdapterClassifiesRealResponsibility() throws {
+        let (household, roles, ledger, inputs) = householdFixture()
+        let month = date(9)
+        let report = PropertyHouseholdAdapter.report(household, ledger: ledger,
+            transactions: inputs, asOf: date(9, 10))
+        let fer = try #require(report.residents.first { $0.id == roles.partnerID })
+        let user = try #require(report.residents.first { $0.id == roles.userID })
+        // Real classification: only the shared pot is shared; a one-member row
+        // is an individual charge of exactly that member.
+        #expect(fer.sharedExpenses == 500)
+        #expect(fer.individualExpenses == 300)
+        #expect(user.sharedExpenses == 500)
+        #expect(user.individualExpenses == 200)
+        // The account closes by hand exactly as the old all-shared
+        // classification did: Fer owes 500 + 300 and paid nothing; the user's
+        // 500 + 200 was paid when it was recorded.
+        #expect(fer.balance == 800)
+        #expect(user.balance == 0)
+        // Fer's member account: the shared pot keeps its full 1,000 while
+        // "Gastos suyos" now carries the real 300 instead of hiding in shared.
+        let ferAccount = PropertyMemberAccount.account(propertyID: roles.propertyID,
+            residentID: roles.partnerID, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(9, 10),
+            context: .init(canCalculate: household.splitAvailable, isClosed: false,
+                historical: false, includeCurrent: true))
+        #expect(ferAccount.houseSharedTotal == 1_000)
+        #expect(ferAccount.memberSharedShare == 500)
+        #expect(ferAccount.individualCharges == 300)
+        // One-member obligations keep their deterministic ids (so existing
+        // payment applications still pair) and allocate to one resident only.
+        let sharedObligation = try #require(report.obligations.first { $0.title == "Gasto compartido" })
+        #expect(sharedObligation.id == UUID.deterministic(household.sharedRows[0].id, month, "household-obligation"))
+        #expect(sharedObligation.responsibility == .shared)
+        #expect(sharedObligation.allocations == [roles.userID: 500, roles.partnerID: 500])
+        let ferObligation = try #require(report.obligations.first { $0.title == "Gasto solo Fer" })
+        #expect(ferObligation.id == UUID.deterministic(household.ferRows[0].id, month, "household-obligation"))
+        #expect(ferObligation.responsibility == .individual(residentID: roles.partnerID))
+        #expect(ferObligation.allocations == [roles.partnerID: 300])
+        let userObligation = try #require(report.obligations.first { $0.title == "Gasto solo mío" })
+        #expect(userObligation.id == UUID.deterministic(household.userRows[0].id, month, "household-obligation"))
+        #expect(userObligation.responsibility == .individual(residentID: roles.userID))
+        #expect(userObligation.allocations == [roles.userID: 200])
+        // Obligation order still follows shared + Fer + user.
+        #expect(report.obligations.map(\.title) == ["Gasto compartido", "Gasto solo Fer", "Gasto solo mío"])
     }
 
     @Test("Every active MXN account type can receive a collection; archived and foreign accounts cannot")
@@ -1328,6 +1449,53 @@ struct PropertyCollectionPostingTests {
         #expect(PropertyCollectionPosting.suggestedAmount(propertyID: roles.propertyID,
             residentID: roles.partnerID, report: report, ledger: ledger, inputs: [expenseInput],
             asOf: date(8, 10), includeCurrent: false) == 0)
+    }
+
+    @Test("Household adapter keeps closed totals frozen")
+    @MainActor
+    func householdAdapterKeepsClosedTotalsFrozen() throws {
+        let (household, roles, ledger, inputs, close) = householdLedgerWithLegacyClose()
+        let report = PropertyHouseholdAdapter.report(household, ledger: ledger,
+            transactions: inputs, asOf: date(9, 28))
+        // The closed snapshot is reused as-is: its obligations keep exactly the
+        // all-shared classification the close froze, never reclassified.
+        #expect(report.obligations == close.obligations)
+        #expect(report.obligations.allSatisfy { $0.responsibility == .shared })
+        // Totals and balances are the snapshot's: Fer 800 (500 fair share +
+        // 300 Fer-only counted as shared), user 700, all 1,500 still
+        // transaction-backed.
+        let fer = try #require(report.residents.first { $0.id == roles.partnerID })
+        let user = try #require(report.residents.first { $0.id == roles.userID })
+        let ferSnapshot = try #require(close.residents.first { $0.id == roles.partnerID })
+        let userSnapshot = try #require(close.residents.first { $0.id == roles.userID })
+        #expect(fer.sharedExpenses == 800)
+        #expect(fer.individualExpenses == 0)
+        #expect(fer.balance == ferSnapshot.obligation)
+        #expect(user.balance == userSnapshot.obligation)
+        #expect(report.expenses == 1_500)
+        #expect(report.warnings.isEmpty)
+    }
+
+    @Test("A closed household month stays self-consistent")
+    @MainActor
+    func closedHouseholdAccountStaysSelfConsistent() throws {
+        let (household, roles, ledger, inputs, close) = householdLedgerWithLegacyClose()
+        let report = PropertyHouseholdAdapter.report(household, ledger: ledger,
+            transactions: inputs, asOf: date(9, 28))
+        let account = PropertyMemberAccount.account(propertyID: roles.propertyID,
+            residentID: roles.partnerID, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(9, 28),
+            context: .init(canCalculate: true, isClosed: true, historical: false, includeCurrent: true))
+        // Consistent with the frozen classification, not contradicting it: the
+        // close counted every row as shared, so the closed account shows no
+        // individual charges and the whole transaction-backed total as the pot.
+        #expect(account.individualCharges == 0)
+        #expect(account.houseSharedTotal == close.obligations
+            .filter { $0.transactionID != nil }
+            .reduce(Decimal.zero) { $0 + $1.amount })
+        #expect(account.houseSharedTotal == 1_500)
+        #expect(account.memberSharedShare == 800)
+        #expect(account.balanceDue == 800)
     }
 
     // MARK: - PropertyMemberAccount

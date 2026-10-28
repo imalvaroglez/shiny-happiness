@@ -22,14 +22,21 @@ enum PropertyHouseholdAdapter {
         let activeIDs = activeMemberIDs(ledger: ledger, month: source.monthStart)
         let config = ledger.householdMonths?.first { $0.monthStart == source.monthStart && $0.deletedAt == nil }
         let existingClose = ledger.closes.first { $0.propertyID == roles.propertyID && $0.monthStart == source.monthStart }
-        let rows = source.sharedRows + source.ferRows + source.userRows
-        let obligations = rows.map { row in
-            PropertyObligationSnapshot(id: .deterministic(row.id, source.monthStart, "household-obligation"),
-                title: row.transaction.descriptionRaw, kind: .operation, amount: row.amount,
-                allocations: [roles.userID: row.userShare, roles.partnerID: row.partnerShare],
-                transactionID: row.id, responsibility: .shared, sourcePostedAt: row.transaction.postedAt,
-                sourceCurrencyCode: row.transaction.currency)
-        }
+        let obligations =
+            source.sharedRows.map { row in
+                obligation(row, monthStart: source.monthStart, responsibility: .shared,
+                    allocations: [roles.userID: row.userShare, roles.partnerID: row.partnerShare])
+            }
+            + source.ferRows.map { row in
+                obligation(row, monthStart: source.monthStart,
+                    responsibility: .individual(residentID: roles.partnerID),
+                    allocations: [roles.partnerID: row.amount])
+            }
+            + source.userRows.map { row in
+                obligation(row, monthStart: source.monthStart,
+                    responsibility: .individual(residentID: roles.userID),
+                    allocations: [roles.userID: row.amount])
+            }
         let members = [
             PropertyResidentSnapshot(id: roles.userID, name: ledger.residents.first { $0.id == roles.userID }?.name ?? String(localized: "You"), income: source.userSalaryIncome,
                 share: source.userIncomeShare, obligation: source.userFairShare + source.userOnlyTotal, paid: 0),
@@ -68,6 +75,21 @@ enum PropertyHouseholdAdapter {
             if report.residents.contains(where: { !$0.confirmed }) { report.warnings.append("Hay ingresos por confirmar en la tabla.") }
         }
         return report
+    }
+
+    /// One household row as a property obligation. The deterministic id, title,
+    /// kind, amount, transaction link, and source snapshots never vary — only
+    /// the responsibility and allocations do, per source list. The shared pot
+    /// (monthly split and custom amounts) stays `.shared`; a one-member row is
+    /// an individual charge of exactly that member, keeping the allocation sum
+    /// each resident already had so balances and obligations cannot move.
+    private static func obligation(_ row: HouseholdSettlementRow, monthStart: Date,
+                                   responsibility: PropertyResponsibility,
+                                   allocations: [UUID: Decimal]) -> PropertyObligationSnapshot {
+        PropertyObligationSnapshot(id: .deterministic(row.id, monthStart, "household-obligation"),
+            title: row.transaction.descriptionRaw, kind: .operation, amount: row.amount,
+            allocations: allocations, transactionID: row.id, responsibility: responsibility,
+            sourcePostedAt: row.transaction.postedAt, sourceCurrencyCode: row.transaction.currency)
     }
 
     static func closedSummary(_ close: PropertySettlementClose) -> String {
