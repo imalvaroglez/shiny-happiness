@@ -79,10 +79,15 @@ struct PropertyExpenseFlow: Identifiable, Equatable {
             let palette = categories.compactMap(\.colorID)
             let totalID = currency + "/total"
             let total = categories.reduce(Decimal.zero) { $0 + $1.amount }
+            let cut = visiblePrefix(of: categories, total: total)
             var nodes = [Node(id: totalID, name: String(localized: "Total spending"), amount: total, stage: .total)]
             var links: [Link] = []
             var displayed: [(category: Node, details: [Node])] = []
-            let canExpand = categories.count > 5 || categories.contains { category in leaves.values.filter { $0.parentID == category.id }.count > 3 }
+            // The summary cut decides expansion for both presentations, so the
+            // Summarize action never disappears once the graph is expanded.
+            let canExpand = !cut.grouped.isEmpty || cut.visible.contains { category in
+                leaves.values.filter { $0.parentID == category.id }.count > 3
+            }
             func append(_ category: Node, details: [Node]) {
                 nodes.append(category)
                 links.append(Link(source: totalID, target: category.id, amount: category.amount, colorID: category.colorID))
@@ -91,7 +96,7 @@ struct PropertyExpenseFlow: Identifiable, Equatable {
                     links.append(Link(source: category.id, target: detail.id, amount: detail.amount, colorID: category.colorID))
                 }
             }
-            for category in expanded ? categories : Array(categories.prefix(5)) {
+            for category in expanded ? categories : Array(cut.visible) {
                 var details = leaves.values.filter { $0.parentID == category.id }.sorted(by: precedes)
                 if !expanded && details.count > 3 {
                     let other = Node(id: category.id + "/other", name: String(localized: "Other subcategories"),
@@ -100,15 +105,13 @@ struct PropertyExpenseFlow: Identifiable, Equatable {
                 }
                 displayed.append((category, details.sorted(by: precedes)))
             }
-            if !expanded && categories.count > 5 {
+            if !expanded && !cut.grouped.isEmpty {
                 let id = currency + "/other"
-                let amount = categories.dropFirst(5).reduce(Decimal.zero) { $0 + $1.amount }
+                let amount = cut.grouped.reduce(Decimal.zero) { $0 + $1.amount }
                 displayed.append((Node(id: id, name: String(localized: "Other categories"), amount: amount, stage: .categories),
                     [Node(id: id + "/details", name: String(localized: "Other categories"), amount: amount, stage: .subcategories, parentID: id)]))
             }
-            for group in displayed.sorted(by: { precedes($0.category, $1.category) }) {
-                append(group.category, details: group.details)
-            }
+            for group in displayed { append(group.category, details: group.details) }
             let contributions = contributionNodes(contributors, total: total, currency: currency)
             if let contributions {
                 nodes = contributions + nodes
@@ -117,6 +120,25 @@ struct PropertyExpenseFlow: Identifiable, Equatable {
             return Self(currency: currency, nodes: nodes, links: links, paletteIDs: palette,
                 canExpand: canExpand, contributionsAvailable: contributions != nil)
         }
+    }
+
+    /// `categories` must already be ordered by `precedes`. Categories whose
+    /// running total stays within 80% of `total` — reaching the budget exactly
+    /// still counts as inside — are visible; the first category that would
+    /// cross the budget groups itself together with every following category,
+    /// so a large category is never skipped in favor of smaller ones. A first
+    /// category above the budget on its own is still shown, with every other
+    /// category grouped.
+    static func visiblePrefix(of categories: [Node], total: Decimal) -> (visible: ArraySlice<Node>, grouped: ArraySlice<Node>) {
+        let budget = total * Decimal(string: "0.8")!
+        var accumulated = Decimal.zero
+        var cut = categories.startIndex
+        while cut < categories.endIndex, accumulated + categories[cut].amount <= budget {
+            accumulated += categories[cut].amount
+            cut += 1
+        }
+        if cut == categories.startIndex, !categories.isEmpty { cut += 1 }
+        return (categories[..<cut], categories[cut...])
     }
 
     /// Only cent allocation is rounded; labels retain the original monthly percentage.
