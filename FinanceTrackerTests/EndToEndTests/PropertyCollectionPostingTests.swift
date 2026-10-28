@@ -704,10 +704,15 @@ struct PropertyCollectionPostingTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("collection-retry-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: url) }
         try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
-        var failOnce = true
+        var failedApplicationsWrite = false
         let workspace = PropertyWorkspaceModel(month: date(9), fileURL: url,
             writeLedger: { proposed, path in
-                if failOnce { failOnce = false; throw SimulatedFailure.write }
+                // Marker-first: the marker write must land, so the failure hits
+                // the applications write and leaves one real recoverable receipt.
+                if !failedApplicationsWrite && !proposed.paymentApplications.isEmpty {
+                    failedApplicationsWrite = true
+                    throw SimulatedFailure.write
+                }
                 try PropertyLedgerStore.replace(with: proposed, at: path, notify: false)
             })
         workspace.configure(context: context, hasAccounts: true)
@@ -763,6 +768,22 @@ struct PropertyCollectionPostingTests {
         }
     }
 
+    /// The marker write is the first ledger write of a collection, so this
+    /// writer throws exactly once and only on a ledger that already carries a
+    /// pending-link marker.
+    private struct MarkerFailureWriter {
+        private var failMarkerWrite = true
+        enum WriteFailure: Error { case write }
+
+        mutating func write(_ proposed: PropertyLedger, at path: URL?) throws {
+            if failMarkerWrite && !proposed.pendingLinks.isEmpty {
+                failMarkerWrite = false
+                throw WriteFailure.write
+            }
+            try PropertyLedgerStore.replace(with: proposed, at: path, notify: false)
+        }
+    }
+
     @Test("A revision race after income creation returns needsLink without a second income")
     @MainActor
     func revisionRaceAfterIncomeCreationNeedsLinkWithoutDuplication() async throws {
@@ -777,9 +798,9 @@ struct PropertyCollectionPostingTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("revision-race-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: url) }
         try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
-        // The guard passes before the income is created, then fails while the
-        // marker should be pinned — the exact window where another window
-        // wrote the property register between both steps.
+        // The guard passes before the income is created, then fails at the
+        // applications write — the exact window where another window wrote the
+        // property register after the marker and the income were already pinned.
         var guardCalls = 0
         let workspace = PropertyWorkspaceModel(month: date(9), fileURL: url,
             revisionCheckOverride: {
@@ -798,11 +819,11 @@ struct PropertyCollectionPostingTests {
             Issue.record("A revision race after income creation must report the receipt UUID")
             return
         }
-        // Exactly one real income exists, and the marker write was skipped by
-        // the race — the retry recreates it by paymentTransactionID.
+        // Exactly one real income exists, and the marker-first write already
+        // pinned it — the retry refreshes that marker by paymentTransactionID.
         #expect(try context.fetch(FetchDescriptor<Transaction>()).count == 1)
         #expect(try context.fetch(FetchDescriptor<Transaction>()).first?.id == incomeID)
-        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.isEmpty)
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.map(\.paymentTransactionID) == [incomeID])
         let second = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
             account: nil, amount: 100, date: date(9, 10), pendingTransactionID: incomeID)
         guard case .saved = second else {
@@ -1029,6 +1050,85 @@ struct PropertyCollectionPostingTests {
         #expect(stored.paymentApplications.count == 1)
         await workspace.refreshPeriod(force: true)
         #expect(workspace.reports[house.id]?.residents.first?.balance == 0)
+    }
+
+    @Test("A failed marker write rejects the collection before any income exists")
+    @MainActor
+    func markerPrecedesIncomeSoAFailedMarkerWriteCreatesNothing() async throws {
+        let container = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, isStoredInMemoryOnly: true)])
+        let context = container.mainContext
+        let account = Account(institution: "Banco sintético", type: .checking, currency: "MXN")
+        context.insert(account)
+        try context.save()
+        var (ledger, house, resident, _) = fixture(rent: 100, expense: 0)
+        ledger.rents[0].effectiveMonth = date(9)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("marker-write-fails-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        var writer = MarkerFailureWriter()
+        let workspace = PropertyWorkspaceModel(month: date(9), fileURL: url,
+            writeLedger: { proposed, path in try writer.write(proposed, at: path) })
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.loadLedger()
+        await workspace.refreshPeriod()
+        workspace.destination = .property(house.id)
+        guard case .rejected = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
+            account: account, amount: 100, date: date(9, 10)) else {
+            Issue.record("A failed marker write must reject before creating the income")
+            return
+        }
+        // Marker-first keeps the rejection clean: no income anywhere and no
+        // marker on disk — there is nothing to recover because nothing was born.
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.isEmpty)
+    }
+
+    @Test("A failed income save leaves no publishable remains and its marker retires")
+    @MainActor
+    func incomeSaveFailureLeavesNoPublishableRemains() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("income-save-failure-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let storeURL = root.appendingPathComponent("store.sqlite")
+        let container = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, url: storeURL)])
+        let context = container.mainContext
+        let account = Account(institution: "Banco sintético", type: .checking, currency: "MXN")
+        context.insert(account)
+        try context.save()
+        var (ledger, house, resident, _) = fixture(rent: 100, expense: 0)
+        ledger.rents[0].effectiveMonth = date(9)
+        let url = root.appendingPathComponent("PropertyLedger.json")
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        let workspace = PropertyWorkspaceModel(month: date(9), fileURL: url)
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.loadLedger()
+        await workspace.refreshPeriod()
+        workspace.destination = .property(house.id)
+        ManualTransactionService.willFailIncomeSave = true
+        defer { ManualTransactionService.willFailIncomeSave = false }
+        guard case .rejected = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
+            account: account, amount: 100, date: date(9, 10)) else {
+            Issue.record("A failed income save must reject without creating money")
+            return
+        }
+        ManualTransactionService.willFailIncomeSave = false
+        // The marker is durable, but the income never became publishable money:
+        // the failed save deleted its draft, so another save of the very same
+        // context still stores no transaction.
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.count == 1)
+        try context.save()
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+        // A relaunched session sees the same emptiness straight from disk.
+        let reopenedContainer = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, url: storeURL)])
+        #expect(try reopenedContainer.mainContext.fetch(FetchDescriptor<Transaction>()).isEmpty)
+        // The orphan marker retires itself: the lookup succeeds and finds no row.
+        #expect(workspace.retirePendingLinks(propertyID: house.id))
+        #expect(workspace.ledger.pendingLinks.isEmpty)
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.isEmpty)
     }
 
     @Test("Pending links decode with a default, validate, and merge newest-wins")

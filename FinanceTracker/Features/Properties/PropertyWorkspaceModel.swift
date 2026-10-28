@@ -658,8 +658,44 @@ final class PropertyWorkspaceModel {
         return transactionInputs.filter { !ids.contains($0.id) } + fresh
     }
 
-    /// Transaction-first commit: a failed sidecar write leaves an identifiable real receipt.
-    /// Retrying with its UUID never inserts another financial movement.
+    /// Upserts the pending-link marker for a collection payment and saves the
+    /// register. Pure workflow-state write: no financial row is touched, so
+    /// callers run the assignment-revision guard first whenever money already
+    /// exists behind the marker. Returns false when the save failed (`error`
+    /// carries why, and the in-memory register was rolled back).
+    private func upsertPendingMarker(propertyID: UUID, residentID: UUID, amount: Decimal,
+                                     paymentTransactionID: UUID) -> Bool {
+        var withMarker = ledger
+        if destination == .household, withMarker.householdLink == nil {
+            let link = PropertyHouseholdAdapter.link
+            withMarker.householdLink = link
+            withMarker.properties.append(PropertyRecord(id: link.propertyID, name: PropertyDestination.householdName))
+            withMarker.residents.append(PropertyResident(id: link.userID, propertyID: link.propertyID,
+                name: String(localized: "You"), activeFrom: .distantPast))
+            withMarker.residents.append(PropertyResident(id: link.partnerID, propertyID: link.propertyID,
+                name: "Fer", activeFrom: .distantPast))
+        }
+        if let index = withMarker.pendingLinks.firstIndex(where: {
+            $0.paymentTransactionID == paymentTransactionID && $0.deletedAt == nil
+        }) {
+            withMarker.pendingLinks[index].propertyID = propertyID
+            withMarker.pendingLinks[index].residentID = residentID
+            withMarker.pendingLinks[index].amount = amount
+        } else {
+            withMarker.pendingLinks.append(PropertyPaymentPendingLink(
+                propertyID: propertyID, residentID: residentID,
+                paymentTransactionID: paymentTransactionID, amount: amount))
+        }
+        ledger = withMarker
+        return save()
+    }
+
+    /// Marker-first commit: the recovery marker is pinned to a fresh payment
+    /// UUID before the income exists, so a failed marker write rejects without
+    /// creating money and a failed income save is a clean rejection whose
+    /// orphan marker retires itself on the next task. Once the income is real,
+    /// a failed property write leaves an identifiable receipt: retrying with
+    /// its UUID never inserts another financial movement.
     func registerCollection(propertyID: UUID, residentID: UUID, account: Account?, amount: Decimal,
                             date: Date, pendingTransactionID: UUID? = nil) -> CollectionOutcome {
         guard ledgerAvailable, periodReady, let context else {
@@ -690,6 +726,20 @@ final class PropertyWorkspaceModel {
                 }
                 transaction = existing
             } catch { return .rejected(error.localizedDescription) }
+            // The receipt is already real money. Refresh its marker durably
+            // before the property write so an interrupted link survives reloads
+            // and stays recoverable by UUID; the upsert reuses the same marker.
+            do {
+                try checkAssignmentRevision()
+                guard upsertPendingMarker(propertyID: propertyID, residentID: residentID,
+                                          amount: amount, paymentTransactionID: transaction.id) else {
+                    return .needsLink(transaction.id)
+                }
+            } catch {
+                // The income exists and is identified by UUID: a rejection here
+                // strands nothing, and the retry reuses the same receipt.
+                return .rejected(error.localizedDescription)
+            }
         } else {
             guard let account else {
                 return .rejected(String(localized: "Choose an active MXN account."))
@@ -703,52 +753,25 @@ final class PropertyWorkspaceModel {
                     return .rejected(String(localized: "Choose an active MXN account."))
                 }
                 try checkAssignmentRevision()
+            } catch { return .rejected(error.localizedDescription) }
+            // Marker-first: pin the payment's UUID durably before the income
+            // exists. A failed marker write is a clean rejection with no
+            // receipt; a failed income write leaves only this marker, which the
+            // next task retires once a successful lookup finds no row.
+            let paymentID = UUID()
+            guard upsertPendingMarker(propertyID: propertyID, residentID: residentID,
+                                      amount: amount, paymentTransactionID: paymentID) else {
+                return .rejected(self.error ?? String(localized: "The property register could not be saved. Try again."))
+            }
+            do {
                 let name = member(id: residentID)?.name ?? String(localized: "Member")
                 let houseName = ledger.properties.first { $0.id == propertyID }?.name ?? PropertyDestination.householdName
                 transaction = try ManualTransactionService.create(account: account, date: date,
                     description: String(format: String(localized: "Payment from %@ · %@"), name, houseName),
                     signedAmount: amount, category: nil, flowKindRaw: TransactionFlowKind.income.rawValue,
                     treatmentKindRaw: TransactionTreatmentKind.regular.rawValue,
-                    context: context)
+                    id: paymentID, context: context)
             } catch { return .rejected(error.localizedDescription) }
-        }
-        // The income is real from here on. Pin it durably before any property
-        // write so an interrupted link survives reloads and stays recoverable
-        // by UUID; retries reuse the same marker instead of duplicating it.
-        do {
-            try checkAssignmentRevision()
-            var withMarker = ledger
-            if destination == .household, withMarker.householdLink == nil {
-                let link = PropertyHouseholdAdapter.link
-                withMarker.householdLink = link
-                withMarker.properties.append(PropertyRecord(id: link.propertyID, name: PropertyDestination.householdName))
-                withMarker.residents.append(PropertyResident(id: link.userID, propertyID: link.propertyID,
-                    name: String(localized: "You"), activeFrom: .distantPast))
-                withMarker.residents.append(PropertyResident(id: link.partnerID, propertyID: link.propertyID,
-                    name: "Fer", activeFrom: .distantPast))
-            }
-            if let index = withMarker.pendingLinks.firstIndex(where: {
-                $0.paymentTransactionID == transaction.id && $0.deletedAt == nil
-            }) {
-                withMarker.pendingLinks[index].propertyID = propertyID
-                withMarker.pendingLinks[index].residentID = residentID
-                withMarker.pendingLinks[index].amount = amount
-            } else {
-                withMarker.pendingLinks.append(PropertyPaymentPendingLink(
-                    propertyID: propertyID, residentID: residentID,
-                    paymentTransactionID: transaction.id, amount: amount))
-            }
-            ledger = withMarker
-            guard save() else { return .needsLink(transaction.id) }
-        } catch {
-            // A revision race after the income exists must not strand it behind
-            // a rejection: this call already created real money, so the sheet
-            // pins its UUID and the retry reuses it — never a second income.
-            // The marker may not have been written; the retry recreates or
-            // updates it by paymentTransactionID.
-            guard pendingTransactionID == nil else { return .rejected(error.localizedDescription) }
-            self.error = error.localizedDescription
-            return .needsLink(transaction.id)
         }
         let source = PropertyTransactionInput(capturing: transaction)
         guard source.amount == amount,
