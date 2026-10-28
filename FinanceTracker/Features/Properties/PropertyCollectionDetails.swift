@@ -65,27 +65,23 @@ struct PropertyMemberCollectionsSheet: View {
     var body: some View {
         let account = self.account
         return VStack(alignment: .leading, spacing: 16) {
-            Text(String(format: String(localized: "%1$@ — Account as of %2$@"), displayName,
-                workspace.asOf.formatted(date: .abbreviated, time: .omitted)))
-                .font(.headline)
-            HStack(spacing: 4) {
-                Text(workspace.title)
-                Text("·").foregroundStyle(.tertiary)
-                Text(propertyMonthText(workspace.selectedMonth))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(format: String(localized: "%1$@ — Account as of %2$@"), displayName,
+                    workspace.asOf.formatted(date: .abbreviated, time: .omitted)))
+                    .font(.headline)
                 if account?.isProjection == true {
-                    Text("·").foregroundStyle(.tertiary)
-                    Text("Projection")
+                    Text("Projection").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .font(.subheadline).foregroundStyle(.secondary)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let account {
-                        breakdown(of: account)
-                        reviewNotes(for: account)
-                    }
-                }
+            // Elastic height: the block draws without scrolling while it fits
+            // the sheet, and scrolls only once it exceeds it; the cap keeps
+            // the sheet from growing without limit.
+            ViewThatFits(in: .vertical) {
+                collectionsDetail
+                ScrollView { collectionsDetail }
             }
+            .frame(maxHeight: 520)
+            Divider()
             if let error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
             HStack {
                 Button("Register payment") {
@@ -99,7 +95,7 @@ struct PropertyMemberCollectionsSheet: View {
                     .keyboardShortcut(.cancelAction)
             }
         }
-        .padding(20).frame(minWidth: 480, idealWidth: 560, minHeight: 280, idealHeight: 420)
+        .padding(20).frame(minWidth: 480, idealWidth: 560, maxWidth: 680)
         .sheet(item: $movement) { transaction in
             TransactionDetailSheet(transaction: transaction, onCategoryAssigned: { _ in
                 Task { await workspace.refreshPeriod(force: true) }
@@ -107,84 +103,141 @@ struct PropertyMemberCollectionsSheet: View {
         }
     }
 
+    /// Table plus review notes: the exact block the sheet renders without
+    /// scrolling while it fits, and scrolls once it no longer does.
+    private var collectionsDetail: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let account {
+                breakdown(of: account)
+                reviewNotes(for: account)
+            }
+        }
+    }
+
     /// Aligned account breakdown: the member's addends first (share, rent,
     /// individual charges, adjustments, prior debt), then the applied payments
     /// subtracted with an explicit minus, then the balance they reproduce —
     /// the column sums by hand and ends on the number that opens the capture.
-    /// A figure the model cannot compute stays «Not yet calculated»; it never
-    /// collapses to 0.00.
+    /// Three Grid columns share widths across every row — flexible concept,
+    /// trailing monospaced amount, trailing «View detail» action — so amounts
+    /// stay aligned however long they get, and rows without an action keep
+    /// the column with an empty cell. A figure the model cannot compute stays
+    /// «Not yet calculated»; it never collapses to 0.00.
     private func breakdown(of account: PropertyMemberAccount) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            DetailRow("House shared expenses", alignment: .trailing) {
-                HStack(spacing: 8) {
-                    Button("View detail") {
-                        dismiss()
-                        onShowDetail?(.sharedCharges)
-                    }.buttonStyle(.link).font(.caption)
-                    amountOrPending(account.houseSharedTotal)
-                }
+        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
+            GridRow {
+                concept("House shared expenses")
+                amountOrPending(account.houseSharedTotal)
+                    .gridCellAnchor(.trailing)
+                detailAction(.sharedCharges)
             }
-            DetailRow("\(displayName)'s share", alignment: .trailing) {
+            GridRow {
+                concept("\(displayName)'s share")
                 amountOrPending(account.memberSharedShare)
+                    .gridCellAnchor(.trailing)
+                noAction
             }
-            DetailRow("Individual charges", alignment: .trailing) {
-                HStack(spacing: 8) {
-                    Button("View detail") {
-                        dismiss()
-                        onShowDetail?(.memberCharges)
-                    }.buttonStyle(.link).font(.caption)
-                    amountOrPending(account.individualCharges)
-                }
+            GridRow {
+                concept("Individual charges")
+                amountOrPending(account.individualCharges)
+                    .gridCellAnchor(.trailing)
+                detailAction(.memberCharges)
             }
             if let rent = account.rent, rent > 0 {
-                DetailRow("Rent", alignment: .trailing) {
+                GridRow {
+                    concept("Rent")
                     Text(propertyMoneyText(rent)).monospacedDigit()
+                        .gridCellAnchor(.trailing)
+                    noAction
                 }
             }
             // Shown whenever it exists, negative included: a negative prior
             // debt is a data error this row lets you see, and the visible
             // arithmetic still closes on the balance below.
             if account.priorDebt != 0 {
-                DetailRow("Prior debt", alignment: .trailing) {
+                GridRow {
+                    concept("Prior debt")
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(propertyMoneyText(account.priorDebt)).monospacedDigit()
                         if account.priorPaid > 0 {
                             Text("Net of earlier collections").font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    .gridCellAnchor(.trailing)
+                    noAction
                 }
             }
             if let adjustments = account.adjustments, adjustments != 0 {
-                DetailRow("Adjustments", alignment: .trailing) {
+                GridRow {
+                    concept("Adjustments")
                     Text(propertyMoneyText(adjustments)).monospacedDigit()
+                        .gridCellAnchor(.trailing)
+                    noAction
                 }
             }
             // Bounded by the month's own charges when computable: collecting
             // more than the month charged is review work, and the row must
             // still let the column sum by hand to the balance below.
-            DetailRow("Applied payments", alignment: .trailing) {
+            GridRow {
+                concept("Applied payments")
                 Text(propertyMoneyText(-account.boundedAppliedPayments)).monospacedDigit()
+                    .gridCellAnchor(.trailing)
+                noAction
             }
-            DetailRow("Outstanding balance", alignment: .trailing) {
-                if let balance = account.balanceDue {
-                    Text(propertyMoneyText(balance)).monospacedDigit()
-                } else {
-                    Text(LocalizedStringKey(account.status.title)).foregroundStyle(.secondary)
+            GridRow {
+                Text("Outstanding balance")
+                    .font(.callout.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Group {
+                    if let balance = account.balanceDue {
+                        Text(propertyMoneyText(balance)).monospacedDigit()
+                    } else {
+                        Text(LocalizedStringKey(account.status.title)).foregroundStyle(.secondary)
+                    }
                 }
+                .font(.callout.weight(.semibold))
+                .gridCellAnchor(.trailing)
+                noAction
             }
-            .font(.callout.weight(.semibold))
             if account.advanceAvailable > 0 {
-                DetailRow("Available advance", alignment: .trailing) {
+                GridRow {
+                    concept("Available advance").foregroundStyle(.secondary)
                     Text(propertyMoneyText(-account.advanceAvailable)).monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .gridCellAnchor(.trailing)
+                    noAction
                 }
-                .foregroundStyle(.secondary)
-                DetailRow("Suggested payment", alignment: .trailing) {
+                GridRow {
+                    concept("Suggested payment").foregroundStyle(.secondary)
                     amountOrPending(account.suggestedPayment)
+                        .foregroundStyle(.secondary)
+                        .gridCellAnchor(.trailing)
+                    noAction
                 }
             }
         }
         .font(.callout)
     }
+
+    /// Concept column: a flexible, leading-aligned label with room to grow,
+    /// so long concepts don't wrap while width remains.
+    private func concept(_ title: LocalizedStringKey) -> some View {
+        Text(title).frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Action column: the filtered activity behind a figure, after its amount.
+    private func detailAction(_ scope: PropertyAccountDetailScope) -> some View {
+        Button("View detail") {
+            dismiss()
+            onShowDetail?(scope)
+        }
+        .buttonStyle(.link).font(.caption)
+        .gridCellAnchor(.trailing)
+    }
+
+    /// Empty action cell that keeps the third column present on rows
+    /// without an action.
+    private var noAction: some View { Color.clear.frame(width: 0) }
 
     /// Independent review notes after the table: every unbacked or
     /// over-applied record the account exposes, named and with the movement to
