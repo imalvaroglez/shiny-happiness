@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-28
+
+### Added
+
+- El Sankey de gasto muestra, por moneda, el prefijo de categorías dentro del 80 % del total y agrupa el resto en «Otras categorías» al final con el restante real, sin saltar categorías grandes; la expansión solo se ofrece cuando el desglose cambia y las cifras no cambian entre presentaciones.
+
+- La cuenta del integrante muestra la tabla exacta que suma a mano — compartidos, parte, gastos suyos, pagos aplicados y saldo pendiente —, sugiere el pago neto del anticipo disponible y explica cada registro sin respaldo con notas factuales de importe y motivo. «Ver detalle» abre la actividad filtrada por identidad de atribución, también en meses cerrados.
+- Propiedades registra cobros en cuentas activas MXN de cualquier tipo desde una captura común para ambas casas, los distribuye por antigüedad y conserva excedentes como anticipos del integrante. El historial agrupa las aplicaciones por ingreso y permite abrir su movimiento.
+- Accounts can be archived and restored from Settings while their transactions, balances, positions, and installment plans remain intact and included in financial reports.
+- Backups now use schema 14, preserving account archive state and the versioned property ledger; backups without that ledger clear it on replace and leave it untouched on merge.
+- Propiedades now supports monthly resident income confirmations, historical rent, actual expense attribution and reimbursements, partial collections and advances, immutable settlement closes, maintenance recovery, and a manually managed future reserve without creating duplicate financial transactions.
+
+### Changed
+
+- Registrar un pago nunca se bloquea por referencias rotas de incidencias antiguas: una fuente sin respaldo no es anticipo disponible, no salda obligaciones y no ocupa capacidad, bajo la misma regla de validez que el saldo y los cierres; aplicar un anticipo explícito sigue exigiendo fuentes sanas.
+- La vinculación de cobros queda garantizada por UUID con marcadores durable en el sidecar: sobreviven reapertura y renombres, se limpian al completar el vínculo y solo anuncian cobros pendientes identificados.
+- El hogar clasifica por responsabilidad real —individual de Fer, individual del usuario, compartido con fusiones custom— conservando totales y cierres; los meses ya cerrados mantienen su clasificación autoconsistente.
+- Las comparaciones de cobros contra su movimiento original usan precisión de segundos enteros —la que conserva el respaldo local— y eliminan el estado «Revisar» falso tras registrar pagos; los avisos reales nombran los campos cambiados y abren el cobro afectado desde la cuenta del integrante.
+- Las cuentas archivadas o cerradas quedan fuera de los selectores de cobros y movimientos manuales, y los servicios de guardado revalidan su estado persistido en un contexto fresco antes de insertar; las transferencias validan ambas partes sin escrituras parciales y la captura conserva integrante, importe y fecha si la cuenta deja de estar disponible.
+- La cuenta del integrante usa una tabla de tres columnas con altura al contenido y sin subtítulo de casa y mes; el ingreso del mes se edita tocando la propia cifra con teclado (Enter confirma, Escape cancela, salir guarda como referencia), y «Movimientos vinculados» comparte fila con el selector de alcance.
+- Los cobros se consultan desde cada integrante, con estado acumulado y acciones directas; la tabla de movimientos vinculados excluye los cobros. Los importes sugeridos se muestran antes de editarse.
+- Detalles de movimientos, configuración de cuentas, posiciones y pendientes de importación muestran valores de consulta y abren la edición mediante una acción explícita. Los borradores de cuenta se guardan de forma aislada.
+- Deuda anterior y anticipos se muestran junto al importe por aportar de cada integrante. La conciliación de ingresos ya existentes queda como acción secundaria, y un fallo al guardar la vinculación ofrece reintento sin duplicar el ingreso bancario.
+- El selector de cobros muestra todas las cuentas y señala las incompatibles; los importes sugeridos se presentan con dos decimales. La captura rechaza importes mal formados y detiene la reutilización de anticipos cuyo movimiento de origen cambió.
+- Property reports show each member's shared contribution percentage, a four-column spending Sankey (members → total → categories → subcategories) using monthly contribution percentages and exact cent allocation, with expandable detail and a compact hierarchy below 720 points, and visible-row counts with totals/subtotals by currency and movement type. Property screens now inherit the shared Liquid Glass backdrop and card materials used by Accounts.
+- Account sidebar rows show the account icon, name and institution without credit-card utilization bars or their balance queries.
+- Propiedades uses full-width member and activity tables with compact layouts, aligned section headings, source accounts, unsigned display amounts with explicit movement types, and inline/bulk responsibility assignment for rental homes and Household.
+- Member rows offer direct Rename and Remove actions in both homes. Rename edits only the name; removal ends participation from the later of the selected and current month, preserves history and closed reports, and retains individual charges for reconciliation. Household shared expenses use the remaining active roles.
+- Property UI follows the documented existing tokens and a unified es-MX catalog; source transactions and frozen financial calculations retain their signs and history.
+- The linked activity table can sort any data column in either direction, using ascending date as a secondary criterion outside date sorting. Account and responsibility column titles open one menu for sorting and multiple filter selections, stay on one line, and remain available when filters return no rows.
+
+- Propiedades adopts the approved Mac workspace: a single native sidebar with identical home rows, shared monthly summaries and detail sections, a consolidated overview, adaptive layouts, and no redundant property counter. Cached period data is reused across home and section navigation; recoverable errors remain visible.
+- Household Settlement is now part of the single Properties section as “Paseo de los Parques”; its monthly expenses and recoverable amount appear alongside the other homes, while existing household setup and transaction data remain intact.
+- Asset-account dashboards fit Cash Flow, Balance Over Time, and category spending in one row with 300-point minimum panels. When three do not fit, the card keeps only Cash Flow and category spending, side by side or stacked on narrow windows. Dense daily charts retain readable date labels and outlier handling.
+- Overview and asset-account Cash Flow now show cash received and paid. Credit-card purchases enter Cash Flow when the bank payment is recorded; consumption and category reports retain purchase dates. Manually captured interest is distributed as a clearly labeled daily estimate across its accrual interval, including in per-account Balance Over Time charts; imported interest keeps its recorded date.
+- Cash Flow charts omit repeated methodology notes and reserve inline text for exceptions that need attention.
+
+### Fixed
+
+- La captura de cobros es marcador-primero: el marcador de recuperación se fija con un UUID nuevo antes de crear el ingreso, así que un fallo del marcador no crea dinero, un fallo al guardar el ingreso no publica nada (el insert se elimina) y, con el ingreso ya real, cualquier fallo posterior deja recuperación durable por UUID; el retiro de marcadores ya no destruye estados de recuperación cuando la consulta de pagos falla.
+- Los anticipos se rigen por una única regla de gastable — fuente existente, snapshots sin cambios, no sobre-aplicada, no sobreasignada, sin doble uso, recibo válido — compartida por el plan de pagos, el walk de aplicaciones, la disponibilidad publicada y los cierres; el pendiente neto del mes usa componentes − pagos válidos − contribución directa, la misma cifra del cierre, y nunca el saldo laxo del reporte.
+- Los ajustes de valuación rechazan cuentas archivadas, cerradas o desaparecidas releyendo su estado persistido antes de insertar nada; los meses cerrados conservan la identidad congelada del cierre sobre las asignaciones vigentes del hogar, y «Capturar importe» nunca queda oculto por una nota de revisión de la sugerencia.
+
 ## [0.17.0] - 2026-10-21
 
 ### Added

@@ -6,7 +6,19 @@ import UniformTypeIdentifiers
 struct HouseholdSettlementView: View {
     @Environment(\.modelContext) private var modelContext
 
-    @State private var selectedMonth: YearMonth
+    @State private var standaloneMonth: YearMonth
+    private let workspace: PropertyWorkspaceModel?
+    private let workspaceSection: PropertyWorkspaceSection?
+    @State private var loadedSetup = HouseholdSettlementSetup.empty
+    @State private var loadedDraft: HouseholdSetupDraft?
+    @State private var editingMonth = Date.distantPast
+    private var selectedMonth: YearMonth {
+        get { workspace.map { YearMonth(date: $0.selectedMonth) } ?? standaloneMonth }
+        nonmutating set {
+            if let workspace { workspace.selectMonth(newValue.startDate) }
+            else { standaloneMonth = newValue }
+        }
+    }
     @State private var monthPickerYear: Int
     @State private var monthPickerMonth: Int
     @State private var showingMonthPicker = false
@@ -19,9 +31,15 @@ struct HouseholdSettlementView: View {
     @State private var customPartnerPercent: Decimal = 50
     @State private var notes = ""
 
-    @State private var report: HouseholdSettlementReport?
-    @State private var monthTransactions: [Transaction] = []
-    @State private var monthDueDates: [UUID: Date] = [:]
+    @State private var standaloneReport: HouseholdSettlementReport?
+    private var report: HouseholdSettlementReport? {
+        if let workspace { return workspace.householdReport }
+        return standaloneReport
+    }
+    @State private var standaloneTransactions: [Transaction] = []
+    private var monthTransactions: [Transaction] { workspace?.householdTransactions ?? standaloneTransactions }
+    @State private var standaloneDueDates: [UUID: Date] = [:]
+    private var monthDueDates: [UUID: Date] { workspace?.householdDueDates ?? standaloneDueDates }
     @State private var expandedSections: Set<HouseholdTransactionSectionState.ID> = []
     @State private var selectionMode = false
     @State private var selectedIDs: Set<UUID> = []
@@ -35,13 +53,30 @@ struct HouseholdSettlementView: View {
 
     private let presenter = HouseholdSettlementPresenter()
     private let onReviewTransactions: ((YearMonth) -> Void)?
+    private let onSelectedMonthChange: ((YearMonth) -> Void)?
 
-    init(initialSelectedMonth: YearMonth? = nil, onReviewTransactions: ((YearMonth) -> Void)? = nil) {
+    init(initialSelectedMonth: YearMonth? = nil, onReviewTransactions: ((YearMonth) -> Void)? = nil,
+         onSelectedMonthChange: ((YearMonth) -> Void)? = nil) {
         let month = initialSelectedMonth ?? YearMonth(date: .now)
-        _selectedMonth = State(initialValue: month)
+        _standaloneMonth = State(initialValue: month)
         _monthPickerYear = State(initialValue: month.year)
         _monthPickerMonth = State(initialValue: month.month)
         self.onReviewTransactions = onReviewTransactions
+        self.onSelectedMonthChange = onSelectedMonthChange
+        self.workspace = nil
+        self.workspaceSection = nil
+    }
+
+    init(workspace: PropertyWorkspaceModel, section: PropertyWorkspaceSection,
+         onReviewTransactions: ((YearMonth) -> Void)? = nil) {
+        let month = YearMonth(date: workspace.selectedMonth)
+        _standaloneMonth = State(initialValue: month)
+        _monthPickerYear = State(initialValue: month.year)
+        _monthPickerMonth = State(initialValue: month.month)
+        self.workspace = workspace
+        self.workspaceSection = section
+        self.onReviewTransactions = onReviewTransactions
+        self.onSelectedMonthChange = nil
     }
 
     private var setup: HouseholdSettlementSetup {
@@ -52,8 +87,14 @@ struct HouseholdSettlementView: View {
             splitMethod: splitMethod,
             customUserPercent: splitMethod == .customPercent ? customUserPercent : nil,
             customPartnerPercent: splitMethod == .customPercent ? customPartnerPercent : nil,
-            notes: notes
+            notes: notes.isEmpty ? nil : notes
         )
+    }
+
+    private var draftSnapshot: HouseholdSetupDraft {
+        HouseholdSetupDraft(partnerIncome: partnerIncome, useManualSalary: useManualSalary,
+            manualSalary: manualSalary, splitMethod: splitMethod, userPercent: customUserPercent,
+            partnerPercent: customPartnerPercent, notes: notes)
     }
 
     private var setupIsValid: Bool {
@@ -63,6 +104,76 @@ struct HouseholdSettlementView: View {
     }
 
     var body: some View {
+        Group {
+            if workspace != nil { embeddedContent }
+            else { standaloneContent }
+        }
+        .toolbar {
+            if workspace == nil {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if onReviewTransactions != nil {
+                    Button { onReviewTransactions?(selectedMonth) } label: {
+                        Label("Review transactions", systemImage: "list.bullet.rectangle.portrait")
+                    }
+                    .accessibilityIdentifier("household.reviewTransactions.button")
+                }
+                if let report {
+                    Button { copy(report) } label: {
+                        Label("Copy Summary", systemImage: "doc.on.doc")
+                    }
+                    .accessibilityIdentifier("household.copySummary.button")
+                    ShareLink(item: report.plainTextSummary) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    Button { showingExporter = true } label: {
+                        Label("Export", systemImage: "square.and.arrow.down")
+                    }
+                    .accessibilityIdentifier("household.export.button")
+                }
+            }
+            }
+        }
+        .fileExporter(
+            isPresented: $showingExporter,
+            document: SettlementTextFile(text: report?.plainTextSummary ?? ""),
+            contentType: .plainText,
+            defaultFilename: "Household Settlement \(selectedMonth.fileNameComponent).txt"
+        ) { _ in }
+        .alert("Couldn’t save", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("OK", role: .cancel) { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
+        }
+        .onAppear { loadSetupAndReport() }
+        .onDisappear {
+            flushPendingSetup()
+            if !setupIsValid { workspace?.discardHouseholdDraft() }
+        }
+        .onChange(of: workspace?.inputRevision) {
+            if loadedDraft == draftSnapshot { loadSetupAndReport() }
+            else { recomputeReport() }
+        }
+        .onChange(of: selectedMonth) {
+            flushPendingSetup()
+            // Avoid assigning across months: leave selection mode before reloading.
+            selectionMode = false
+            selectedIDs.removeAll()
+            onSelectedMonthChange?(selectedMonth)
+            loadSetupAndReport()
+        }
+        .onChange(of: partnerIncome) { setupChanged() }
+        .onChange(of: useManualSalary) { setupChanged() }
+        .onChange(of: manualSalary) { setupChanged() }
+        .onChange(of: splitMethod) { setupChanged() }
+        .onChange(of: customUserPercent) { setupChanged() }
+        .onChange(of: customPartnerPercent) { setupChanged() }
+        .onChange(of: notes) { setupChanged() }
+    }
+
+    private var standaloneContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if let report {
@@ -90,59 +201,32 @@ struct HouseholdSettlementView: View {
             .padding(.top, 10)
             .padding(.bottom)
         }
-        .accessibilityIdentifier("household.screen")
         .navigationTitle(HouseholdSettlementPresenter.navigationTitle)
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if onReviewTransactions != nil {
-                    Button { onReviewTransactions?(selectedMonth) } label: {
-                        Label("Review transactions", systemImage: "list.bullet.rectangle.portrait")
+        .accessibilityIdentifier("household.screen")
+    }
+
+    @ViewBuilder
+    private var embeddedContent: some View {
+        if let report {
+            let state = screenState(for: report)
+            VStack(alignment: .leading, spacing: 20) {
+                switch workspaceSection {
+                case .configuration:
+                    PropertySectionHeading(title: "Integrantes e ingresos")
+                    PropertyPeopleList(people: PropertyPresentationAdapter.household(report).people)
+                    monthlySetup(state.monthlySetup)
+                default:
+                    PropertySummaryPanel(presentation: PropertyPresentationAdapter.household(report)) {
+                        workspace?.section = .month
                     }
-                    .accessibilityIdentifier("household.reviewTransactions.button")
-                }
-                if let report {
-                    Button { copy(report) } label: {
-                        Label("Copy Summary", systemImage: "doc.on.doc")
-                    }
-                    .accessibilityIdentifier("household.copySummary.button")
-                    ShareLink(item: report.plainTextSummary) {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                    }
-                    Button { showingExporter = true } label: {
-                        Label("Export", systemImage: "square.and.arrow.down")
-                    }
-                    .accessibilityIdentifier("household.export.button")
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("properties.household.detail")
+        } else {
+            ProgressView("Cargando el reporte de la casa…")
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .fileExporter(
-            isPresented: $showingExporter,
-            document: SettlementTextFile(text: report?.plainTextSummary ?? ""),
-            contentType: .plainText,
-            defaultFilename: "Household Settlement \(selectedMonth.fileNameComponent).txt"
-        ) { _ in }
-        .alert("Couldn’t save", isPresented: Binding(
-            get: { saveError != nil },
-            set: { if !$0 { saveError = nil } }
-        )) {
-            Button("OK", role: .cancel) { saveError = nil }
-        } message: {
-            Text(saveError ?? "")
-        }
-        .onAppear { loadSetupAndReport() }
-        .onChange(of: selectedMonth) {
-            // Avoid assigning across months: leave selection mode before reloading.
-            selectionMode = false
-            selectedIDs.removeAll()
-            loadSetupAndReport()
-        }
-        .onChange(of: partnerIncome) { setupChanged() }
-        .onChange(of: useManualSalary) { setupChanged() }
-        .onChange(of: manualSalary) { setupChanged() }
-        .onChange(of: splitMethod) { setupChanged() }
-        .onChange(of: customUserPercent) { setupChanged() }
-        .onChange(of: customPartnerPercent) { setupChanged() }
-        .onChange(of: notes) { setupChanged() }
     }
 
     private func screenState(for report: HouseholdSettlementReport) -> HouseholdSettlementScreenState {
@@ -244,7 +328,7 @@ struct HouseholdSettlementView: View {
     }
 
     private func monthlySetup(_ state: HouseholdMonthlySetupState) -> some View {
-        SectionCard(title: state.title) {
+        PropertyFormSection(title: state.title) {
             VStack(spacing: 0) {
                 setupRow(state.userSalaryLabel) {
                     VStack(alignment: .trailing, spacing: 3) {
@@ -261,7 +345,7 @@ struct HouseholdSettlementView: View {
                     // Misma geometría que setupRow (label 200 + valor ≤320):
                     // el botón ancla a la guía de la columna de valores.
                     HStack(spacing: 12) {
-                        Color.clear.frame(width: 200)
+                        Color.clear.frame(width: workspace == nil ? 200 : 120)
                         HStack {
                             Spacer(minLength: 0)
                             Button("Use Manual Override") {
@@ -360,6 +444,7 @@ struct HouseholdSettlementView: View {
                 .padding(14)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("household.setup.card")
         .confirmationDialog(state.clearTitle, isPresented: $showingClearConfirmation, titleVisibility: .visible) {
             Button(state.clearTitle, role: .destructive) { clearSetup() }
@@ -401,7 +486,7 @@ struct HouseholdSettlementView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityIdentifier("household.empty.state")
     }
 
@@ -425,11 +510,11 @@ struct HouseholdSettlementView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func breakdown(_ state: HouseholdSettlementSummaryState) -> some View {
-        SectionCard(title: state.breakdownTitle) {
+        PropertyFormSection(title: state.breakdownTitle) {
             VStack(spacing: 0) {
                 ForEach(Array(state.breakdownLines.enumerated()), id: \.element.id) { index, line in
                     if index == 1 || index == 5 { divider }
@@ -472,7 +557,7 @@ struct HouseholdSettlementView: View {
                 transactionRows(state.rows)
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityIdentifier(state.id.rawValue)
     }
 
@@ -634,7 +719,7 @@ struct HouseholdSettlementView: View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 12) {
                 Text(label)
-                    .frame(width: 200, alignment: .leading)
+                    .frame(width: workspace == nil ? 200 : 120, alignment: .leading)
                 content()
                     .frame(maxWidth: 320, alignment: .trailing)
             }
@@ -691,8 +776,12 @@ struct HouseholdSettlementView: View {
     private func loadSetupAndReport() {
         isLoadingSetup = true
         let monthStart = selectedMonth.startDate
-        let estimate = HouseholdPartnerIncomeService.estimate(for: monthStart, context: modelContext)
-        let savedSetup = HouseholdSettlementSetup(estimate)
+        var savedSetup: HouseholdSettlementSetup
+        if let workspace { savedSetup = workspace.persistedHouseholdSetup }
+        else { savedSetup = HouseholdSettlementSetup(HouseholdPartnerIncomeService.estimate(for: monthStart, context: modelContext)) }
+        if savedSetup.notes?.isEmpty == true { savedSetup.notes = nil }
+        loadedSetup = savedSetup
+        editingMonth = monthStart
         partnerIncome = savedSetup.partnerIncomeEstimate
         useManualSalary = savedSetup.useUserIncomeManualOverride
         manualSalary = savedSetup.userIncomeManualOverride ?? 0
@@ -700,60 +789,91 @@ struct HouseholdSettlementView: View {
         customUserPercent = savedSetup.customUserPercent ?? 50
         customPartnerPercent = savedSetup.customPartnerPercent ?? 50
         notes = savedSetup.notes ?? ""
+        loadedDraft = draftSnapshot
         // Seed the editable list AND the due-date cache from the full report input
         // (posted-in-month + older Fer tx whose due date lands here). Seeding
         // monthTransactions from the full set keeps subsequent recomputeReport()
         // rebuilds from dropping the older pulled-in rows.
-        let input = HouseholdSettlementReportService.reportInput(for: monthStart, context: modelContext)
-        monthTransactions = input.transactions
-        monthDueDates = input.dueDates
-        report = HouseholdSettlementReportService.build(monthStart: monthStart, transactions: input.transactions, dueDates: input.dueDates, setup: savedSetup)
+        if let workspace {
+            standaloneTransactions = workspace.householdTransactions
+            standaloneDueDates = workspace.householdDueDates
+            standaloneReport = workspace.householdReport
+        } else {
+            let input = HouseholdSettlementReportService.reportInput(for: monthStart, context: modelContext)
+            standaloneTransactions = input.transactions
+            standaloneDueDates = input.dueDates
+            standaloneReport = HouseholdSettlementReportService.build(monthStart: monthStart, transactions: input.transactions, dueDates: input.dueDates, setup: savedSetup)
+        }
         saveStatus = "Guardado"
         isLoadingSetup = false
     }
 
     private func setupChanged() {
-        guard !isLoadingSetup else { return }
+        pendingSaveTask?.cancel()
+        guard !isLoadingSetup, editingMonth == selectedMonth.startDate else { return }
+        guard draftSnapshot != loadedDraft else {
+            saveStatus = "Guardado"
+            if let workspace {
+                if workspace.selectedMonth == editingMonth { workspace.updateHouseholdSetup(loadedSetup) }
+            } else {
+                standaloneReport = HouseholdSettlementReportService.build(monthStart: editingMonth,
+                    transactions: monthTransactions, dueDates: monthDueDates, setup: loadedSetup)
+            }
+            return
+        }
         recomputeReport()
         scheduleSave()
     }
 
     private func recomputeReport() {
-        // Carry the cached due-date map so a setup-field change (income/split/etc.)
-        // never silently wipes the settlement-due-date classification from the report.
-        report = HouseholdSettlementReportService.build(monthStart: selectedMonth.startDate, transactions: monthTransactions, dueDates: monthDueDates, setup: setup)
+        if let workspace {
+            guard workspace.selectedMonth == editingMonth else { return }
+            workspace.updateHouseholdSetup(setup)
+        } else {
+            standaloneReport = HouseholdSettlementReportService.build(monthStart: selectedMonth.startDate,
+                transactions: monthTransactions, dueDates: monthDueDates, setup: setup)
+        }
     }
 
     private func scheduleSave() {
         pendingSaveTask?.cancel()
         saveStatus = "Cambios sin guardar"
         guard setupIsValid else { return }
-        let month = selectedMonth.startDate
+        let month = editingMonth
         let setupToSave = setup
+        let snapshot = draftSnapshot
         pendingSaveTask = Task {
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                saveSetup(month: month, setup: setupToSave)
-            }
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled, editingMonth == month, draftSnapshot == snapshot else { return }
+            saveSetup(month: month, setup: setupToSave)
         }
     }
 
+    private func flushPendingSetup() {
+        pendingSaveTask?.cancel()
+        guard editingMonth != .distantPast, draftSnapshot != loadedDraft, setupIsValid else { return }
+        saveSetup(month: editingMonth, setup: setup)
+    }
+
     private func saveSetup(month: Date? = nil, setup setupToSave: HouseholdSettlementSetup? = nil) {
-        let setupToSave = setupToSave ?? setup
-        guard setupIsValid || setupToSave.splitMethod != .customPercent else { return }
-        _ = try? HouseholdPartnerIncomeService.upsert(
-            month: month ?? selectedMonth.startDate,
-            amount: setupToSave.partnerIncomeEstimate,
-            notes: setupToSave.notes,
-            useUserIncomeManualOverride: setupToSave.useUserIncomeManualOverride,
-            userIncomeManualOverride: setupToSave.userIncomeManualOverride,
-            splitMethod: setupToSave.splitMethod,
-            customUserPercent: setupToSave.customUserPercent,
-            customPartnerPercent: setupToSave.customPartnerPercent,
-            context: modelContext
-        )
-        saveStatus = "Guardado"
+        let value = setupToSave ?? setup
+        let month = month ?? editingMonth
+        guard value.partnerIncomeEstimate >= 0,
+              value.splitMethod != .customPercent || ((value.customUserPercent ?? 0) >= 0
+                && (value.customPartnerPercent ?? 0) >= 0
+                && (value.customUserPercent ?? 0) + (value.customPartnerPercent ?? 0) == 100) else { return }
+        do {
+            try HouseholdWorkspacePersistence.save(value, month: month, container: modelContext.container)
+            loadedSetup = value
+            loadedDraft = draftSnapshot
+            workspace?.commitHouseholdSetup(value, month: month)
+            saveStatus = "Guardado"
+        } catch {
+            saveStatus = "No se guardaron los cambios"
+            saveError = error.localizedDescription
+            workspace?.error = error.localizedDescription
+            workspace?.updateHouseholdSetup(loadedSetup)
+        }
     }
 
     private func copyPreviousMonth() {
@@ -826,11 +946,19 @@ struct HouseholdSettlementView: View {
     /// Rebuilds the report from the full input (with due dates) without disturbing
     /// the editable monthly-setup @State fields.
     private func reloadReportInput() {
-        let monthStart = selectedMonth.startDate
-        let input = HouseholdSettlementReportService.reportInput(for: monthStart, context: modelContext)
-        monthTransactions = input.transactions
-        monthDueDates = input.dueDates
-        report = HouseholdSettlementReportService.build(monthStart: monthStart, transactions: input.transactions, dueDates: input.dueDates, setup: setup)
+        if let workspace {
+            let month = editingMonth
+            let editedSetup = setup
+            Task {
+                await workspace.refreshPeriod(force: true)
+                if workspace.selectedMonth == month { workspace.updateHouseholdSetup(editedSetup) }
+            }
+        } else {
+            let input = HouseholdSettlementReportService.reportInput(for: selectedMonth.startDate, context: modelContext)
+            standaloneTransactions = input.transactions
+            standaloneDueDates = input.dueDates
+            recomputeReport()
+        }
     }
 
     private func copy(_ report: HouseholdSettlementReport) {

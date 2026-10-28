@@ -61,6 +61,7 @@ private enum SettingsPane: String, Hashable {
 
 struct SettingsView: View {
     var onAccountDeleted: (UUID) -> Void = { _ in }
+    var onAccountArchived: (UUID) -> Void = { _ in }
     var onAccountCreated: (Account) -> Void = { _ in }
     var onDataReset: () -> Void = {}
     var onSpendRequirementChanged: () -> Void = {}
@@ -84,6 +85,7 @@ struct SettingsView: View {
     @State private var tokenStatusMessage: String?
 
     @State private var accountDeletionTarget: AccountDeletionTarget?
+    @State private var accountActionError: String?
     @State private var showingAddAccount = false
     @State private var balanceSnapshotAccount: Account?
     @State private var positionsAccount: Account?
@@ -216,6 +218,14 @@ struct SettingsView: View {
         } message: {
             Text(resetErrorMessage ?? "An unknown error occurred.")
         }
+        .alert("Account Error", isPresented: Binding(
+            get: { accountActionError != nil },
+            set: { if !$0 { accountActionError = nil } }
+        )) {
+            Button("OK") { accountActionError = nil }
+        } message: {
+            Text(accountActionError ?? "The account change could not be saved.")
+        }
         .alert("Restore backup?", isPresented: $showingRestoreConfirmation) {
             Button("Cancel", role: .cancel) {
                 pendingRestore = nil
@@ -297,35 +307,71 @@ struct SettingsView: View {
     }
 
     private var accountsSection: some View {
-        SectionCard(title: "Accounts") {
-            VStack(spacing: 0) {
-                HStack {
-                    Text(accounts.isEmpty ? "Create your first account manually or import a statement." : "Manage account details and manual balance snapshots.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
-                        showingAddAccount = true
-                    } label: {
-                        Label("Add Account", systemImage: "plus")
+        VStack(spacing: 16) {
+            SectionCard(title: "Accounts") {
+                let activeAccounts = AccountArchiveService.activeAccounts(from: accounts)
+                VStack(spacing: 0) {
+                    HStack {
+                        Text(activeAccounts.isEmpty
+                             ? "No active accounts. Add an account or restore one from the archived list."
+                             : "Manage account details and manual balance snapshots.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            showingAddAccount = true
+                        } label: {
+                            Label("Add Account", systemImage: "plus")
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
 
-                if !accounts.isEmpty {
-                    Divider().padding(.leading, 16)
-                    AccountRowsView(
-                        accounts: accounts,
-                        refreshToken: accountSettingsRefreshToken,
-                        onSpendRequirementChanged: onSpendRequirementChanged,
-                        onEditPositions: { positionsAccount = $0 },
-                        onAddBalanceSnapshot: { balanceSnapshotAccount = $0 },
+                    if !activeAccounts.isEmpty {
+                        Divider().padding(.leading, 16)
+                        AccountRowsView(
+                            accounts: activeAccounts,
+                            refreshToken: accountSettingsRefreshToken,
+                            onSpendRequirementChanged: onSpendRequirementChanged,
+                            onEditPositions: { positionsAccount = $0 },
+                            onAddBalanceSnapshot: { balanceSnapshotAccount = $0 },
+                            onArchive: archiveAccount,
+                            onDelete: requestAccountDeletion
+                        )
+                    }
+                }
+            }
+
+            let archivedAccounts = AccountArchiveService.archivedAccounts(from: accounts)
+            if !archivedAccounts.isEmpty {
+                SectionCard(title: "Archived Accounts") {
+                    ArchivedAccountRowsView(
+                        accounts: archivedAccounts,
+                        onRestore: restoreAccount,
                         onDelete: requestAccountDeletion
                     )
                 }
             }
+        }
+    }
+
+    private func archiveAccount(_ account: Account) {
+        do {
+            try AccountArchiveService.archive(account: account, context: modelContext)
+            accountActionError = nil
+            onAccountArchived(account.id)
+        } catch {
+            accountActionError = "Could not archive \(account.displayName): \(error.localizedDescription)"
+        }
+    }
+
+    private func restoreAccount(_ account: Account) {
+        do {
+            try AccountArchiveService.restore(account: account, context: modelContext)
+            accountActionError = nil
+        } catch {
+            accountActionError = "Could not restore \(account.displayName): \(error.localizedDescription)"
         }
     }
 
@@ -885,11 +931,11 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Administra promociones por tarjeta y revisa su aplicación a tus compras.",
-        "Captura varios movimientos manuales seguidos con fecha sugerida por cuenta.",
-        "Personaliza nombres y colores de categorías sin perder sus reglas y reportes.",
-        "Consulta liquidez bruta y cuentas del hogar con información más clara.",
-        "Restaura respaldos con protección adicional para categorías y promociones.",
+        "Consulta la cuenta de cada integrante: un desglose que suma a mano hasta el saldo y sugiere el pago neto.",
+        "Registra pagos sin bloqueos: una referencia dañada nunca detiene un cobro nuevo ni cuenta como dinero.",
+        "Recupera cobros a medio vincular aunque cierres la app: la recuperación viaja con el movimiento.",
+        "Clasifica gastos suyos y compartidos por integrante, con Sankey al 80 % y colores de alto contraste.",
+        "Cuentas archivadas o cerradas fuera de la captura, con validación fresca al guardar en todas las rutas.",
     ]
 
     private var backupsDirectory: URL {
@@ -1064,6 +1110,7 @@ private struct AccountRowsView: View {
     let onSpendRequirementChanged: () -> Void
     let onEditPositions: (Account) -> Void
     let onAddBalanceSnapshot: (Account) -> Void
+    let onArchive: (Account) -> Void
     let onDelete: (Account) -> Void
 
     @State private var accountStates: [UUID: SettingsAccountState] = [:]
@@ -1080,6 +1127,7 @@ private struct AccountRowsView: View {
                     onSpendRequirementChanged: onSpendRequirementChanged,
                     onEditPositions: { onEditPositions(account) },
                     onAddBalanceSnapshot: { onAddBalanceSnapshot(account) },
+                    onArchive: { onArchive(account) },
                     onDelete: { onDelete(account) }
                 )
                 if index < accounts.count - 1 {
@@ -1106,7 +1154,50 @@ private struct AccountRowsView: View {
     }
 }
 
+private struct ArchivedAccountRowsView: View {
+    let accounts: [Account]
+    let onRestore: (Account) -> Void
+    let onDelete: (Account) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(account.displayName)
+                            .font(.callout.weight(.medium))
+                        Text("\(account.type.displayName) · \(account.currency) · \(String(localized: "Archived"))")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        onRestore(account)
+                    } label: {
+                        Label("Restore", systemImage: "arrow.uturn.backward")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(role: .destructive) {
+                        onDelete(account)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                if index < accounts.count - 1 {
+                    Divider().padding(.leading, 16)
+                }
+            }
+        }
+    }
+}
+
 private struct AccountEditorRow: View {
+    @Environment(\.modelContext) private var modelContext
     let accounts: [Account]
     let account: Account
     let state: SettingsAccountState?
@@ -1114,150 +1205,186 @@ private struct AccountEditorRow: View {
     let onSpendRequirementChanged: () -> Void
     let onEditPositions: () -> Void
     let onAddBalanceSnapshot: () -> Void
+    let onArchive: () -> Void
     let onDelete: () -> Void
 
     @State private var showingSpendRequirementEditor = false
+    @State private var editingDraft: Account?
+    @State private var savedSnapshot: Account?
+    @State private var editRevision: Date?
+    @State private var editError: String?
+    private var displayedAccount: Account { savedSnapshot ?? account }
 
     var body: some View {
         HStack(alignment: .top, spacing: 20) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(account.displayName)
-                    .font(.callout.weight(.medium))
-                Text("\(account.type.displayName) · \(account.currency)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                if let state {
-                    Text("\(state.transactionCount) movimientos")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                } else if isLoading {
-                    ProgressView("Loading account summary…")
-                        .controlSize(.small)
-                        .font(.caption2)
-                }
-            }
-            .frame(width: 180, alignment: .topLeading)
-
+                Text(displayedAccount.displayName).font(.callout.weight(.medium))
+                Text("\(displayedAccount.type.displayName) · \(displayedAccount.currency)").font(.caption2).foregroundStyle(.secondary)
+                if let state { Text("\(state.transactionCount) movimientos").font(.caption2).foregroundStyle(.secondary) }
+                else if isLoading { ProgressView("Loading account summary…").controlSize(.small).font(.caption2) }
+            }.frame(width: 180, alignment: .topLeading)
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Nickname", text: Binding(
-                    get: { account.nickname },
-                    set: { account.nickname = $0 }
-                ))
-                .textFieldStyle(.roundedBorder)
-
-                HStack {
+                if let draft = editingDraft {
+                    TextField("Nickname", text: Binding(get: { draft.nickname }, set: { draft.nickname = $0 }))
+                        .textFieldStyle(.roundedBorder)
                     ColorPicker("Identity color", selection: Binding(
-                        get: { account.tintHex.flatMap { Color(hex: $0) } ?? AccountIdentity.color(for: account) },
-                        set: { account.tintHex = $0.hexString }
-                    ))
+                        get: { draft.tintHex.flatMap { Color(hex: $0) } ?? AccountIdentity.color(for: draft) },
+                        set: { draft.tintHex = $0.hexString }))
+                    if draft.type == .creditCard {
+                        TextField("Credit limit", value: Binding(get: { draft.creditLimit ?? 0 },
+                            set: { draft.creditLimit = $0 }), format: .currency(code: draft.currency))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    if draft.type == .investment || draft.type == .retirement {
+                        Picker("Classification", selection: Binding(get: { draft.type },
+                            set: { draft.setInvestmentRetirementClassification($0) })) {
+                            Text("Investment").tag(AccountType.investment)
+                            Text("Retirement").tag(AccountType.retirement)
+                        }.pickerStyle(.segmented)
+                        if draft.type == .retirement {
+                            Picker("Retirement type", selection: Binding(get: { draft.retirementKind ?? .other },
+                                set: { draft.retirementKind = $0 })) {
+                                ForEach(RetirementKind.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                            }
+                        }
+                        Picker("Liquidity", selection: Binding(get: { draft.liquidity }, set: { draft.liquidity = $0 })) {
+                            ForEach(AccountLiquidity.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                        }
+                        Toggle("Include in Net Worth", isOn: Binding(get: { draft.effectiveIncludeInNetWorth },
+                            set: { draft.includeInNetWorth = $0 }))
+                        Toggle("Include in Cash Flow", isOn: Binding(get: { draft.effectiveIncludeInCashFlow },
+                            set: { draft.includeInCashFlow = $0 }))
+                        Toggle("Include in Regular Income", isOn: Binding(get: { draft.effectiveIncludeInRegularIncome },
+                            set: { draft.includeInRegularIncome = $0 }))
+                        if draft.type == .retirement {
+                            Toggle("Track for PPR/tax purposes", isOn: Binding(
+                                get: { draft.taxTrackingEnabled ?? (draft.retirementKind == .ppr) },
+                                set: { draft.taxTrackingEnabled = $0 }))
+                        }
+                    }
+                    if let editError { Label(editError, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
+                    HStack {
+                        Button("Cancel") { editingDraft = nil; editError = nil }
+                        Button("Save") { saveDraft(draft) }.buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    if let limit = displayedAccount.creditLimit, displayedAccount.type == .creditCard {
+                        LabeledContent("Credit limit", value: MoneyFormat.string(limit, code: displayedAccount.currency))
+                            .font(.caption).monospacedDigit()
+                    }
+                    if displayedAccount.type == .investment || displayedAccount.type == .retirement {
+                        if let kind = displayedAccount.retirementKind, displayedAccount.type == .retirement {
+                            LabeledContent("Retirement type", value: kind.displayName).font(.caption)
+                        }
+                        LabeledContent("Liquidity", value: displayedAccount.liquidity.displayName).font(.caption)
+                        Label("Include in Net Worth", systemImage: displayedAccount.effectiveIncludeInNetWorth ? "checkmark.circle" : "circle")
+                        Label("Include in Cash Flow", systemImage: displayedAccount.effectiveIncludeInCashFlow ? "checkmark.circle" : "circle")
+                        Label("Include in Regular Income", systemImage: displayedAccount.effectiveIncludeInRegularIncome ? "checkmark.circle" : "circle")
+                        if displayedAccount.type == .retirement {
+                            Label("Track for PPR/tax purposes", systemImage: (displayedAccount.taxTrackingEnabled ?? (displayedAccount.retirementKind == .ppr)) ? "checkmark.circle" : "circle")
+                        }
+                    }
+                    Button("Edit") { beginEditing() }.buttonStyle(.bordered)
                 }
-
-                if account.type == .creditCard {
-                    TextField("Credit limit", value: Binding(
-                        get: { account.creditLimit ?? 0 },
-                        set: { account.creditLimit = $0 }
-                    ), format: .currency(code: account.currency))
-                    .textFieldStyle(.roundedBorder)
-
-                    Button {
-                        showingSpendRequirementEditor = true
-                    } label: {
+                if displayedAccount.type == .creditCard {
+                    Button { showingSpendRequirementEditor = true } label: {
                         Label("Configurar gasto mínimo", systemImage: "target")
-                    }
-                    .buttonStyle(.bordered)
+                    }.buttonStyle(.bordered).disabled(editingDraft != nil)
                 }
-
-                if account.type == .investment || account.type == .retirement {
-                    Picker("Classification", selection: Binding(
-                        get: { account.type },
-                        set: { account.setInvestmentRetirementClassification($0) }
-                    )) {
-                        Text("Investment").tag(AccountType.investment)
-                        Text("Retirement").tag(AccountType.retirement)
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                if account.type == .retirement {
-                    Picker("Retirement type", selection: Binding(
-                        get: { account.retirementKind ?? .other },
-                        set: { account.retirementKind = $0 }
-                    )) {
-                        ForEach(RetirementKind.allCases, id: \.self) { kind in
-                            Text(kind.displayName).tag(kind)
-                        }
-                    }
-                    .labelsHidden()
-
-                    Text("Retirement accounts are included in Total Net Worth but excluded from regular Cash Flow by default.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                if account.type == .retirement || account.type == .investment {
-                    Picker("Liquidity", selection: Binding(
-                        get: { account.liquidity },
-                        set: { account.liquidity = $0 }
-                    )) {
-                        ForEach(AccountLiquidity.allCases, id: \.self) { value in
-                            Text(value.displayName).tag(value)
-                        }
-                    }
-                    .labelsHidden()
-
-                    Toggle("Include in Net Worth", isOn: Binding(
-                        get: { account.effectiveIncludeInNetWorth },
-                        set: { account.includeInNetWorth = $0 }
-                    ))
-                    Toggle("Include in Cash Flow", isOn: Binding(
-                        get: { account.effectiveIncludeInCashFlow },
-                        set: { account.includeInCashFlow = $0 }
-                    ))
-                    Toggle("Include in Regular Income", isOn: Binding(
-                        get: { account.effectiveIncludeInRegularIncome },
-                        set: { account.includeInRegularIncome = $0 }
-                    ))
-
-                    if account.type == .investment {
-                        Button(action: onEditPositions) {
-                            Label("Edit Stock Positions", systemImage: "chart.line.uptrend.xyaxis")
-                                .font(.caption)
-                        }
-                        .disabled(state?.canAddPositions != true)
-
-                        if let state, !state.canAddPositions {
-                            Text("Create a separate brokerage account to track stocks.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+                if displayedAccount.type == .investment {
+                    Button(action: onEditPositions) { Label("Edit Stock Positions", systemImage: "chart.line.uptrend.xyaxis").font(.caption) }
+                        .disabled(editingDraft != nil || state?.canAddPositions != true)
+                    if let state, !state.canAddPositions {
+                        Text("Create a separate brokerage account to track stocks.").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-
-                if account.type == .retirement {
-                    Toggle("Track for PPR/tax purposes", isOn: Binding(
-                        get: { account.taxTrackingEnabled ?? (account.retirementKind == .ppr) },
-                        set: { account.taxTrackingEnabled = $0 }
-                    ))
-                }
-
-                Button(action: onAddBalanceSnapshot) {
-                    Label("Add Balance Snapshot", systemImage: "chart.line.uptrend.xyaxis")
-                        .font(.caption)
-                }
-
-                Button(role: .destructive, action: onDelete) {
-                    Label("Delete Account", systemImage: "trash")
-                        .font(.caption)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+                Button(action: onAddBalanceSnapshot) { Label("Add Balance Snapshot", systemImage: "chart.line.uptrend.xyaxis").font(.caption) }
+                    .disabled(editingDraft != nil)
+                Button(action: onArchive) { Label("Archive Account", systemImage: "archivebox").font(.caption) }
+                    .disabled(editingDraft != nil)
+                Button(role: .destructive, action: onDelete) { Label("Delete Account", systemImage: "trash").font(.caption) }
+                    .disabled(editingDraft != nil)
+            }.frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16).padding(.vertical, 10)
         .sheet(isPresented: $showingSpendRequirementEditor) {
-            SpendRequirementEditorSheet(account: account, accounts: accounts,
-                                        onSave: onSpendRequirementChanged)
+            SpendRequirementEditorSheet(account: account, accounts: accounts, onSave: onSpendRequirementChanged)
         }
+        .onChange(of: account.lastModifiedAt) {
+            if let savedSnapshot, account.lastModifiedAt >= savedSnapshot.lastModifiedAt {
+                self.savedSnapshot = nil
+            }
+        }
+    }
+
+    private func beginEditing() {
+        editingDraft = AccountConfigurationEditor.makeDraft(from: displayedAccount)
+        editRevision = displayedAccount.lastModifiedAt
+        editError = nil
+    }
+
+    private func saveDraft(_ draft: Account) {
+        do {
+            savedSnapshot = try AccountConfigurationEditor.save(draft: draft, accountID: account.id,
+                                                               expectedRevision: editRevision, container: modelContext.container)
+            editingDraft = nil
+            editError = nil
+            onSpendRequirementChanged()
+        } catch { editError = error.localizedDescription }
+    }
+}
+
+@MainActor
+enum AccountConfigurationEditor {
+    enum SaveError: LocalizedError {
+        case unavailable, changed
+        var errorDescription: String? {
+            switch self {
+            case .unavailable: String(localized: "Account unavailable")
+            case .changed: String(localized: "This account changed. Cancel and reopen it before saving.")
+            }
+        }
+    }
+
+    static func makeDraft(from account: Account) -> Account {
+        let draft = Account(id: account.id, institution: account.institution, type: account.type, currency: account.currency,
+            nickname: account.nickname, accountNumber: account.accountNumber, openedAt: account.openedAt,
+            closedAt: account.closedAt, archivedAt: account.archivedAt, creditLimit: account.creditLimit,
+            statementDayOfMonth: account.statementDayOfMonth, paymentDayOfMonth: account.paymentDayOfMonth,
+            tintHex: account.tintHex, manuallyCreatedAt: account.manuallyCreatedAt)
+        draft.retirementKindRaw = account.retirementKindRaw
+        draft.liquidityRaw = account.liquidityRaw
+        draft.includeInNetWorth = account.includeInNetWorth
+        draft.includeInCashFlow = account.includeInCashFlow
+        draft.includeInRegularIncome = account.includeInRegularIncome
+        draft.taxTrackingEnabled = account.taxTrackingEnabled
+        draft.lastModifiedAt = account.lastModifiedAt
+        return draft
+    }
+
+    @discardableResult
+    static func save(draft: Account, accountID: UUID, expectedRevision: Date?, container: ModelContainer,
+                     commit: (ModelContext) throws -> Void = { try $0.save() }) throws -> Account {
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let id = accountID
+        guard let target = try context.fetch(FetchDescriptor<Account>(predicate: #Predicate<Account> { $0.id == id })).first else {
+            throw SaveError.unavailable
+        }
+        guard target.lastModifiedAt == expectedRevision else { throw SaveError.changed }
+        target.nickname = draft.nickname
+        target.tintHex = draft.tintHex
+        target.creditLimit = draft.creditLimit
+        target.type = draft.type
+        target.retirementKindRaw = draft.retirementKindRaw
+        target.liquidityRaw = draft.liquidityRaw
+        target.includeInNetWorth = draft.includeInNetWorth
+        target.includeInCashFlow = draft.includeInCashFlow
+        target.includeInRegularIncome = draft.includeInRegularIncome
+        target.taxTrackingEnabled = draft.taxTrackingEnabled
+        target.touch()
+        try commit(context)
+        return makeDraft(from: target)
     }
 }
 
@@ -1348,6 +1475,7 @@ private struct DataHealthLoadedSection: View {
         for account in accounts {
             hasher.combine(account.id)
             hasher.combine(account.closedAt)
+            hasher.combine(account.archivedAt)
             hasher.combine(account.currency)
         }
         hasher.combine(refreshToken)
@@ -1363,7 +1491,7 @@ private struct DataHealthSummaryPanel: View {
         SectionCard(title: "Your data") {
             VStack(alignment: .leading, spacing: 12) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                    DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed accounts excluded")
+                    DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed and archived accounts excluded")
                     DataHealthCard(label: "History", value: historyValue, detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet")
                     DataHealthCard(label: "Último movimiento", value: summary.lastActivity?.formattedMX() ?? "—", detail: summary.lastActivity == nil ? "Aún no hay actividad" : "movimiento activo más reciente")
                     DataHealthCard(label: "Needs attention", value: "\(summary.unresolvedPendingCount)", detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports", tint: summary.unresolvedPendingCount == 0 ? .green : .orange)
@@ -2055,7 +2183,7 @@ private struct DataHealthPreviewPanel: View {
     var body: some View {
         SectionCard(title: "Your data") {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
-                DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed accounts excluded")
+                DataHealthCard(label: "Active accounts", value: "\(summary.activeAccountCount)", detail: "closed and archived accounts excluded")
                 DataHealthCard(label: "History", value: historyValue, detail: summary.hasTransactionHistory ? "active transaction range" : "No transaction history yet")
                 DataHealthCard(label: "Último movimiento", value: summary.lastActivity?.formattedMX() ?? "—", detail: summary.lastActivity == nil ? "Aún no hay actividad" : "movimiento activo más reciente")
                 DataHealthCard(label: "Needs attention", value: "\(summary.unresolvedPendingCount)", detail: summary.unresolvedPendingCount == 0 ? "Nothing needs attention" : "pending imports", tint: summary.unresolvedPendingCount == 0 ? .green : .orange)

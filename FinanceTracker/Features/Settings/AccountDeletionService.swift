@@ -2,6 +2,46 @@ import Foundation
 import SwiftData
 
 @MainActor
+struct AccountArchiveService {
+    static func activeAccounts(from accounts: [Account]) -> [Account] {
+        accounts.filter { $0.archivedAt == nil }
+    }
+
+    static func archivedAccounts(from accounts: [Account]) -> [Account] {
+        accounts.filter { $0.archivedAt != nil }
+    }
+
+    static func archive(account: Account, at date: Date = .now, context: ModelContext) throws {
+        guard account.archivedAt == nil else { return }
+        let previousLastModifiedAt = account.lastModifiedAt
+        account.archivedAt = date
+        account.lastModifiedAt = date
+        do {
+            try context.save()
+        } catch {
+            account.archivedAt = nil
+            account.lastModifiedAt = previousLastModifiedAt
+            throw error
+        }
+    }
+
+    static func restore(account: Account, at date: Date = .now, context: ModelContext) throws {
+        guard account.archivedAt != nil else { return }
+        let previousArchivedAt = account.archivedAt
+        let previousLastModifiedAt = account.lastModifiedAt
+        account.archivedAt = nil
+        account.lastModifiedAt = date
+        do {
+            try context.save()
+        } catch {
+            account.archivedAt = previousArchivedAt
+            account.lastModifiedAt = previousLastModifiedAt
+            throw error
+        }
+    }
+}
+
+@MainActor
 struct AccountDeletionService {
     struct DeletionPreview {
         let statementCount: Int

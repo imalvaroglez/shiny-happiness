@@ -18,11 +18,14 @@ enum PromotionLedgerStore {
 
     enum StoreError: LocalizedError {
         case invalid([String])
+        case attributionChanged
 
         var errorDescription: String? {
             switch self {
             case .invalid(let issues):
                 "Ledger de promociones inválido: \(issues.joined(separator: "; "))."
+            case .attributionChanged:
+                String(localized: "Promotion assignments changed. Reopen the movement and try again.")
             }
         }
     }
@@ -110,6 +113,41 @@ enum PromotionLedgerStore {
         ledger.attributions[index].deletedAt = stamp
         ledger.attributions[index].updatedAt = stamp
         ledger.updatedAt = max(ledger.updatedAt, stamp)
+        try write(ledger, to: url)
+    }
+
+    /// Save all staged selections in one ledger write, rejecting stale editors.
+    static func setAttributions(transactionID: UUID, currency: String, expected: Set<UUID>, selected: Set<UUID>,
+                                at fileURL: URL? = nil) throws {
+        let url = try fileURL ?? defaultURL()
+        var ledger = try read(fileURL: url)
+        let current = Set(PromotionBoard.attributedPromotionIDs(ledger: ledger, transactionID: transactionID))
+        guard current == expected else { throw StoreError.attributionChanged }
+        let additions = selected.subtracting(current)
+        guard additions.allSatisfy({ id in ledger.promotions.contains {
+            $0.id == id && $0.deletedAt == nil && $0.archivedAt == nil && $0.currency == currency
+        } }) else { throw StoreError.invalid([String(localized: "A promotion is no longer available for this movement.")]) }
+        guard selected != current else { return }
+        for index in ledger.attributions.indices where ledger.attributions[index].transactionID == transactionID
+            && ledger.attributions[index].deletedAt == nil && !selected.contains(ledger.attributions[index].promotionID) {
+            let stamp = PersistedMutationClock.next(after: ledger.attributions[index].updatedAt)
+            ledger.attributions[index].deletedAt = stamp
+            ledger.attributions[index].updatedAt = stamp
+            ledger.updatedAt = max(ledger.updatedAt, stamp)
+        }
+        for id in additions.sorted(by: { $0.uuidString < $1.uuidString }) {
+            if let index = ledger.attributions.firstIndex(where: { $0.transactionID == transactionID && $0.promotionID == id }) {
+                let stamp = PersistedMutationClock.next(after: ledger.attributions[index].updatedAt)
+                ledger.attributions[index].deletedAt = nil
+                ledger.attributions[index].updatedAt = stamp
+                ledger.updatedAt = max(ledger.updatedAt, stamp)
+            } else {
+                let stamp = Date.now
+                ledger.attributions.append(PromotionAttribution(id: UUID(), promotionID: id,
+                    transactionID: transactionID, createdAt: stamp, updatedAt: stamp, deletedAt: nil))
+                ledger.updatedAt = max(ledger.updatedAt, stamp)
+            }
+        }
         try write(ledger, to: url)
     }
 

@@ -5,10 +5,18 @@ import SwiftData
 /// material needed to render its breakdown sheet — no extra fetches required.
 enum BreakdownRequest: Identifiable {
     case netWorth(period: DashboardPeriodContext, accounts: [AccountSummary])
-    case income(transactions: [Transaction], total: Decimal)
+    case income(transactions: [Transaction], total: Decimal, interestAllocations: [InterestDailyAllocation], interestSources: [Transaction])
     case expenses(transactions: [Transaction], total: Decimal)
-    case interest(transactions: [Transaction], total: Decimal)
-    case cashFlowPeriod(start: Date, bucket: DashboardBucket, transactions: [Transaction])
+    case interest(total: Decimal, allocations: [InterestDailyAllocation], sources: [Transaction])
+    case cashFlowPeriod(
+        start: Date,
+        bucket: DashboardBucket,
+        transactions: [Transaction],
+        interestAllocations: [InterestDailyAllocation],
+        interestSources: [Transaction],
+        matchedCardPaymentIDs: Set<UUID>,
+        hasUnmatchedCardPayment: Bool
+    )
     case categorySpending(category: Category, amount: Decimal, transactions: [Transaction])
     case categoryList(entries: [CategorySpending], currencyCode: String, transactions: [Transaction])
 
@@ -18,7 +26,7 @@ enum BreakdownRequest: Identifiable {
         case .income: return "income"
         case .expenses: return "expenses"
         case .interest: return "interest"
-        case .cashFlowPeriod(let start, _, _): return "cash-flow-\(start)"
+        case .cashFlowPeriod(let start, _, _, _, _, _, _): return "cash-flow-\(start)"
         case .categorySpending(let cat, _, _): return "category-\(cat.id)"
         case .categoryList: return "category-list"
         }
@@ -31,7 +39,7 @@ enum BreakdownRequest: Identifiable {
         case .income: return "Income"
         case .expenses: return "Expenses"
         case .interest: return "Interest Earned"
-        case .cashFlowPeriod(let start, let bucket, _):
+        case .cashFlowPeriod(let start, let bucket, _, _, _, _, _):
             return dashboardBucketLabel(for: start, bucket: bucket)
         case .categorySpending(let cat, _, _): return cat.localizedName
         case .categoryList: return String(localized: "Category Breakdown")
@@ -143,6 +151,7 @@ enum AccountSummarySection: Int, CaseIterable {
 /// produced each headline number.
 struct BreakdownSheet: View {
     let request: BreakdownRequest
+    var onTransactionTap: ((Transaction) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var selectedCategory: BreakdownRequest?
 
@@ -167,17 +176,48 @@ struct BreakdownSheet: View {
         switch request {
         case .netWorth(let period, let summaries):
             accountsBreakdown(summaries: summaries, period: period)
-        case .income(let txs, let total):
-            transactionsBreakdown(transactions: txs.filter { Self.includesInIncomeBreakdown($0) }, total: total, signed: false)
+        case .income(let txs, let total, let allocations, let sources):
+            transactionsBreakdown(
+                transactions: txs.filter { Self.includesInIncomeBreakdown($0) },
+                interestAllocations: Self.incomeAllocations(allocations, sources: sources),
+                interestSources: sources,
+                total: total,
+                signed: false,
+                usesIncomeAllocation: true
+            )
         case .expenses(let txs, let total):
             transactionsBreakdown(transactions: txs.filter { Self.includesInExpensesBreakdown($0) }, total: total, signed: true)
-        case .interest(let txs, let total):
-            transactionsBreakdown(transactions: txs.filter { Self.includesInInterestBreakdown($0) }, total: total, signed: false)
-        case .cashFlowPeriod(let start, let bucket, let txs):
+        case .interest(let total, let allocations, let sources):
             transactionsBreakdown(
-                transactions: txs.filter { Self.includesInCashFlowPeriodBreakdown($0, bucket: bucket, start: start) },
-                total: nil, signed: nil
+                transactions: [], interestAllocations: allocations,
+                interestSources: sources, total: total, signed: false
             )
+        case .cashFlowPeriod(let start, let bucket, let txs, let allocations, let sources, let matchedIDs, let hasUnmatchedPayment):
+            let cashTransactions = txs.filter { tx in
+                !Self.isPositiveInterest(tx)
+                    && DashboardCashFlowClassifier.movement(for: tx, matchedCardPaymentIDs: matchedIDs) != nil
+                    && bucket.start(for: tx.postedAt) == start
+            }
+            let cashInterest = Self.incomeAllocations(
+                allocations.filter { bucket.start(for: $0.day) == start },
+                sources: sources
+            )
+            VStack(alignment: .leading, spacing: 0) {
+                if hasUnmatchedPayment {
+                    Text("Some card payments have no matching bank withdrawal recorded in this period; cash flow may be incomplete.")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                        .padding()
+                }
+                transactionsBreakdown(
+                    transactions: cashTransactions,
+                    interestAllocations: cashInterest,
+                    interestSources: sources,
+                    total: nil,
+                    signed: nil,
+                    usesIncomeAllocation: true
+                )
+            }
         case .categorySpending(let cat, let total, let txs):
             transactionsBreakdown(transactions: txs.filter { Self.includesInCategorySpendingBreakdown($0, category: cat) }, total: total, signed: true)
         case .categoryList(let entries, let currencyCode, let transactions):
@@ -306,11 +346,24 @@ struct BreakdownSheet: View {
         }
     }
 
-    private func transactionsBreakdown(transactions: [Transaction], total: Decimal?, signed: Bool?) -> some View {
+    private func transactionsBreakdown(
+        transactions: [Transaction],
+        interestAllocations: [InterestDailyAllocation] = [],
+        interestSources: [Transaction] = [],
+        total: Decimal?,
+        signed: Bool?,
+        usesIncomeAllocation: Bool = false
+    ) -> some View {
         let sorted = transactions.sorted { $0.postedAt > $1.postedAt }
-        let computedTotal = total ?? sorted.reduce(Decimal.zero) { $0 + $1.amount }
+        let sortedAllocations = interestAllocations.sorted {
+            if $0.day != $1.day { return $0.day > $1.day }
+            return $0.id < $1.id
+        }
+        let computedTotal = total ?? (sorted.reduce(Decimal.zero) { $0 + $1.amount }
+            + sortedAllocations.reduce(Decimal.zero) { $0 + (usesIncomeAllocation ? $1.incomeAmount : $1.amount) })
+        let sourceByID = Dictionary(uniqueKeysWithValues: interestSources.map { ($0.id, $0) })
         return List {
-            if sorted.isEmpty {
+            if sorted.isEmpty && sortedAllocations.isEmpty {
                 Text("No matching transactions in the current period.")
                     .font(.subheadline).foregroundStyle(.secondary)
             } else {
@@ -333,6 +386,49 @@ struct BreakdownSheet: View {
                         Text(MoneyFormat.string(tx.amount, code: tx.currency))
                             .font(.body.bold().monospacedDigit())
                             .foregroundStyle(tx.amount >= 0 ? .green : .red)
+                    }
+                }
+                if !sortedAllocations.isEmpty {
+                    Section("Interest allocation · estimated where shown") {
+                        ForEach(sortedAllocations) { allocation in
+                            let allocatedAmount = usesIncomeAllocation ? allocation.incomeAmount : allocation.amount
+                            let originalAmount = usesIncomeAllocation ? allocation.originalIncomeAmount : allocation.originalAmount
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack {
+                                    Text(allocation.day, format: .dateTime.day().month(.abbreviated).year())
+                                        .font(.callout.weight(.semibold))
+                                    Spacer()
+                                    Text(MoneyFormat.string(allocatedAmount, code: allocation.currency))
+                                        .font(.body.bold().monospacedDigit())
+                                        .foregroundStyle(.green)
+                                }
+                                switch allocation.kind {
+                                case .estimated:
+                                    Text("Estimated evenly from \(allocation.intervalStart.formatted(date: .abbreviated, time: .omitted)) through \(allocation.intervalEnd.formatted(date: .abbreviated, time: .omitted)). Captured \(allocation.sourceDate.formatted(date: .abbreviated, time: .omitted)); original total \(MoneyFormat.string(originalAmount, code: allocation.currency)).")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                case .actual:
+                                    Text("Imported interest, shown on its recorded date. \(MoneyFormat.string(originalAmount, code: allocation.currency))")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                case .undistributed:
+                                    Text("Could not distribute because the account opening date is later than this capture. Original total \(MoneyFormat.string(originalAmount, code: allocation.currency)).")
+                                        .font(.caption2).foregroundStyle(.orange)
+                                }
+                                ForEach(allocation.sourceTransactionIDs, id: \.self) { sourceID in
+                                    if let source = sourceByID[sourceID] {
+                                        Button {
+                                            onTransactionTap?(source)
+                                            dismiss()
+                                        } label: {
+                                            Label("Open source · \(source.descriptionRaw)", systemImage: "arrow.up.right.square")
+                                                .font(.caption)
+                                                .lineLimit(2)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 3)
+                        }
                     }
                 }
             }
@@ -360,7 +456,7 @@ extension BreakdownSheet {
     private static let classifier = TransactionClassifier()
 
     static func includesInIncomeBreakdown(_ tx: Transaction) -> Bool {
-        classifier.classify(transaction: tx).countsAsRegularIncome
+        classifier.classify(transaction: tx).countsAsRegularIncome && !isPositiveInterest(tx)
     }
 
     static func includesInExpensesBreakdown(_ tx: Transaction) -> Bool {
@@ -375,8 +471,21 @@ extension BreakdownSheet {
     }
 
     static func includesInCashFlowPeriodBreakdown(_ tx: Transaction, bucket: DashboardBucket, start: Date) -> Bool {
-        bucket.matches(tx.postedAt, start)
-            && classifier.classify(transaction: tx).countsAsOperatingCashFlow
+        !isPositiveInterest(tx)
+            && bucket.start(for: tx.postedAt) == start
+            && DashboardCashFlowClassifier.movement(for: tx) != nil
+    }
+
+    private static func incomeAllocations(_ allocations: [InterestDailyAllocation], sources: [Transaction]) -> [InterestDailyAllocation] {
+        let sourceByID = Dictionary(uniqueKeysWithValues: sources.map { ($0.id, $0) })
+        return allocations.filter { allocation in
+            allocation.incomeAmount != 0
+                && allocation.sourceTransactionIDs.contains { sourceByID[$0] != nil }
+        }
+    }
+
+    private static func isPositiveInterest(_ tx: Transaction) -> Bool {
+        tx.amount > 0 && CategorySemanticIdentity.matches(tx.category, name: "Interest")
     }
 
     static func includesInCategorySpendingBreakdown(_ tx: Transaction, category: Category) -> Bool {

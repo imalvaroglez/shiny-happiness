@@ -280,6 +280,7 @@ struct ManualLedgerTests {
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN", nickname: "Card")
         context.insert(checking)
         context.insert(card)
+        try context.save()
 
         let pair = try ManualTransferService.create(
             from: checking,
@@ -305,6 +306,7 @@ struct ManualLedgerTests {
         let context = container.mainContext
         let checking = Account(institution: "Bank", type: .checking, currency: "MXN")
         context.insert(checking)
+        try context.save()
 
         let tx = try ManualTransactionService.create(
             account: checking,
@@ -326,6 +328,7 @@ struct ManualLedgerTests {
         let context = container.mainContext
         let checking = Account(institution: "Bank", type: .checking, currency: "MXN")
         context.insert(checking)
+        try context.save()
 
         let tx = try ManualTransactionService.create(
             account: checking,
@@ -350,6 +353,7 @@ struct ManualLedgerTests {
         let context = container.mainContext
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN")
         context.insert(card)
+        try context.save()
 
         let tx = try ManualTransactionService.create(
             account: card,
@@ -373,6 +377,7 @@ struct ManualLedgerTests {
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN")
         context.insert(checking)
         context.insert(card)
+        try context.save()
 
         let pair = try ManualTransferService.create(
             from: checking,
@@ -407,6 +412,7 @@ struct ManualLedgerTests {
         let loan = Account(institution: "Lender", type: .loan, currency: "MXN")
         context.insert(checking)
         context.insert(loan)
+        try context.save()
 
         let pair = try ManualTransferService.create(
             from: checking,
@@ -435,6 +441,7 @@ struct ManualLedgerTests {
         let savings = Account(institution: "Bank", type: .savings, currency: "MXN")
         context.insert(checking)
         context.insert(savings)
+        try context.save()
 
         let pair = try ManualTransferService.create(
             from: checking,
@@ -463,6 +470,7 @@ struct ManualLedgerTests {
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN")
         context.insert(checking)
         context.insert(card)
+        try context.save()
 
         _ = try ManualTransferService.create(
             from: checking,
@@ -493,6 +501,7 @@ struct ManualLedgerTests {
         let context = container.mainContext
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN", nickname: "Card")
         context.insert(card)
+        try context.save()
 
         let tx = try ManualTransactionService.create(
             account: card,
@@ -564,6 +573,7 @@ struct ManualLedgerTests {
 
         let card = Account(institution: "Issuer", type: .creditCard, currency: "MXN", nickname: "Card")
         context.insert(card)
+        try context.save()
 
         _ = try ManualTransactionService.create(
             account: card,
@@ -777,5 +787,168 @@ struct ManualLedgerTests {
         // Reintentar exitoso («Más tarde» incluido): la intención original manda.
         #expect(SaveAndNewFlow.resolve(intent: .addAnother, attributionFailureResolved: true) == .resetForm)
         #expect(SaveAndNewFlow.resolve(intent: .close, attributionFailureResolved: true) == .dismiss)
+    }
+
+    // MARK: - Cuentas archivadas/cerradas fuera de la captura
+
+    @Test("Manual transaction rejects an archived account without inserting")
+    func manualTransactionRejectsArchivedAccountWithoutInserting() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Bank", type: .checking, currency: "MXN",
+                              nickname: "Old", archivedAt: .now)
+        context.insert(account)
+        try context.save()
+
+        #expect(throws: ManualAccountError.accountUnavailable) {
+            try ManualTransactionService.create(account: account, date: .now, description: "Rent",
+                signedAmount: -100, category: nil, context: context)
+        }
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+    }
+
+    @Test("Manual transaction rejects a closed account without inserting")
+    func manualTransactionRejectsClosedAccountWithoutInserting() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Bank", type: .checking, currency: "MXN",
+                              nickname: "Shut", closedAt: .now)
+        context.insert(account)
+        try context.save()
+
+        #expect(throws: ManualAccountError.accountUnavailable) {
+            try ManualTransactionService.create(account: account, date: .now, description: "Rent",
+                signedAmount: -100, category: nil, context: context)
+        }
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+    }
+
+    @Test("Manual transfer rejects an archived source leaving no partial writes")
+    func manualTransferRejectsArchivedSourceLeavingNoPartialWrites() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let source = Account(institution: "Bank", type: .checking, currency: "MXN",
+                             nickname: "Old", archivedAt: .now)
+        let destination = Account(institution: "Issuer", type: .creditCard, currency: "MXN", nickname: "Card")
+        context.insert(source)
+        context.insert(destination)
+        try context.save()
+
+        #expect(throws: ManualAccountError.accountUnavailable) {
+            try ManualTransferService.create(from: source, to: destination, date: .now,
+                amount: 1_000, note: "Pay card", context: context)
+        }
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+    }
+
+    @Test("Manual transfer rejects a closed destination leaving no partial writes")
+    func manualTransferRejectsClosedDestinationLeavingNoPartialWrites() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let source = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Checking")
+        let destination = Account(institution: "Bank", type: .savings, currency: "MXN",
+                                  nickname: "Shut", closedAt: .now)
+        context.insert(source)
+        context.insert(destination)
+        try context.save()
+
+        #expect(throws: ManualAccountError.accountUnavailable) {
+            try ManualTransferService.create(from: source, to: destination, date: .now,
+                amount: 500, note: "To savings", context: context)
+        }
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+    }
+
+    @Test("A stale account object is rejected via the fresh-context check")
+    func staleAccountObjectIsRejectedViaFreshContextCheck() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let stale = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Stale")
+        let peer = Account(institution: "Bank", type: .savings, currency: "MXN", nickname: "Peer")
+        context.insert(stale)
+        context.insert(peer)
+        try context.save()
+
+        // Otra ventana archiva la cuenta en su propio contexto y guarda; el
+        // llamador conserva su objeto pre-archivo, sin relaciones entre contextos.
+        let otherContext = ModelContext(container)
+        let staleID = stale.id
+        let otherSide = try #require(try otherContext.fetch(FetchDescriptor<Account>(
+            predicate: #Predicate<Account> { $0.id == staleID })).first)
+        otherSide.archivedAt = .now
+        try otherContext.save()
+
+        #expect(throws: ManualAccountError.accountUnavailable) {
+            try ManualTransactionService.create(account: stale, date: .now, description: "Late",
+                signedAmount: -50, category: nil, context: context)
+        }
+        #expect(throws: ManualAccountError.accountUnavailable) {
+            try ManualTransferService.create(from: stale, to: peer, date: .now,
+                amount: 200, note: "Late transfer", context: context)
+        }
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+    }
+
+    @Test("Active-list semantics exclude archived and closed accounts")
+    func closedAccountsDisappearFromActiveListSemantics() {
+        let active = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Active")
+        let archived = Account(institution: "Bank", type: .checking, currency: "MXN",
+                               nickname: "Archived", archivedAt: .now)
+        let closed = Account(institution: "Bank", type: .checking, currency: "MXN",
+                             nickname: "Closed", closedAt: .now)
+
+        #expect(active.isAvailableForCapture)
+        #expect(!archived.isAvailableForCapture)
+        #expect(!closed.isAvailableForCapture)
+    }
+
+    // MARK: - Ajustes de valuación sobre cuentas disponibles
+
+    @Test("Valuation adjustments reject archived and closed accounts without inserting")
+    func valuationAdjustmentRejectsArchivedAndClosedAccounts() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let archived = Account(institution: "Bank", type: .checking, currency: "MXN",
+                               nickname: "Old", archivedAt: .now)
+        let closed = Account(institution: "Bank", type: .savings, currency: "MXN",
+                             nickname: "Shut", closedAt: .now)
+        context.insert(archived)
+        context.insert(closed)
+        try context.save()
+
+        for account in [archived, closed] {
+            #expect(throws: ManualAccountError.accountUnavailable) {
+                _ = try BalanceSnapshotService.createAdjustment(account: account, date: .now,
+                    displayAmount: 2_000, note: nil, context: context)
+            }
+        }
+        // The barrier runs before any construction: no snapshot and no mirror.
+        #expect(try context.fetch(FetchDescriptor<AccountBalanceSnapshot>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+    }
+
+    @Test("Valuation adjustment rejects a stale archived account object")
+    func valuationAdjustmentRejectsStaleArchivedAccountObject() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Stale")
+        context.insert(account)
+        try context.save()
+
+        // Otra ventana archiva la cuenta en su propio contexto y guarda; el
+        // llamador conserva su objeto pre-archivo, sin relaciones entre contextos.
+        let otherContext = ModelContext(container)
+        let accountID = account.id
+        let otherSide = try #require(try otherContext.fetch(FetchDescriptor<Account>(
+            predicate: #Predicate<Account> { $0.id == accountID })).first)
+        otherSide.archivedAt = .now
+        try otherContext.save()
+
+        #expect(throws: ManualAccountError.accountUnavailable) {
+            _ = try BalanceSnapshotService.createAdjustment(account: account, date: .now,
+                displayAmount: 2_000, note: nil, context: context)
+        }
+        #expect(try context.fetch(FetchDescriptor<AccountBalanceSnapshot>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
     }
 }

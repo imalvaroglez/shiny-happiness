@@ -160,6 +160,26 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()) == 0)
     }
 
+    @Test("resetAllData clears the property ledger in its injected storage location")
+    func resetClearsPropertyLedger() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("reset-property-ledger-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let propertyURL = root.appendingPathComponent("PropertyLedger.json")
+        let property = PropertyRecord(name: "Casa local")
+        var ledger = PropertyLedger()
+        ledger.properties = [property]
+        try PropertyLedgerStore.replace(with: ledger, at: propertyURL)
+
+        let container = try makeContainer()
+        try SeedDataLoader.bootstrapIfNeeded(context: container.mainContext)
+        try AppDataResetService.resetAllData(context: container.mainContext,
+            spendRequirementsURL: root.appendingPathComponent("SpendRequirements.json"),
+            promotionLedgerURL: root.appendingPathComponent("PromotionLedger.json"),
+            categoryCustomizationURL: root.appendingPathComponent("CategoryCustomization.json"),
+            propertyLedgerURL: propertyURL)
+        #expect(try PropertyLedgerStore.read(fileURL: propertyURL).activeProperties.isEmpty)
+    }
+
 
     @Test("resetAllData clears spend requirement settings")
     func resetClearsSpendRequirements() throws {

@@ -312,7 +312,7 @@ struct NetWorthCompositionCard: View {
     @ViewBuilder
     private var chart: some View {
         if display.total <= 0 {
-            DashboardChartEmptyState(message: "\(display.footerTitle) must be positive to chart composition.")
+            DashboardChartEmptyState(message: String(localized: "\(display.footerTitle) must be positive to chart composition."))
                 .frame(height: chartHeight)
         } else if chartSlices.isEmpty {
             DashboardChartEmptyState(message: "No positive composition buckets to chart.")

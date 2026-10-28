@@ -60,6 +60,7 @@ private struct PendingReviewRow: View {
     @State private var draftAmount: String = ""
     @State private var draftDescription: String = ""
     @State private var didSeed = false
+    @State private var isEditing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -77,6 +78,7 @@ private struct PendingReviewRow: View {
                 Spacer()
             }
 
+            if isEditing {
             HStack(spacing: 10) {
                 DatePicker("", selection: $draftDate, displayedComponents: .date)
                     .labelsHidden()
@@ -99,6 +101,15 @@ private struct PendingReviewRow: View {
                         .buttonStyle(.glassProminent)
                         .disabled(!canResolve)
                 }
+            }
+            } else {
+                HStack {
+                    if let date = pending.parsedDate { Text(date.formatted(date: .abbreviated, time: .omitted)) }
+                    if let amount = pending.parsedAmount { Text(MoneyFormat.string(amount, code: pending.account?.currency ?? "MXN")) }
+                    if let description = pending.parsedDescription { Text(description) }
+                    Spacer()
+                    Button("Review") { isEditing = true }.buttonStyle(.bordered)
+                }.font(.caption).foregroundStyle(.secondary)
             }
         }
         .onAppear { seedDraftsIfNeeded() }

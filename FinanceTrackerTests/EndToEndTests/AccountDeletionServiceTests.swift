@@ -81,6 +81,101 @@ struct AccountDeletionServiceTests {
         #expect(try context.fetch(FetchDescriptor<PendingImport>()).isEmpty)
     }
 
+    @Test("Archiving and restoring keeps every linked financial record intact")
+    func archiveAndRestorePreservesLinkedRecords() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Broker", type: .investment, nickname: "Long-term")
+        context.insert(account)
+        let statement = Statement(account: account, periodStart: .now, periodEnd: .now, sourceFileHash: "keep")
+        let transaction = Transaction(account: account, statement: statement, postedAt: .now,
+                                      amount: -250, descriptionRaw: "Purchase")
+        let balance = AccountBalanceSnapshot(account: account, date: .now, amount: 10_000,
+                                             kind: .manualOpening)
+        let position = StockPosition(account: account, emisoraSerie: "FEMSAUBD", shares: 2, averageCost: 100)
+        let plan = InstallmentPlan(account: account, originalPurchase: transaction, originalAmount: 1_200,
+                                   totalMonths: 12, currentMonth: 1, monthlyAmount: 100,
+                                   firstChargeDate: .now, merchantDescription: "Purchase")
+        let pending = PendingImport(account: account, statement: statement, rawText: "pending", reason: "test")
+        context.insert(statement)
+        context.insert(transaction)
+        context.insert(balance)
+        context.insert(position)
+        context.insert(plan)
+        context.insert(pending)
+        try context.save()
+
+        let archivedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        try AccountArchiveService.archive(account: account, at: archivedAt, context: context)
+
+        #expect(account.archivedAt == archivedAt)
+        #expect(account.closedAt == nil)
+        #expect(account.lastModifiedAt == archivedAt)
+        #expect(AccountArchiveService.activeAccounts(from: [account]).isEmpty)
+        #expect(AccountArchiveService.archivedAccounts(from: [account]).map(\.id) == [account.id])
+        #expect(try context.fetch(FetchDescriptor<Account>()).map(\.id) == [account.id])
+        #expect(try context.fetch(FetchDescriptor<Statement>()).map(\.id) == [statement.id])
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).map(\.id) == [transaction.id])
+        #expect(try context.fetch(FetchDescriptor<AccountBalanceSnapshot>()).map(\.id) == [balance.id])
+        #expect(try context.fetch(FetchDescriptor<StockPosition>()).map(\.id) == [position.id])
+        #expect(try context.fetch(FetchDescriptor<InstallmentPlan>()).map(\.id) == [plan.id])
+        #expect(try context.fetch(FetchDescriptor<PendingImport>()).map(\.id) == [pending.id])
+
+        let restoredAt = archivedAt.addingTimeInterval(60)
+        try AccountArchiveService.restore(account: account, at: restoredAt, context: context)
+        #expect(account.archivedAt == nil)
+        #expect(account.closedAt == nil)
+        #expect(account.lastModifiedAt == restoredAt)
+        #expect(AccountArchiveService.activeAccounts(from: [account]).map(\.id) == [account.id])
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).map(\.id) == [transaction.id])
+        #expect(try context.fetch(FetchDescriptor<StockPosition>()).map(\.id) == [position.id])
+    }
+
+    @Test("V6 disk stores migrate to V7 with accounts active and transaction links preserved")
+    func migratesV6StoreToV7() throws {
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("finance-account-archive-v6-\(UUID()).store")
+        defer {
+            try? FileManager.default.removeItem(at: storeURL)
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: storeURL.path + "-wal"))
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: storeURL.path + "-shm"))
+        }
+
+        let accountID = UUID()
+        let transactionID = UUID()
+        do {
+            let v6Schema = Schema(versionedSchema: FinanceTrackerSchemaV6.self)
+            let config = ModelConfiguration(schema: v6Schema, url: storeURL)
+            let container = try ModelContainer(for: v6Schema, configurations: [config])
+            let context = container.mainContext
+            let account = FinanceTrackerSchemaV6.Account(
+                id: accountID, institution: "Bank", type: .checking, nickname: "V6 account"
+            )
+            let transaction = FinanceTrackerSchemaV6.Transaction(
+                id: transactionID, account: account, postedAt: .now, amount: -125,
+                descriptionRaw: "V6 transaction"
+            )
+            context.insert(account)
+            context.insert(transaction)
+            try context.save()
+        }
+
+        let config = ModelConfiguration(schema: AppSchema.schema, url: storeURL)
+        let migrated = try ModelContainer(
+            for: AppSchema.schema,
+            migrationPlan: FinanceTrackerMigrationPlan.self,
+            configurations: [config]
+        )
+        let context = migrated.mainContext
+        let account = try #require(try context.fetch(FetchDescriptor<Account>()).first)
+        let transaction = try #require(try context.fetch(FetchDescriptor<Transaction>()).first)
+        #expect(account.id == accountID)
+        #expect(account.archivedAt == nil)
+        #expect(transaction.id == transactionID)
+        #expect(transaction.account?.id == accountID)
+        #expect(transaction.amount == -125)
+    }
+
     @Test("Deleting an account does not delete unrelated accounts or transactions")
     func testIsolation() async throws {
         let container = try makeContainer()

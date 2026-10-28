@@ -8,6 +8,7 @@ struct TransactionFilterBar: View {
     @Binding var categoryFilter: CategoryFilter
     @Binding var assignmentFilter: AssignmentFilter
     @Binding var householdInclusionFilter: HouseholdInclusionFilter
+    @Binding var destinationFilter: TransactionDestinationFilter
     @Binding var presetMonth: YearMonth?
     @Binding var sortMode: TransactionSortMode
     @Binding var showingRecentlyDeleted: Bool
@@ -18,6 +19,7 @@ struct TransactionFilterBar: View {
     let deletedCount: Int
     let visibleCount: Int
     let accounts: [Account]
+    let properties: [PropertyRecord]
     let parentCategories: [Category]
     let childrenOf: (Category) -> [Category]
     let onAssignSelected: (ExpenseAssignment) -> Void
@@ -133,7 +135,9 @@ struct TransactionFilterBar: View {
                 Picker("Account", selection: $accountFilterID) {
                     Text("All Accounts").tag(nil as UUID?)
                     ForEach(accounts, id: \.id) { account in
-                        Text(account.displayName).tag(account.id as UUID?)
+                        Text(account.archivedAt == nil ? account.displayName
+                             : "\(account.displayName) (\(String(localized: "Archived")))")
+                            .tag(account.id as UUID?)
                     }
                 }
             }
@@ -173,6 +177,20 @@ struct TransactionFilterBar: View {
                 }
             }
 
+            filterRow("Destino") {
+                Picker("Destino", selection: $destinationFilter) {
+                    Text("Todos los destinos").tag(TransactionDestinationFilter.all)
+                    Text("Personal").tag(TransactionDestinationFilter.personal)
+                    Text("Hogar").tag(TransactionDestinationFilter.household)
+                    if !properties.isEmpty { Divider() }
+                    ForEach(properties.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) { property in
+                        let inactive = property.deletedAt == nil ? "" : " · Inactiva"
+                        Text("\(property.name)\(inactive)")
+                            .tag(TransactionDestinationFilter.property(property.id))
+                    }
+                }
+            }
+
             if deletedCount > 0 {
                 filterRow("Recently deleted (\(deletedCount))") {
                     Toggle("Recently deleted", isOn: $showingRecentlyDeleted)
@@ -207,6 +225,7 @@ struct TransactionFilterBar: View {
         if categoryFilter != .all { count += 1 }
         if assignmentFilter != .all { count += 1 }
         if householdInclusionFilter != .all { count += 1 }
+        if destinationFilter != .all { count += 1 }
         if showingRecentlyDeleted { count += 1 }
         return count
     }
@@ -217,7 +236,10 @@ struct TransactionFilterBar: View {
 
     private var filteredAccountName: String? {
         guard let accountFilterID else { return nil }
-        return accounts.first { $0.id == accountFilterID }?.displayName
+        guard let account = accounts.first(where: { $0.id == accountFilterID }) else { return nil }
+        return account.archivedAt == nil
+            ? account.displayName
+            : "\(account.displayName) (\(String(localized: "Archived")))"
     }
 
     private var hasClearableCriteria: Bool {
@@ -231,6 +253,7 @@ struct TransactionFilterBar: View {
         categoryFilter = .all
         assignmentFilter = .all
         householdInclusionFilter = .all
+        destinationFilter = .all
         showingRecentlyDeleted = false
         sortMode = .dateDesc
     }

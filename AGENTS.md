@@ -37,6 +37,19 @@ Every user-visible change also requires recorded performance verification under
 `docs/LOOPS.md` §8; do not mark it complete or ready for development validation
 without that evidence.
 
+### Non-disruptive visual validation
+
+Screen capture can interrupt protected video playback even when capturing only
+the Dev app. Before starting a screen-capture or native UI automation session,
+obtain explicit confirmation that the user's screen is available. Approval to
+implement or test a feature alone does not provide that confirmation. If the
+user is watching video, stop captures and UI automation, release the automation
+session, and wait for the user to authorize resuming. Do not inspect the screen
+to detect playback, move or resize windows, change appearance, or toggle
+accessibility settings while that restriction is active. Continue source work,
+builds, and non-capturing automated checks; report the remaining interactive
+verification honestly rather than bypassing the restriction.
+
 
 
 ## Build, Test, and Development Commands
@@ -104,7 +117,7 @@ Pasted text → Detector → PastedHsbc2NowParser → [RawTransaction] + [Pendin
 - **All monetary values are `Decimal`** — never `Double` or `Float` anywhere in `Domain/` (AD-007).
 - **Parsers are account-agnostic** — `StatementParser.parse(data:)` returns `[RawTransaction]` only; account assignment happens in `Normalizer` (AD-008).
 - **Liability balances stored signed-negative** — `Statement.closingBalance < 0` for credit cards so net worth is a plain sum across accounts (AD-010).
-- **Transfers and credit-card payments excluded from cash flow** — `CategoryKind.transfer` and `.creditCardPayment` are filtered from income/expense/cash-flow totals.
+- **Cash Flow is cash-basis** — regular income and expenses count on cash-account transactions; credit-card purchases and card-account movements are excluded until a matching bank payment is recorded. A bank outflow categorized as a card payment, or paired by `transferGroupID` with a credit-card receipt, counts once on its posted date. Other transfers remain excluded. Consumption, category spending, and Household reporting continue to use purchase dates.
 - **Synthesized MSI original-purchase rows excluded from cash flow** — the cash impact lives in the monthly cuotas (AD-012).
 - **`StructuralParser.init?()` returns `nil` if knowledge JSONs are missing** — always handle this nil case.
 - **Statement dedup via SHA-256 hash** of source file bytes or pasted text, checked before any parsing.
@@ -130,7 +143,8 @@ Dashboard work must preserve a clear split between financial semantics and rende
 - Period selection resolves to one `DashboardPeriodContext`. Cards, charts, drill-downs, and breakdown sheets must use that context instead of recomputing local ranges.
 - `dateRange` and `effectiveNetWorthDate` are the source of truth for filtering, totals, and balance resolution. `plotDomain`, bucket centers, grouped-bar layout, and hover state are rendering-only.
 - Month uses the current calendar month to date with daily buckets. Quarter and Year use current calendar windows to date with monthly buckets. All uses all available non-future data. Custom uses the selected local-calendar range capped at today unless future data is explicitly supported.
-- Income, expenses, interest, cash flow, and chart buckets must exclude transfers, credit-card payments, duplicate rows, and synthesized MSI original-purchase rows according to the existing dashboard filters.
+- Consumption and category expenses retain purchase-date semantics. Cash Flow uses cash-account inflows and outflows, counts card purchases only when their bank payment is recorded, and excludes other transfers, duplicates, and synthesized MSI original-purchase rows.
+- Positive manually recorded `Interest` transactions are accrual captures, not single-day earnings. For Income, Interest Earned, Cash Flow, and their breakdowns, distribute each capture evenly from the day after the prior manual capture through the capture date; the first interval starts at account opening. Imported interest remains on its recorded date. The per-account Balance Over Time chart replaces manual capture rows with those daily allocations in its chart-only series; it must not alter stored transactions, persisted balance history, or the current balance resolver. Use `Decimal`, preserve the captured total exactly, and identify the estimate in breakdowns.
 - Net Worth is never a transaction sum. It is a point-in-time balance as of `effectiveNetWorthDate`, using historical snapshots or resolver reconstruction. The Net Worth card, final visible chart point, and breakdown total must match.
 - Net Worth breakdown rows explain account balance provenance, not period activity. Wording must not imply that prior snapshots or reconstruction anchors are transactions inside the selected period.
 - Cash Flow and Charges vs Payments are period-comparison charts, not date-scale charts. Render them through the shared grouped-period bar renderer: `All` skips inactive buckets; bounded Month/Quarter/Year/Custom trim inactive edges but preserve inactive buckets between active buckets as subtle zero placeholders.
@@ -193,6 +207,11 @@ Do not add broad `@Query<Transaction>` to views that can appear when there are z
 
 ### Interface composition
 
+Follow the existing tokens, row actions, tables and forms documented in [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md).
+
+- Show saved values in consultation mode and expose direct Edit or Change actions. Open controls directly when the user has already chosen an explicit editing action; keep drafts and errors on save failure.
+
+- Follow the app's Liquid Glass visual language across primary screens, including Properties: inherit the shared `AppBackdrop`, reuse `GlassCard` and native materials with the existing radii/tokens, and keep content legible. Do not cover the shared backdrop with opaque white screen or table backgrounds. Check light/dark appearance and system accessibility settings when screen validation is available.
 - Related values stay visually close; controls and repeated data columns share alignment and width.
 - Equal-width cards in the same row also share header, plot, and footer proportions. Do not use empty space to force height symmetry or leave a long detail list beside a short chart.
 - Keep primary screens compact and readable at wide and narrow window sizes, with supporting detail one clear action away.

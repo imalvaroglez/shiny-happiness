@@ -21,7 +21,9 @@ struct TransactionLedgerRow: View {
     var wideLayout = false
     var showsAccount = true
     var promotionCount = 0
+    var propertyDestinationLabel: String? = nil
     let onOpenDetail: () -> Void
+    var onEditDetail: (() -> Void)? = nil
     let onOpenCategoryPicker: () -> Void
     let onDelete: () -> Void
     let onRestore: () -> Void
@@ -60,7 +62,7 @@ struct TransactionLedgerRow: View {
             if isDeletedMode {
                 Button("Restore") { onRestore() }
             } else {
-                Button("Edit") { onOpenDetail() }
+                Button("Edit") { if let onEditDetail { onEditDetail() } else { onOpenDetail() } }
                 Button("Change Category") { onOpenCategoryPicker() }
                 Button("Apply to Similar…") { onApplyToSimilar() }
                 if isHouseholdEligible {
@@ -144,6 +146,14 @@ struct TransactionLedgerRow: View {
                         Text("••••\(card)").lineLimit(1)
                     }
                     promotionBadge
+                    if let propertyDestinationLabel {
+                        Text(propertyDestinationLabel)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(propertyDestinationLabel)
+                            .accessibilityLabel("Destino de propiedad: \(propertyDestinationLabel)")
+                            .accessibilityIdentifier("transaction.row.propertyAttribution")
+                    }
                     if transaction.expenseAssignment != .user {
                         Text(transaction.expenseAssignment.displayName).lineLimit(1)
                     }
@@ -213,6 +223,7 @@ struct TransactionLedgerRow: View {
         if transaction.expenseAssignment != .user {
             parts.append(transaction.expenseAssignment.displayName)
         }
+        if let propertyDestinationLabel { parts.append(propertyDestinationLabel) }
         return parts
     }
 

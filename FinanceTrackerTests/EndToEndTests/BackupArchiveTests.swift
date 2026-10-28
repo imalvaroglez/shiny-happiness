@@ -277,6 +277,11 @@ struct BackupArchiveTests {
     func roundTripReplaceAll() async throws {
         let source = try makePopulatedContainer()
         let sourceContext = source.mainContext
+        let sourceAccount = try #require(try sourceContext.fetch(FetchDescriptor<Account>()).first)
+        let archivedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        sourceAccount.archivedAt = archivedAt
+        sourceAccount.lastModifiedAt = archivedAt
+        try sourceContext.save()
 
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-backup-\(UUID()).ftbackup", isDirectory: true)
@@ -289,9 +294,68 @@ struct BackupArchiveTests {
         let accounts = try target.mainContext.fetch(FetchDescriptor<Account>())
         let txns = try target.mainContext.fetch(FetchDescriptor<Transaction>())
         #expect(accounts.count >= 1, "Should have at least 1 account")
+        #expect(accounts.first(where: { $0.id == sourceAccount.id })?.archivedAt == archivedAt)
         #expect(txns.count == 3, "Should have exactly 3 transactions, got \(txns.count)")
 
         try? FileManager.default.removeItem(at: tmp)
+    }
+
+    @Test("Legacy schema 11 replacement activates accounts and merge preserves local archive state")
+    func legacyAccountArchiveCompatibility() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-account-archive-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("legacy.ftbackup", isDirectory: true)
+        let accountID = UUID()
+
+        let source = try makeContainer()
+        let sourceAccount = Account(id: accountID, institution: "Bank", type: .checking,
+                                    nickname: "Backup account")
+        sourceAccount.lastModifiedAt = Date(timeIntervalSince1970: 1_800_000_100)
+        source.mainContext.insert(sourceAccount)
+        try source.mainContext.save()
+        try await BackupArchive.export(to: bundle, from: source.mainContext,
+                                       promotionLedgerURL: root.appendingPathComponent("source/PromotionLedger.json"))
+
+        let accountsURL = bundle.appendingPathComponent("models/Account.json")
+        var accountObjects = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: accountsURL)) as? [[String: Any]]
+        )
+        accountObjects[0].removeValue(forKey: "archivedAt")
+        try JSONSerialization.data(withJSONObject: accountObjects, options: [.prettyPrinted, .sortedKeys])
+            .write(to: accountsURL)
+
+        let manifestURL = bundle.appendingPathComponent("manifest.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.schemaVersion = 11
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: manifestURL)
+        try updateManifestHash(for: "Account", in: bundle)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 11)
+
+        let target = try makeContainer()
+        let localArchiveDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let local = Account(id: accountID, institution: "Local Bank", type: .checking,
+                            nickname: "Local account", archivedAt: localArchiveDate)
+        local.lastModifiedAt = Date(timeIntervalSince1970: 1_700_000_050)
+        target.mainContext.insert(local)
+        try target.mainContext.save()
+        try await BackupArchive.restore(from: bundle, into: target.mainContext,
+                                        strategy: .mergeKeepingNewer,
+                                        promotionLedgerURL: root.appendingPathComponent("merge/PromotionLedger.json"))
+        let merged = try #require(try target.mainContext.fetch(FetchDescriptor<Account>()).first)
+        #expect(merged.nickname == "Backup account")
+        #expect(merged.archivedAt == localArchiveDate)
+
+        try await BackupArchive.restore(from: bundle, into: target.mainContext,
+                                        strategy: .replaceAll,
+                                        promotionLedgerURL: root.appendingPathComponent("replace/PromotionLedger.json"))
+        let replaced = try #require(try target.mainContext.fetch(FetchDescriptor<Account>()).first)
+        #expect(replaced.id == accountID)
+        #expect(replaced.archivedAt == nil)
     }
 
     @Test("mergeKeepingNewer keeps the row with the later lastModifiedAt")
@@ -462,7 +526,7 @@ struct BackupArchiveTests {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
 
-        #expect(manifest.schemaVersion == 11)
+        #expect(manifest.schemaVersion == 14)
         #expect(!manifest.contentHashes.isEmpty, "Manifest should have content hashes")
 
         for (name, _) in manifest.contentHashes {
@@ -505,7 +569,7 @@ struct BackupArchiveTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
-        #expect(manifest.schemaVersion == 11)
+        #expect(manifest.schemaVersion == 14)
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("models/PromotionLedger.json").path))
         #expect(!FileManager.default.fileExists(atPath: bundle.appendingPathComponent("models/PromotionOverrides.json").path),
                 "El manifest 10 ya no exporta el store retirado del V1")
@@ -644,7 +708,7 @@ struct BackupArchiveTests {
         try await BackupArchive.export(to: bundle, from: source.mainContext,
                                        promotionLedgerURL: root.appendingPathComponent("source/PromotionLedger.json"),
                                        spendRequirementsURL: sourceStore)
-        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 11)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 14)
 
         let target = try makeContainer()
         var newer = requirement
@@ -1183,7 +1247,7 @@ struct BackupArchiveTests {
                 "el rollback del ledger restaura el contenido previo")
     }
 
-    @Test("La personalización de categorías round-tripea en v11 y respeta estrategia en ≤10")
+    @Test("La personalización de categorías round-tripea en v14 y respeta estrategia en ≤10")
     func categoryCustomizationRoundTrip() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cat-custom-backup-\(UUID())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1204,7 +1268,7 @@ struct BackupArchiveTests {
         let source = try makeContainer()
         try await BackupArchive.export(to: bundle, from: source.mainContext,
                                        categoryCustomizationURL: sourceStore)
-        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 11)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 14)
 
         // replaceAll: aplica el catálogo del backup.
         let target = try makeContainer()
@@ -1266,6 +1330,59 @@ extension BackupArchiveTests {
             #expect(!error.failures.isEmpty)
             #expect(try Data(contentsOf: files.directory.appendingPathComponent("original-0-PromotionLedger.json")) == original)
         }
+    }
+
+    @Test("Property ledger uses schema 14 and legacy backups clear only on replaceAll")
+    func propertyLedgerBackupRoundTrip() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("property-backup-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        let sourceURL = root.appendingPathComponent("source/PropertyLedger.json")
+        let targetURL = root.appendingPathComponent("target/PropertyLedger.json")
+        let source = try makeContainer()
+        var sourceLedger = PropertyLedger()
+        let sourceProperty = PropertyRecord(name: "Casa origen")
+        sourceLedger.properties = [sourceProperty]
+        try PropertyLedgerStore.replace(with: sourceLedger, at: sourceURL)
+        try await BackupArchive.export(to: bundle, from: source.mainContext, propertyLedgerURL: sourceURL)
+
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 14)
+        #expect(BackupArchive.summary(at: bundle)?.url == bundle)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let savedProperties = try decoder.decode([PropertyLedger].self,
+            from: Data(contentsOf: bundle.appendingPathComponent("models/PropertyLedger.json")))
+        #expect(savedProperties.count == 1)
+        #expect(savedProperties.first?.activeProperties.map(\.name) == ["Casa origen"])
+
+        let target = try makeContainer()
+        var localLedger = PropertyLedger()
+        localLedger.properties = [PropertyRecord(name: "Casa local")]
+        try PropertyLedgerStore.replace(with: localLedger, at: targetURL)
+        let promoURL = root.appendingPathComponent("target/PromotionLedger.json")
+        let spendURL = root.appendingPathComponent("target/SpendRequirements.json")
+        let customURL = root.appendingPathComponent("target/CategoryCustomization.json")
+        try await BackupArchive.restore(from: bundle, into: target.mainContext, strategy: .replaceAll,
+            promotionLedgerURL: promoURL, spendRequirementsURL: spendURL,
+            categoryCustomizationURL: customURL, statementsDestination: root.appendingPathComponent("target/Statements"),
+            propertyLedgerURL: targetURL)
+        #expect(try PropertyLedgerStore.read(fileURL: targetURL).activeProperties.map(\.name) == ["Casa origen"])
+
+        try PropertyLedgerStore.replace(with: localLedger, at: targetURL)
+        let legacyBundle = root.appendingPathComponent("legacy.ftbackup", isDirectory: true)
+        try writeLegacyBundle(schemaVersion: 12, to: legacyBundle)
+        try await BackupArchive.restore(from: legacyBundle, into: target.mainContext, strategy: .replaceAll,
+            promotionLedgerURL: promoURL, spendRequirementsURL: spendURL,
+            categoryCustomizationURL: customURL, statementsDestination: root.appendingPathComponent("target/Statements"),
+            propertyLedgerURL: targetURL)
+        #expect(try PropertyLedgerStore.read(fileURL: targetURL).activeProperties.isEmpty)
+
+        try PropertyLedgerStore.replace(with: localLedger, at: targetURL)
+        try await BackupArchive.restore(from: legacyBundle, into: target.mainContext, strategy: .mergeKeepingNewer,
+            promotionLedgerURL: promoURL, spendRequirementsURL: spendURL,
+            categoryCustomizationURL: customURL, statementsDestination: root.appendingPathComponent("target/Statements"),
+            propertyLedgerURL: targetURL)
+        #expect(try PropertyLedgerStore.read(fileURL: targetURL).activeProperties.map(\.name) == ["Casa local"])
     }
 
     @Test("Restore failure preserves disk data and exact sidecar bytes", arguments: BackupArchive.RestoreCheckpoint.allCases, [false, true])

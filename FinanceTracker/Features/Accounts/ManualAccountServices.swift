@@ -35,11 +35,12 @@ enum ManualAccountKind: String, CaseIterable, Identifiable {
     }
 }
 
-enum ManualAccountError: LocalizedError {
+enum ManualAccountError: LocalizedError, Equatable {
     case emptyName
     case emptyInstitution
     case invalidAmount
     case missingAccount
+    case accountUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -47,7 +48,35 @@ enum ManualAccountError: LocalizedError {
         case .emptyInstitution: "Enter an institution or lender."
         case .invalidAmount: "Enter a valid non-negative amount."
         case .missingAccount: "Choose an account."
+        case .accountUnavailable: "This account is archived or closed. Restore it before capturing movements."
         }
+    }
+}
+
+extension Account {
+    /// Capture availability shared by every entry point: a movement may only be
+    /// registered on an account that is neither archived nor closed.
+    var isAvailableForCapture: Bool { archivedAt == nil && closedAt == nil }
+}
+
+/// The service-side availability barrier. The `Account` a caller hands in may
+/// be stale — another window may have archived, closed, or deleted it after
+/// the caller loaded it — so availability is re-read from the store in a
+/// brand-new `ModelContext` of the same container (autosave off). The fresh
+/// object is read-only here: it is never inserted, mutated, or linked back
+/// into the caller's context. An account that no longer exists persisted-state
+/// is rejected just like an archived or closed one.
+@MainActor
+enum AccountCaptureValidation {
+    static func ensureAvailable(_ account: Account, context: ModelContext) throws {
+        let freshContext = ModelContext(context.container)
+        freshContext.autosaveEnabled = false
+        let id = account.id
+        var descriptor = FetchDescriptor<Account>(predicate: #Predicate<Account> { $0.id == id })
+        descriptor.fetchLimit = 1
+        guard let fresh = try freshContext.fetch(descriptor).first,
+              fresh.isAvailableForCapture
+        else { throw ManualAccountError.accountUnavailable }
     }
 }
 
@@ -167,6 +196,10 @@ enum BalanceSnapshotService {
         note: String?,
         context: ModelContext
     ) throws -> AccountBalanceSnapshot {
+        // Same fresh-state barrier as movements and transfers: a valuation on
+        // an archived, closed, or vanished account is rejected with zero
+        // insertions — no snapshot and no mirror transaction.
+        try AccountCaptureValidation.ensureAvailable(account, context: context)
         guard displayAmount >= 0 else { throw ManualAccountError.invalidAmount }
         let signed = account.type.isLiability ? -abs(displayAmount) : abs(displayAmount)
         let snapshot = AccountBalanceSnapshot(
@@ -228,6 +261,11 @@ enum BalanceSnapshotService {
 
 @MainActor
 enum ManualTransactionService {
+    /// Test seam over the post-insert save: when true, the save fails so tests
+    /// can prove a rejected capture publishes nothing later. Production never
+    /// sets it and always runs the real save.
+    static var willFailIncomeSave = false
+
     @discardableResult
     static func create(
         account: Account,
@@ -239,11 +277,18 @@ enum ManualTransactionService {
         treatmentKindRaw: String? = nil,
         expenseAssignment: ExpenseAssignment = .user,
         householdScope: HouseholdScope = .excluded,
+        id: UUID? = nil,
         context: ModelContext
     ) throws -> Transaction {
+        // Barrier before any construction: an archived, closed, or vanished
+        // account must be rejected with zero insertions.
+        try AccountCaptureValidation.ensureAvailable(account, context: context)
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw ManualAccountError.emptyName }
+        // A caller-supplied id lets the property workspace pin its recovery
+        // marker UUID before the income exists.
         let tx = Transaction(
+            id: id ?? UUID(),
             account: account,
             postedAt: date,
             amount: signedAmount,
@@ -263,9 +308,22 @@ enum ManualTransactionService {
             householdScopeRaw: householdScope.rawValue
         )
         context.insert(tx)
-        try context.save()
+        do {
+            try commitInsert(context)
+        } catch {
+            // A failed save must not leave the movement pending in the context,
+            // publishable later by an unrelated save or autosave. The delete is
+            // surgical: every other draft in the context stays untouched.
+            context.delete(tx)
+            throw error
+        }
         ManualCaptureDateStore.recordSuccessfulCapture(accountID: account.id, date: date)
         return tx
+    }
+
+    private static func commitInsert(_ context: ModelContext) throws {
+        if willFailIncomeSave { throw CocoaError(.fileWriteUnknown) }
+        try context.save()
     }
 
     private static func defaultTreatmentKind(account: Account, description: String) -> TransactionTreatmentKind {
@@ -299,6 +357,10 @@ enum ManualTransferService {
         context: ModelContext
     ) throws -> (outflow: Transaction, inflow: Transaction) {
         guard amount >= 0 else { throw ManualAccountError.invalidAmount }
+        // Both legs must clear the fresh-state barrier before anything is
+        // built or inserted, so a rejection leaves no partial writes behind.
+        try AccountCaptureValidation.ensureAvailable(source, context: context)
+        try AccountCaptureValidation.ensureAvailable(destination, context: context)
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         let description = trimmed.isEmpty ? "Transfer" : trimmed
         let groupID = UUID()

@@ -8,6 +8,16 @@ enum DashboardPeriodKind: String, CaseIterable, Sendable {
     case all = "All"
     case custom = "Custom"
 
+    var localizedTitle: LocalizedStringKey {
+        switch self {
+        case .month: "Month"
+        case .quarter: "Quarter"
+        case .year: "Year"
+        case .all: "All time"
+        case .custom: "Custom"
+        }
+    }
+
     func resolvedRange(now: Date = .now, customRange: DateRange? = nil) -> DateRange {
         let calendar = Calendar(identifier: .gregorian)
         switch self {
