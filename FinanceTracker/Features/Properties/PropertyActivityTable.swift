@@ -219,9 +219,26 @@ struct PropertyActivityTable: View {
         }
     }
 
+    /// Master checkbox in the header's selection column: selects (or clears)
+    /// every assignable row currently visible under the column filters, so a
+    /// bulk reassignment never starts row by row.
+    private var selectAllToggle: some View {
+        let assignable = Set(filteredRows.filter(\.canAssign).map(\.id))
+        return Toggle("Select all transactions", isOn: Binding(
+            get: { !assignable.isEmpty && assignable.isSubset(of: selection) },
+            set: { selectAll in
+                if selectAll { selection.formUnion(assignable) } else { selection.subtract(assignable) }
+            }))
+            .toggleStyle(.checkbox)
+            .labelsHidden()
+            .disabled(assignable.isEmpty)
+            .accessibilityLabel("Select all transactions")
+            .frame(width: PropertyActivityLayout.selection)
+    }
+
     private var header: some View {
         HStack(spacing: PropertyActivityLayout.spacing) {
-            Text("").frame(width: PropertyActivityLayout.selection)
+            selectAllToggle
             sortHeader(.date).frame(width: PropertyActivityLayout.date, alignment: .leading)
             sortHeader(.concept).frame(minWidth: PropertyActivityLayout.concept, maxWidth: .infinity, alignment: .leading)
             accountFilterMenu
