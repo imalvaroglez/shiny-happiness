@@ -257,7 +257,9 @@ private struct PropertyIncomeTableRow: View {
                     save(value, false) ? nil : String(localized: "Could not save the income. Try again.")
                 }, fieldLabel: "Monthly income for \(row.name), Mexican pesos",
                     changeAccessibilityLabel: Text("Change monthly income for \(row.name)"),
+                    changeTriggerShowsValue: true,
                     onEditingChange: { editingIncome = $0 })
+                .monospacedDigit()
             }
             if !row.former { status }
         }
