@@ -747,6 +747,227 @@ struct PropertyCollectionPostingTests {
         #expect(reopened.reports[house.id]?.residents.first?.balance == 0)
     }
 
+    /// Marker writes must land while only the applications write fails, so the
+    /// injected writer throws exactly once and only on a ledger that already
+    /// carries payment applications.
+    private struct PendingLinkFailureWriter {
+        private var failApplicationsWrite = true
+        enum WriteFailure: Error { case write }
+
+        mutating func write(_ proposed: PropertyLedger, at path: URL?) throws {
+            if failApplicationsWrite && !proposed.paymentApplications.isEmpty {
+                failApplicationsWrite = false
+                throw WriteFailure.write
+            }
+            try PropertyLedgerStore.replace(with: proposed, at: path, notify: false)
+        }
+    }
+
+    @Test("Pending link recovery survives reopen from disk")
+    @MainActor
+    func pendingLinkRecoverySurvivesReopenFromDisk() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pending-link-reopen-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let storeURL = root.appendingPathComponent("store.sqlite")
+        var container: ModelContainer? = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, url: storeURL)])
+        let context = try #require(container).mainContext
+        let account = Account(institution: "Banco sintético", type: .checking, currency: "MXN")
+        context.insert(account)
+        try context.save()
+        var (ledger, house, resident, _) = fixture(rent: 100, expense: 0)
+        ledger.rents[0].effectiveMonth = date(9)
+        let url = root.appendingPathComponent("PropertyLedger.json")
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        var writer = PendingLinkFailureWriter()
+        var workspace: PropertyWorkspaceModel? = PropertyWorkspaceModel(month: date(9), fileURL: url,
+            writeLedger: { proposed, path in try writer.write(proposed, at: path) })
+        workspace?.configure(context: context, hasAccounts: true)
+        await workspace?.loadLedger()
+        await workspace?.refreshPeriod()
+        workspace?.destination = .property(house.id)
+        let outcome = workspace?.registerCollection(propertyID: house.id, residentID: resident.id,
+            account: account, amount: 100, date: date(9, 10))
+        workspace = nil
+        container = nil
+        guard case .needsLink(let incomeID)? = outcome else {
+            Issue.record("Expected the interrupted link to report the receipt UUID")
+            return
+        }
+        // The income and its marker are both durable; only the applications failed.
+        let stored = try PropertyLedgerStore.read(fileURL: url)
+        #expect(stored.paymentApplications.isEmpty)
+        #expect(stored.pendingLinks.map(\.paymentTransactionID) == [incomeID])
+        #expect(stored.pendingLinks[0].amount == 100)
+        // Drop the workspace entirely: a fresh model, ledger, and SwiftData store
+        // reloaded from disk still find exactly that one collection by UUID.
+        let reopenedContainer = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, url: storeURL)])
+        let reopened = PropertyWorkspaceModel(month: date(9), fileURL: url)
+        reopened.configure(context: reopenedContainer.mainContext, hasAccounts: true)
+        await reopened.loadLedger()
+        await reopened.refreshPeriod()
+        reopened.destination = .property(house.id)
+        let recovered = reopened.pendingLinkCollections(propertyID: house.id)
+        #expect(recovered.count == 1)
+        #expect(recovered.first?.link.paymentTransactionID == incomeID)
+        #expect(recovered.first?.link.amount == 100)
+        #expect(recovered.first?.input?.id == incomeID)
+        #expect(recovered.first?.input?.amount == 100)
+    }
+
+    @Test("Pending link ignores renames and other income")
+    @MainActor
+    func pendingLinkIgnoresRenamesAndOtherIncome() async throws {
+        let container = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, isStoredInMemoryOnly: true)])
+        let context = container.mainContext
+        let account = Account(institution: "Banco sintético", type: .checking, currency: "MXN")
+        context.insert(account)
+        try context.save()
+        var (ledger, house, resident, _) = fixture(rent: 100, expense: 0)
+        ledger.rents[0].effectiveMonth = date(9)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("pending-link-renames-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        var writer = PendingLinkFailureWriter()
+        let workspace = PropertyWorkspaceModel(month: date(9), fileURL: url,
+            writeLedger: { proposed, path in try writer.write(proposed, at: path) })
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.loadLedger()
+        await workspace.refreshPeriod()
+        workspace.destination = .property(house.id)
+        let outcome = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
+            account: account, amount: 100, date: date(9, 10))
+        guard case .needsLink(let incomeID) = outcome else {
+            Issue.record("Expected the interrupted link to report the receipt UUID")
+            return
+        }
+        #expect(workspace.renameMember(id: resident.id, name: "Integrante renombrado"))
+        workspace.ledger.properties[0].name = "Casa renombrada"
+        #expect(workspace.save())
+        let other = ModelContext(container)
+        let income = try #require(other.fetch(FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.id == incomeID })).first)
+        let originalDescription = income.descriptionRaw
+        income.descriptionRaw = "Otro concepto del mismo cobro"
+        try other.save()
+        // A look-alike income carrying the original description must never
+        // hijack the marker: recovery keys on UUIDs, never on text.
+        let salary = try ManualTransactionService.create(account: account, date: date(9, 11),
+            description: originalDescription, signedAmount: 5_000, category: nil,
+            flowKindRaw: TransactionFlowKind.income.rawValue,
+            treatmentKindRaw: TransactionTreatmentKind.regular.rawValue, context: context)
+        let links = workspace.pendingLinkCollections(propertyID: house.id)
+        #expect(links.count == 1)
+        #expect(links.first?.link.paymentTransactionID == incomeID)
+        #expect(links.first?.link.residentID == resident.id)
+        #expect(links.first?.input?.id == incomeID)
+        #expect(links.first?.input?.description == "Otro concepto del mismo cobro")
+        #expect(links.allSatisfy { $0.input?.id != salary.id })
+    }
+
+    @Test("Pending link clears on completed link")
+    @MainActor
+    func pendingLinkClearsOnCompletedLink() async throws {
+        let container = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, isStoredInMemoryOnly: true)])
+        let context = container.mainContext
+        let account = Account(institution: "Banco sintético", type: .checking, currency: "MXN")
+        context.insert(account)
+        try context.save()
+        var (ledger, house, resident, _) = fixture(rent: 100, expense: 0)
+        ledger.rents[0].effectiveMonth = date(9)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("pending-link-clears-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        var writer = PendingLinkFailureWriter()
+        let workspace = PropertyWorkspaceModel(month: date(9), fileURL: url,
+            writeLedger: { proposed, path in try writer.write(proposed, at: path) })
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.loadLedger()
+        await workspace.refreshPeriod()
+        workspace.destination = .property(house.id)
+        let first = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
+            account: account, amount: 100, date: date(9, 10))
+        guard case .needsLink(let incomeID) = first else {
+            Issue.record("Expected the interrupted link to report the receipt UUID")
+            return
+        }
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.map(\.paymentTransactionID) == [incomeID])
+        let second = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
+            account: nil, amount: 100, date: date(9, 10), pendingTransactionID: incomeID)
+        guard case .saved = second else { Issue.record("Retry should complete the link"); return }
+        // The same final write that persists the applications clears the marker.
+        let stored = try PropertyLedgerStore.read(fileURL: url)
+        #expect(stored.pendingLinks.isEmpty)
+        #expect(stored.paymentApplications.count == 1)
+        await workspace.refreshPeriod(force: true)
+        #expect(workspace.reports[house.id]?.residents.first?.balance == 0)
+    }
+
+    @Test("Pending links decode with a default, validate, and merge newest-wins")
+    func pendingLinkStoreFieldDefaultsValidatesAndMerges() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pending-link-store-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("PropertyLedger.json")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let house = PropertyRecord(name: "Casa sintética")
+        var ledger = PropertyLedger()
+        ledger.properties = [house]
+        // A schemaVersion 2 file written before the field existed carries no
+        // pendingLinks key at all; it must decode with an empty marker list.
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var object = try #require(JSONSerialization.jsonObject(with: encoder.encode(ledger)) as? [String: Any])
+        object.removeValue(forKey: "pendingLinks")
+        try JSONSerialization.data(withJSONObject: object).write(to: url)
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.isEmpty)
+
+        var unknownProperty = ledger
+        unknownProperty.pendingLinks = [PropertyPaymentPendingLink(propertyID: UUID(), residentID: UUID(),
+            paymentTransactionID: UUID(), amount: 100)]
+        #expect(!PropertyLedgerStore.validate(unknownProperty).isEmpty)
+        var nonPositive = ledger
+        nonPositive.pendingLinks = [PropertyPaymentPendingLink(propertyID: house.id, residentID: UUID(),
+            paymentTransactionID: UUID(), amount: 0)]
+        #expect(!PropertyLedgerStore.validate(nonPositive).isEmpty)
+        var valid = ledger
+        valid.pendingLinks = [PropertyPaymentPendingLink(propertyID: house.id, residentID: UUID(),
+            paymentTransactionID: UUID(), amount: 100)]
+        #expect(PropertyLedgerStore.validate(valid).isEmpty)
+
+        let paymentID = UUID()
+        try PropertyLedgerStore.replace(with: valid, at: url, notify: false)
+        var olderLocal = valid
+        olderLocal.pendingLinks = [PropertyPaymentPendingLink(propertyID: house.id, residentID: UUID(),
+            paymentTransactionID: paymentID, amount: 100, createdAt: date(9, 10))]
+        try PropertyLedgerStore.replace(with: olderLocal, at: url, notify: false)
+        var newerIncoming = valid
+        newerIncoming.pendingLinks = [PropertyPaymentPendingLink(propertyID: house.id, residentID: UUID(),
+            paymentTransactionID: paymentID, amount: 250, createdAt: date(9, 20))]
+        _ = try PropertyLedgerStore.merge(newerIncoming, at: url, notify: false)
+        var merged = try PropertyLedgerStore.read(fileURL: url)
+        #expect(merged.pendingLinks.count == 1)
+        #expect(merged.pendingLinks[0].amount == 250)
+        // A live marker is preferred over a tombstone of the same receipt, even
+        // when the tombstone is the newer row.
+        var tombstoned = olderLocal
+        tombstoned.pendingLinks[0].deletedAt = date(9, 25)
+        try PropertyLedgerStore.replace(with: tombstoned, at: url, notify: false)
+        var liveIncoming = valid
+        liveIncoming.pendingLinks = [PropertyPaymentPendingLink(propertyID: house.id, residentID: UUID(),
+            paymentTransactionID: paymentID, amount: 300, createdAt: date(9, 5))]
+        _ = try PropertyLedgerStore.merge(liveIncoming, at: url, notify: false)
+        merged = try PropertyLedgerStore.read(fileURL: url)
+        #expect(merged.pendingLinks.count == 1)
+        #expect(merged.pendingLinks[0].deletedAt == nil)
+        #expect(merged.pendingLinks[0].amount == 300)
+    }
+
     @Test("A real receipt on a credit-card account is linked and retains its account type")
     @MainActor
     func collectionOnCardAccount() async throws {

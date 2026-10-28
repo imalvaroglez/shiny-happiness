@@ -546,6 +546,38 @@ final class PropertyWorkspaceModel {
         }
     }
 
+    /// Captures whose income is real but whose property link has not completed.
+    /// The marker is workflow state keyed by UUID, so renames, description edits,
+    /// and look-alike incomes never confuse it. Markers whose movement no longer
+    /// exists are retired here — they are not financial data — and never surface.
+    func pendingLinkCollections(propertyID: UUID) -> [(link: PropertyPaymentPendingLink, input: PropertyTransactionInput?)] {
+        guard let context else { return [] }
+        let markers = ledger.pendingLinks.filter { $0.propertyID == propertyID && $0.deletedAt == nil }
+        guard !markers.isEmpty else { return [] }
+        let ids = Array(Set(markers.map(\.paymentTransactionID)))
+        let freshContext = ModelContext(context.container)
+        freshContext.autosaveEnabled = false
+        let fetched = (try? freshContext.fetch(FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { ids.contains($0.id) }))) ?? []
+        let inputsByID = Dictionary(fetched.map { ($0.id, PropertyTransactionInput(capturing: $0)) },
+                                    uniquingKeysWith: { first, _ in first })
+        var result: [(link: PropertyPaymentPendingLink, input: PropertyTransactionInput?)] = []
+        var vanished = Set<UUID>()
+        for marker in markers {
+            guard let input = inputsByID[marker.paymentTransactionID] else {
+                vanished.insert(marker.paymentTransactionID)
+                continue
+            }
+            if result.contains(where: { $0.link.paymentTransactionID == marker.paymentTransactionID }) { continue }
+            result.append((marker, input))
+        }
+        if !vanished.isEmpty {
+            ledger.pendingLinks.removeAll { vanished.contains($0.paymentTransactionID) }
+            save()
+        }
+        return result
+    }
+
     enum CollectionOutcome {
         case saved
         case needsLink(UUID)
@@ -628,6 +660,35 @@ final class PropertyWorkspaceModel {
                     context: context)
             } catch { return .rejected(error.localizedDescription) }
         }
+        // The income is real from here on. Pin it durably before any property
+        // write so an interrupted link survives reloads and stays recoverable
+        // by UUID; retries reuse the same marker instead of duplicating it.
+        do {
+            try checkAssignmentRevision()
+            var withMarker = ledger
+            if destination == .household, withMarker.householdLink == nil {
+                let link = PropertyHouseholdAdapter.link
+                withMarker.householdLink = link
+                withMarker.properties.append(PropertyRecord(id: link.propertyID, name: PropertyDestination.householdName))
+                withMarker.residents.append(PropertyResident(id: link.userID, propertyID: link.propertyID,
+                    name: String(localized: "You"), activeFrom: .distantPast))
+                withMarker.residents.append(PropertyResident(id: link.partnerID, propertyID: link.propertyID,
+                    name: "Fer", activeFrom: .distantPast))
+            }
+            if let index = withMarker.pendingLinks.firstIndex(where: {
+                $0.paymentTransactionID == transaction.id && $0.deletedAt == nil
+            }) {
+                withMarker.pendingLinks[index].propertyID = propertyID
+                withMarker.pendingLinks[index].residentID = residentID
+                withMarker.pendingLinks[index].amount = amount
+            } else {
+                withMarker.pendingLinks.append(PropertyPaymentPendingLink(
+                    propertyID: propertyID, residentID: residentID,
+                    paymentTransactionID: transaction.id, amount: amount))
+            }
+            ledger = withMarker
+            guard save() else { return .needsLink(transaction.id) }
+        } catch { return .rejected(error.localizedDescription) }
         let source = PropertyTransactionInput(capturing: transaction)
         guard source.amount == amount,
               PropertySettlementCalculator.isValidCollectionPayment(source, asOf: max(asOf, .now)) else {
@@ -677,6 +738,12 @@ final class PropertyWorkspaceModel {
             // A lost save response can be retried safely: a fully used receipt has
             // no new applications unless an existing advance now covers a due month.
             if proposal.applications.isEmpty && proposal.updatedAdvances.isEmpty {
+                if ledger.pendingLinks.contains(where: {
+                    $0.paymentTransactionID == source.id && $0.deletedAt == nil
+                }) {
+                    ledger.pendingLinks.removeAll { $0.paymentTransactionID == source.id }
+                    guard save() else { return .needsLink(source.id) }
+                }
                 Task { await refreshPeriod(force: true) }
                 return .saved
             }
@@ -685,6 +752,8 @@ final class PropertyWorkspaceModel {
                 updated.paymentApplications[index] = changed
             }
             updated.paymentApplications.append(contentsOf: proposal.applications)
+            // The link completed: the marker leaves in the same final write.
+            updated.pendingLinks.removeAll { $0.paymentTransactionID == source.id }
             ledger = updated
             guard save() else { return .needsLink(source.id) }
             asOf = max(asOf, .now)

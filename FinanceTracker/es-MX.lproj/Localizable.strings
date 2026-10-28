@@ -796,16 +796,13 @@
 "Contributions pending calculation" = "Aportaciones por calcular";
 
 "%@ (estimated)" = "%@ (estimado)";
-"Register collection" = "Registrar cobro";
-"Register collection…" = "Registrar cobro…";
-"Reconcile existing receipt" = "Conciliar cobro existente";
-"Reconcile existing receipt…" = "Conciliar cobro existente…";
 "Registered income" = "Ingreso registrado";
 "Choose a receipt" = "Elige un cobro";
 "Choose an account" = "Elige una cuenta";
 "Amount in MXN" = "Importe en MXN";
-"Save collection" = "Guardar cobro";
-"Reconcile receipt" = "Conciliar cobro";
+"Save payment" = "Guardar pago";
+"A payment income is waiting to be linked to this home." = "Un ingreso de cobro espera ser vinculado a esta casa.";
+"Link it now" = "Vincular ahora";
 "Retry linking" = "Reintentar vinculación";
 "The income was saved to the account, but its property payment is pending. Retry linking this receipt; another income will not be created." = "El ingreso se guardó en la cuenta, pero falta vincular el cobro a la propiedad. Reintenta la vinculación; no se creará otro ingreso.";
 "Create an active MXN cash account in Accounts to register a collection." = "Crea una cuenta de efectivo activa en MXN en Cuentas para registrar un cobro.";
@@ -865,6 +862,7 @@
 "A previous advance changed. Review its receipt and applications before applying it." = "Un anticipo anterior cambió. Revisa su cobro y sus aplicaciones antes de aplicarlo.";
 "No pending balance is available for this advance." = "No hay saldo pendiente disponible para este anticipo.";
 "Register payment" = "Registrar pago";
+"Register payment…" = "Registrar pago…";
 "Could not rename. The name is unchanged." = "No se pudo renombrar; se conserva el nombre.";
 "The advance could not be applied. Try again." = "No se pudo aplicar el anticipo. Inténtalo de nuevo.";
 "Configuration" = "Configuración";

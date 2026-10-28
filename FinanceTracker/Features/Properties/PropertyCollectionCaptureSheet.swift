@@ -51,12 +51,14 @@ struct PropertyCollectionCaptureSheet: View {
         } == true
             && amount.map(PropertyWorkspaceModel.isMXNCollectionAmount) == true && date <= .now)
             && pendingTransactionID == nil && !isSubmitting && !didSave && !amountEditing && !enteringUnknownAmount
-            && (isRecovery || suggestionStatus != .review)
     }
+    /// Recovery arrives with the receipts the pending markers back; when exactly
+    /// one is waiting there is nothing to choose, so it is preselected and locked.
+    private var locksExistingSource: Bool { (existingSources?.count ?? 0) == 1 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(isRecovery ? LocalizedStringKey("Reconcile existing receipt") : LocalizedStringKey("Register collection"))
+            Text("Register payment")
                 .font(.headline).frame(maxWidth: .infinity)
             Text(property.name).font(.subheadline).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -70,7 +72,7 @@ struct PropertyCollectionCaptureSheet: View {
                                     .tag(UUID?.some(source.id))
                             }
                         }.labelsHidden().frame(maxWidth: .infinity, alignment: .trailing)
-                            .disabled(pendingTransactionID != nil)
+                            .disabled(pendingTransactionID != nil || locksExistingSource)
                     }
                     Divider()
                 } else {
@@ -144,10 +146,6 @@ struct PropertyCollectionCaptureSheet: View {
                 Text("No eligible income is available to reconcile. Check the account and the receipt's destination.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if !isRecovery && suggestionStatus == .review {
-                Label("Source changed · review required", systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
-            }
             if let errorText { Label(errorText, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
             if pendingTransactionID != nil {
                 Text("The income was saved to the account, but its property payment is pending. Retry linking this receipt; another income will not be created.")
@@ -159,15 +157,17 @@ struct PropertyCollectionCaptureSheet: View {
                 if pendingTransactionID != nil {
                     Button("Retry linking") { save() }.buttonStyle(.borderedProminent).disabled(isSubmitting || didSave)
                 } else {
-                    Button(action: save) {
-                        Text(isRecovery ? LocalizedStringKey("Reconcile receipt") : LocalizedStringKey("Save collection"))
-                    }
-                    .buttonStyle(.borderedProminent).disabled(!canSave)
+                    Button("Save payment") { save() }
+                        .buttonStyle(.borderedProminent).disabled(!canSave)
                 }
             }
         }
         .padding(20).frame(minWidth: 540, idealWidth: 620, maxWidth: 720)
-        .onAppear { residentID = initialResidentID; suggestAmount() }
+        .onAppear {
+            if isRecovery, let sources = existingSources, sources.count == 1 { existingID = sources[0].id }
+            residentID = initialResidentID
+            suggestAmount()
+        }
         .onChange(of: residentID) {
             manualAmount = false; amountEditing = false; enteringUnknownAmount = false
             unknownAmountText = ""; errorText = nil; suggestAmount()

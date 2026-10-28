@@ -71,6 +71,7 @@ enum PropertyLedgerStore {
         local.serviceBudgets = mergeRows(local.serviceBudgets, incoming.serviceBudgets, timestamp: \.updatedAt)
         local.attributions = mergeRows(local.attributions, incoming.attributions, timestamp: \.updatedAt)
         local.paymentApplications = mergeRows(local.paymentApplications, incoming.paymentApplications, timestamp: \.updatedAt)
+        local.pendingLinks = mergePendingLinks(local.pendingLinks, incoming.pendingLinks)
         local.adjustments = mergeRows(local.adjustments, incoming.adjustments, timestamp: \.mergeUpdatedAt)
         local.maintenancePrograms = mergeRows(local.maintenancePrograms, incoming.maintenancePrograms, timestamp: \.updatedAt)
         local.maintenanceRecoveries = mergeRows(local.maintenanceRecoveries, incoming.maintenanceRecoveries, timestamp: \.updatedAt)
@@ -175,6 +176,9 @@ enum PropertyLedgerStore {
         }) {
             errors.append("aplicación de cobro inválida")
         }
+        if ledger.pendingLinks.contains(where: { !propertyIDs.contains($0.propertyID) || $0.amount <= 0 }) {
+            errors.append("enlace de cobro pendiente con propiedad desconocida o importe inválido")
+        }
         if ledger.adjustments.contains(where: {
             !propertyIDs.contains($0.propertyID) || ($0.residentID != nil && !residentIDs.contains($0.residentID!))
         }) { errors.append("ajuste con propiedad o residente desconocido") }
@@ -208,6 +212,30 @@ enum PropertyLedgerStore {
             errors.append("configuración mensual inválida")
         }
         return errors
+    }
+
+    /// Pending capture markers merge newest-wins per receipt: a live marker is
+    /// preferred over a tombstone, and the greater `createdAt` decides the rest.
+    private static func mergePendingLinks(_ local: [PropertyPaymentPendingLink],
+                                          _ incoming: [PropertyPaymentPendingLink]) -> [PropertyPaymentPendingLink] {
+        var rows: [UUID: PropertyPaymentPendingLink] = [:]
+        for candidate in local + incoming {
+            guard let existing = rows[candidate.paymentTransactionID] else {
+                rows[candidate.paymentTransactionID] = candidate
+                continue
+            }
+            rows[candidate.paymentTransactionID] = newerPendingLink(existing, candidate)
+        }
+        return rows.values.sorted { $0.id.uuidString < $1.id.uuidString }
+    }
+
+    private static func newerPendingLink(_ first: PropertyPaymentPendingLink,
+                                         _ second: PropertyPaymentPendingLink) -> PropertyPaymentPendingLink {
+        let firstLive = first.deletedAt == nil
+        let secondLive = second.deletedAt == nil
+        if firstLive != secondLive { return firstLive ? first : second }
+        if first.createdAt != second.createdAt { return first.createdAt > second.createdAt ? first : second }
+        return stableData(first).lexicographicallyPrecedes(stableData(second)) ? second : first
     }
 
     private static func mergeRows<T: Codable & Equatable & Identifiable>(

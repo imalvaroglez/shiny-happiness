@@ -100,7 +100,8 @@ struct PropertiesView: View {
     @State private var activityResponsibilityFilters: Set<String> = []
     @State private var assignmentDraft: PropertyAssignmentDraft?
     @State private var memberCollection: PropertyMemberCollectionSelection?
-    @State private var recoverySources: [PropertyTransactionInput] = []
+    @State private var pendingLinkSources: [PropertyTransactionInput] = []
+    @State private var pendingLinkResidentID: UUID?
     @State private var rentDraft: PropertyRentDraft?
     @State private var maintenanceDraft: PropertyMaintenanceDraft?
 
@@ -225,10 +226,11 @@ struct PropertiesView: View {
                         PropertyCollectionCaptureSheet(workspace: workspace, property: property, report: report,
                             accounts: accounts, initialResidentID: memberID)
                     }
-                case .existingPayment:
+                case .linkPendingPayment:
                     if let property = selectedProperty, let report {
                         PropertyCollectionCaptureSheet(workspace: workspace, property: property, report: report,
-                            accounts: accounts, existingSources: recoverySources)
+                            accounts: accounts, existingSources: pendingLinkSources,
+                            initialResidentID: pendingLinkResidentID)
                     }
                 case .adjustment:
                     if let property = selectedProperty, let report {
@@ -276,7 +278,7 @@ struct PropertiesView: View {
                     }
                     Divider()
                     Button("Link transaction…") { activeSheet = .attribution }
-                    Button("Register collection…") { activeSheet = .payment(nil) }
+                    Button("Register payment…") { activeSheet = .payment(nil) }
                     Button("Add adjustment…") { activeSheet = .adjustment }
                         .disabled(ledger.closes.contains { $0.propertyID == property.id && $0.monthStart == selectedMonth })
                     Divider()
@@ -420,7 +422,7 @@ struct PropertiesView: View {
         let legacyNeedsReview = PropertyCollectionPosting.hasChangedAdvanceSource(propertyID: property.id,
             residentID: legacyID, ledger: ledger, inputs: transactionInputs)
         let linkedActivity = PropertyActivitySummary.linkedExpensesAndReimbursements(workspace.activityRows(filter: .linked))
-        let recoveryCandidates = workspace.recoveryReceipts(propertyID: property.id)
+        let pendingLinks = workspace.pendingLinkCollections(propertyID: property.id)
         return VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
             PropertyMetricGrid(values: historical
                 ? Array(PropertyPresentationAdapter.property(report).metrics.prefix(2)) + [
@@ -443,11 +445,17 @@ struct PropertiesView: View {
                     workspace.renameMember(id: id, name: name)
                 })
             if historical { Text("Historical split pending reconciliation. It is not automatically added to prior debt.").font(.caption).foregroundStyle(.secondary) }
-            if !recoveryCandidates.isEmpty {
-                Button("Reconcile existing receipt…") {
-                    recoverySources = recoveryCandidates
-                    activeSheet = .existingPayment
-                }.buttonStyle(.link).font(.caption)
+            if !pendingLinks.isEmpty {
+                HStack {
+                    Label("A payment income is waiting to be linked to this home.", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                    Spacer()
+                    Button("Link it now") {
+                        pendingLinkSources = pendingLinks.compactMap { $0.input }
+                        pendingLinkResidentID = pendingLinks.count == 1 ? pendingLinks.first?.link.residentID : nil
+                        activeSheet = .linkPendingPayment
+                    }.buttonStyle(.link).font(.caption)
+                }
             }
             PropertySpendingChart(rows: linkedActivity, contributors: rows.map(PropertyExpenseFlow.Contributor.init))
             PropertyActivityTable(rows: activityFilter == .linked ? linkedActivity : PropertyActivitySummary.linkedExpensesAndReimbursements(workspace.activityRows(filter: activityFilter)),
@@ -790,7 +798,7 @@ struct PropertiesView: View {
 }
 
 private enum PropertySheet: Identifiable {
-    case property, resident, attribution, existingPayment, adjustment, reserve
+    case property, resident, attribution, linkPendingPayment, adjustment, reserve
     case payment(UUID?)
     var id: String {
         switch self {
@@ -798,7 +806,7 @@ private enum PropertySheet: Identifiable {
         case .resident: "resident"
         case .attribution: "attribution"
         case .payment(let id): "payment-\(id?.uuidString ?? "choose")"
-        case .existingPayment: "existing-payment"
+        case .linkPendingPayment: "link-pending-payment"
         case .adjustment: "adjustment"
         case .reserve: "reserve"
         }

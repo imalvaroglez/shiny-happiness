@@ -242,6 +242,26 @@ extension PropertyPaymentApplication {
     }
 }
 
+/// A capture in flight: the income is real but its property applications were
+/// not written yet. The marker is workflow state, not financial data — it pins
+/// the receipt by UUID so the link survives reloads, renames, and edits.
+struct PropertyPaymentPendingLink: Codable, Equatable, Identifiable, Sendable {
+    var id: UUID
+    var propertyID: UUID
+    var residentID: UUID
+    var paymentTransactionID: UUID
+    var amount: Decimal
+    var createdAt: Date
+    var deletedAt: Date?
+
+    init(id: UUID = UUID(), propertyID: UUID, residentID: UUID, paymentTransactionID: UUID,
+         amount: Decimal, createdAt: Date = .now, deletedAt: Date? = nil) {
+        self.id = id; self.propertyID = propertyID; self.residentID = residentID
+        self.paymentTransactionID = paymentTransactionID; self.amount = amount
+        self.createdAt = createdAt; self.deletedAt = deletedAt
+    }
+}
+
 /// An unapplied receipt is stored as a payment-application row with a stable
 /// synthetic obligation id. This keeps the cash transaction as the source of
 /// truth while allowing the remaining amount to survive month changes.
@@ -388,6 +408,7 @@ struct PropertyLedger: Codable, Equatable, Sendable {
     var serviceBudgets: [PropertyServiceBudget] = []
     var attributions: [PropertyTransactionAttribution] = []
     var paymentApplications: [PropertyPaymentApplication] = []
+    var pendingLinks: [PropertyPaymentPendingLink] = []
     var adjustments: [PropertyAdjustment] = []
     var maintenancePrograms: [PropertyMaintenanceProgram] = []
     var maintenanceRecoveries: [PropertyMaintenanceRecovery] = []
@@ -430,6 +451,40 @@ struct PropertyLedger: Codable, Equatable, Sendable {
                 if $0.updatedAt != $1.updatedAt { return $0.updatedAt < $1.updatedAt }
                 return $0.id.uuidString < $1.id.uuidString
             }?.monthlyAmount ?? 0
+    }
+}
+
+/// Backwards-compatible decoding: synthesized Codable does NOT fall back to a
+/// property's default when a key is absent, so ledgers written before a field
+/// existed would throw `keyNotFound`. Decoding every field with its default
+/// keeps old files readable without a schemaVersion bump.
+extension PropertyLedger {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, updatedAt, properties, residents, incomes, rents, serviceBudgets
+        case attributions, paymentApplications, pendingLinks, adjustments
+        case maintenancePrograms, maintenanceRecoveries, reserveMovements, closes
+        case householdLink, householdMonths
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 2
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
+        properties = try container.decodeIfPresent([PropertyRecord].self, forKey: .properties) ?? []
+        residents = try container.decodeIfPresent([PropertyResident].self, forKey: .residents) ?? []
+        incomes = try container.decodeIfPresent([PropertyIncome].self, forKey: .incomes) ?? []
+        rents = try container.decodeIfPresent([PropertyRentAgreement].self, forKey: .rents) ?? []
+        serviceBudgets = try container.decodeIfPresent([PropertyServiceBudget].self, forKey: .serviceBudgets) ?? []
+        attributions = try container.decodeIfPresent([PropertyTransactionAttribution].self, forKey: .attributions) ?? []
+        paymentApplications = try container.decodeIfPresent([PropertyPaymentApplication].self, forKey: .paymentApplications) ?? []
+        pendingLinks = try container.decodeIfPresent([PropertyPaymentPendingLink].self, forKey: .pendingLinks) ?? []
+        adjustments = try container.decodeIfPresent([PropertyAdjustment].self, forKey: .adjustments) ?? []
+        maintenancePrograms = try container.decodeIfPresent([PropertyMaintenanceProgram].self, forKey: .maintenancePrograms) ?? []
+        maintenanceRecoveries = try container.decodeIfPresent([PropertyMaintenanceRecovery].self, forKey: .maintenanceRecoveries) ?? []
+        reserveMovements = try container.decodeIfPresent([PropertyReserveMovement].self, forKey: .reserveMovements) ?? []
+        closes = try container.decodeIfPresent([PropertySettlementClose].self, forKey: .closes) ?? []
+        householdLink = try container.decodeIfPresent(PropertyHouseholdLink.self, forKey: .householdLink)
+        householdMonths = try container.decodeIfPresent([PropertyHouseholdMonth].self, forKey: .householdMonths)
     }
 }
 
