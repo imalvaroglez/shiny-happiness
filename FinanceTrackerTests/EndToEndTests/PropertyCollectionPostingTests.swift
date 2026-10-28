@@ -144,8 +144,8 @@ struct PropertyCollectionPostingTests {
             report: report, ledger: ledger, inputs: inputs, receipt: changed, asOf: date(9, 10))?.applications == nil)
     }
 
-    @Test("A later receipt cannot spend an advance whose original source changed")
-    func changedPriorAdvanceIsRejected() {
+    @Test("A later receipt never spends an advance whose original source changed")
+    func changedPriorAdvanceIsNeverSpentByLaterReceipt() throws {
         var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
         let original = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(8, 5),
             description: "Anticipo", isCashAccount: true)
@@ -164,8 +164,14 @@ struct PropertyCollectionPostingTests {
             residentID: resident.id, ledger: ledger, inputs: inputs))
         #expect(PropertyCollectionPosting.memberAdvances(propertyID: house.id, residentID: resident.id,
             ledger: ledger, inputs: inputs, asOf: date(9, 10)) == 0)
-        #expect(PropertyCollectionPosting.plan(propertyID: house.id, residentID: resident.id,
-            report: report, ledger: ledger, inputs: inputs, receipt: newReceipt, asOf: date(9, 10)) == nil)
+        // The rancid advance neither blocks the new collection nor funds it:
+        // every application rides the new receipt alone.
+        let plan = try #require(PropertyCollectionPosting.plan(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, receipt: newReceipt, asOf: date(9, 10)))
+        #expect(!plan.applications.isEmpty)
+        #expect(plan.applications.allSatisfy { $0.paymentTransactionID == newReceipt.id })
+        #expect(plan.applications.allSatisfy { $0.paymentTransactionID != original.id })
+        #expect(plan.updatedAdvances.isEmpty)
     }
 
     @Test("An available advance covers the oldest due months using its existing movement")
@@ -653,7 +659,7 @@ struct PropertyCollectionPostingTests {
         #expect(workspace.reports[house.id]?.residents.first?.balance == 0)
     }
 
-    @Test("A receipt edited in another context blocks a new collection before posting")
+    @Test("A receipt edited in another context no longer blocks a new payment")
     @MainActor
     func changedAdvanceInAnotherContext() async throws {
         let container = try ModelContainer(for: AppSchema.schema,
@@ -689,9 +695,24 @@ struct PropertyCollectionPostingTests {
         try otherContext.save()
         let result = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
             account: account, amount: 100, date: date(9, 10))
-        guard case .rejected = result else { Issue.record("The changed advance must block posting"); return }
-        #expect(try context.fetch(FetchDescriptor<Transaction>()).count == 1)
-        #expect(try PropertyLedgerStore.read(fileURL: url).paymentApplications.count == 1)
+        guard case .saved = result else {
+            Issue.record("The new payment must save; a rancid advance stops only itself")
+            return
+        }
+        // The advance receipt and the new payment are exactly the two movements.
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).count == 2)
+        let payment = try #require(context.fetch(FetchDescriptor<Transaction>()).first { $0.id != earlier.id })
+        let stored = try PropertyLedgerStore.read(fileURL: url)
+        // The new application exists and funds September's rent on its own receipt.
+        let fresh = stored.paymentApplications.filter { $0.paymentTransactionID == payment.id && $0.deletedAt == nil }
+        #expect(fresh.count == 1)
+        #expect(fresh[0].amount == 100)
+        // The rancid advance is neither spent nor deleted: it awaits review.
+        let rancid = try #require(stored.paymentApplications.first { $0.id == advanceID })
+        #expect(rancid.amount == 100)
+        #expect(rancid.deletedAt == nil)
+        // Drain the save's refresh task before the container tears down.
+        await workspace.refreshPeriod(force: true)
     }
 
     @Test("Applying a member advance from the workspace saves without a new transaction")
@@ -967,7 +988,7 @@ struct PropertyCollectionPostingTests {
         #expect(PropertyCollectionHistory.includes(application, source: nil, obligationIDs: [], asOf: date(9)))
     }
 
-    @Test("A missing or changed source forces review and never claims paid or zero")
+    @Test("A missing or changed source forces review and never discounts invalid money")
     func missingOrChangedSourceNeverClaimsPaidOrZero() throws {
         var (ledger, house, resident, inputs) = fixture()
         let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
@@ -980,7 +1001,8 @@ struct PropertyCollectionPostingTests {
             paymentTransactionID: receipt.id, obligationID: augustRentID, residentID: resident.id,
             amount: 150, snapshots: PropertySourceSnapshots(capturing: receipt))]
 
-        // The receipt vanished from the inputs entirely.
+        // The receipt vanished from the inputs entirely: the invalid collection
+        // never discounts, so payable carries the full debt as valid data.
         let vanished = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
             ledger: ledger, transactions: inputs, asOf: date(10))
         var settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
@@ -988,8 +1010,9 @@ struct PropertyCollectionPostingTests {
             context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
         #expect(settlement.sourcesMissing)
         #expect(settlement.status == .review)
-        #expect(settlement.payable == nil)
         #expect(settlement.due == 250)
+        #expect(settlement.payable == 250)
+        #expect(settlement.unbackedCollectedMissing == 150)
 
         // A soft-deleted receipt source behaves the same.
         var deleted = receipt
@@ -1000,10 +1023,12 @@ struct PropertyCollectionPostingTests {
         settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
             report: deletedReport, ledger: ledger, inputs: inputs, asOf: date(10),
             context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
-        #expect(settlement.sourcesMissing && settlement.status == .review && settlement.payable == nil)
+        #expect(settlement.sourcesMissing && settlement.status == .review)
         #expect(settlement.due == 250)
+        #expect(settlement.payable == 250)
 
-        // A changed advance source is stale: review, no payable, and no credit taken.
+        // A changed advance source is stale: review takes no credit for it, and
+        // the payable counts the debt with no advance discount.
         var (staleLedger, staleHouse, staleResident, staleInputs) = fixture(rent: 100, expense: 0)
         let original = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(8, 5),
             description: "Anticipo", isCashAccount: true)
@@ -1022,9 +1047,9 @@ struct PropertyCollectionPostingTests {
             context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
         #expect(settlement.advanceStale)
         #expect(settlement.status == .review)
-        #expect(settlement.payable == nil)
         #expect(settlement.advanceAvailable == 0)
         #expect(settlement.due == 100)
+        #expect(settlement.payable == 100)
         #expect(settlement.advanceAvailable == PropertyCollectionPosting.memberAdvances(
             propertyID: staleHouse.id, residentID: staleResident.id,
             ledger: staleLedger, inputs: staleInputs, asOf: date(9, 10)))
@@ -1033,7 +1058,7 @@ struct PropertyCollectionPostingTests {
             ledger: staleLedger, inputs: staleInputs))
     }
 
-    @Test("An overallocated month receipt forces review and never suggests a payable")
+    @Test("An overallocated month receipt forces review and suggests valid data only")
     func overallocatedMonthReceiptNeedsReview() throws {
         var (ledger, house, resident, inputs) = fixture()
         var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
@@ -1059,9 +1084,131 @@ struct PropertyCollectionPostingTests {
         #expect(settlement.receiptsNeedReview)
         #expect(!settlement.sourcesMissing)
         #expect(settlement.status == .review)
-        #expect(settlement.payable == nil)
+        // The overallocated money is not a discount: payable = max(0, due - advanceAvailable).
+        #expect(settlement.payable == max(0, (settlement.due ?? 0) - settlement.advanceAvailable))
+        #expect(settlement.payable == 100)
         #expect(PropertyCollectionPosting.suggestedAmount(propertyID: house.id, residentID: resident.id,
-            report: report, ledger: ledger, inputs: inputs, asOf: date(10)) == 0)
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10)) == settlement.payable)
+    }
+
+    @Test("An unbacked application does not consume obligation capacity")
+    func unbackedApplicationDoesNotConsumeCapacity() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 1_000, expense: 0)
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 25))
+        let septemberRentID = try #require(report.obligations.first(where: \.isRent)?.id)
+        // An old 400 collection was applied against the rent, then its
+        // transaction vanished from the inputs: unbacked money, never capacity.
+        let ghost = PropertyTransactionInput(id: UUID(), amount: 400, postedAt: date(9, 6),
+            description: "Cobro fantasma", isCashAccount: true)
+        ledger.paymentApplications = [PropertyPaymentApplication(propertyID: house.id,
+            paymentTransactionID: ghost.id, obligationID: septemberRentID, residentID: resident.id,
+            amount: 400, snapshots: PropertySourceSnapshots(capturing: ghost))]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 25))
+        let payment = PropertyTransactionInput(id: UUID(), amount: 1_000, postedAt: date(9, 20),
+            description: "Cobro nuevo", isCashAccount: true)
+        inputs.append(payment)
+        let plan = try #require(PropertyCollectionPosting.plan(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, receipt: payment, asOf: date(9, 25)))
+        // The new payment settles the obligation in full and leaves nothing
+        // behind as a spurious advance of the new receipt.
+        #expect(plan.applications.map(\.amount) == [1_000])
+        #expect(plan.applications.allSatisfy {
+            $0.obligationID == septemberRentID && $0.paymentTransactionID == payment.id })
+        #expect(plan.updatedAdvances.isEmpty)
+        ledger.paymentApplications += plan.applications
+        let settled = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 25))
+        #expect(settled.residents.first?.balance == 0)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: settled, ledger: ledger, inputs: inputs, asOf: date(9, 25),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        // The ghost still demands review — a review never claims paid — and its
+        // missing money is quantified instead of discounting the balance.
+        #expect(settlement.status == .review)
+        #expect(settlement.payable == 0)
+        #expect(settlement.unbackedCollectedMissing == 400)
+    }
+
+    /// The shared validity rule both sides of the ledger obey: whatever the
+    /// settlement still publishes as payable, a fresh receipt of exactly that
+    /// amount must be able to fund, with nothing stranded as an advance — the
+    /// walk's effective capacity and the balance are the same figure.
+    private func assertCapacityMatchesPayable(house: PropertyRecord, resident: PropertyResident,
+                                               ledger: PropertyLedger, inputs: [PropertyTransactionInput],
+                                               badReceipt: PropertyTransactionInput,
+                                               expectedPayable: Decimal) throws {
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        #expect(settlement.monthPaid == 0)
+        #expect(settlement.priorPaid == 0)
+        #expect(!settlement.paymentTransactionIDs.contains(badReceipt.id))
+        #expect(settlement.payable == expectedPayable)
+        let receipt = PropertyTransactionInput(id: UUID(), amount: expectedPayable, postedAt: date(9, 15),
+            description: "Cobro de reemplazo", isCashAccount: true)
+        let plan = try #require(PropertyCollectionPosting.plan(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs + [receipt], receipt: receipt, asOf: date(10)))
+        #expect(plan.applications.allSatisfy { $0.paymentTransactionID == receipt.id })
+        #expect(plan.applications.reduce(Decimal.zero) { $0 + $1.amount } == settlement.payable)
+        #expect(plan.updatedAdvances.isEmpty)
+    }
+
+    @Test("Future, overapplied, and double-used sources are excluded from balance and capacity alike")
+    func invalidSourcesAreExcludedFromBalanceAndCapacityAlike() throws {
+        // (a) A source dated in the future is not collected money yet.
+        var (futureLedger, futureHouse, futureResident, futureInputs) = fixture(rent: 100, expense: 0)
+        let future = PropertyTransactionInput(id: UUID(), amount: 60, postedAt: date(12, 5),
+            description: "Cobro futuro", isCashAccount: true)
+        futureInputs.append(future)
+        var futureReport = PropertySettlementCalculator.report(propertyID: futureHouse.id, month: date(9),
+            ledger: futureLedger, transactions: futureInputs, asOf: date(10))
+        let futureRentID = try #require(futureReport.obligations.first(where: \.isRent)?.id)
+        futureLedger.paymentApplications = [PropertyPaymentApplication(propertyID: futureHouse.id,
+            paymentTransactionID: future.id, obligationID: futureRentID, residentID: futureResident.id,
+            amount: 60, snapshots: PropertySourceSnapshots(capturing: future))]
+        try assertCapacityMatchesPayable(house: futureHouse, resident: futureResident,
+            ledger: futureLedger, inputs: futureInputs, badReceipt: future, expectedPayable: 100)
+
+        // (b) An overallocated prior receipt: neither prior debt nor the closed
+        // month's capacity counts its excess.
+        var (overLedger, overHouse, overResident, overInputs) = fixture(rent: 100, expense: 0)
+        let overAugust = PropertySettlementCalculator.report(propertyID: overHouse.id, month: date(8),
+            ledger: overLedger, transactions: overInputs, asOf: date(10))
+        overLedger.closes = [try #require(PropertySettlementCalculator.close(overAugust, at: date(8, 31)))]
+        let overAugustRentID = try #require(overAugust.obligations.first(where: \.isRent)?.id)
+        let tight = PropertyTransactionInput(id: UUID(), amount: 40, postedAt: date(9, 4),
+            description: "Cobro sobreasignado", isCashAccount: true)
+        overInputs.append(tight)
+        overLedger.paymentApplications = [
+            PropertyPaymentApplication(propertyID: overHouse.id, paymentTransactionID: tight.id,
+                obligationID: overAugustRentID, residentID: overResident.id, amount: 30,
+                snapshots: PropertySourceSnapshots(capturing: tight)),
+            PropertyPaymentApplication(propertyID: overHouse.id, paymentTransactionID: tight.id,
+                obligationID: overAugustRentID, residentID: overResident.id, amount: 30,
+                snapshots: PropertySourceSnapshots(capturing: tight))]
+        try assertCapacityMatchesPayable(house: overHouse, resident: overResident,
+            ledger: overLedger, inputs: overInputs, badReceipt: tight, expectedPayable: 200)
+
+        // (c) A receipt used as reimbursement and collection at once.
+        var (doubleLedger, doubleHouse, doubleResident, doubleInputs) = fixture(rent: 100, expense: 0)
+        let doubleUsed = PropertyTransactionInput(id: UUID(), amount: 40, postedAt: date(9, 7),
+            description: "Reembolso y cobro", isCashAccount: true)
+        doubleInputs.append(doubleUsed)
+        doubleLedger.attributions.append(PropertyTransactionAttribution(propertyID: doubleHouse.id,
+            transactionID: doubleUsed.id, kind: .reimbursement, responsibility: .owner))
+        var doubleReport = PropertySettlementCalculator.report(propertyID: doubleHouse.id, month: date(9),
+            ledger: doubleLedger, transactions: doubleInputs, asOf: date(10))
+        let doubleRentID = try #require(doubleReport.obligations.first(where: \.isRent)?.id)
+        doubleLedger.paymentApplications = [PropertyPaymentApplication(propertyID: doubleHouse.id,
+            paymentTransactionID: doubleUsed.id, obligationID: doubleRentID, residentID: doubleResident.id,
+            amount: 40, snapshots: PropertySourceSnapshots(capturing: doubleUsed))]
+        try assertCapacityMatchesPayable(house: doubleHouse, resident: doubleResident,
+            ledger: doubleLedger, inputs: doubleInputs, badReceipt: doubleUsed, expectedPayable: 100)
     }
 
     @Test("A member without obligations has nothing due, not paid")

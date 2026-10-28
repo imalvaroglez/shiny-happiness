@@ -50,7 +50,10 @@ struct PropertyMemberSettlement: Equatable, Sendable {
     var monthPaid: Decimal
     /// `priorDebt + max(0, monthBalance)` while computable: the outstanding debt.
     var due: Decimal?
-    /// `max(0, due - advanceAvailable)` for calculable states; nil otherwise.
+    /// `max(0, due - advanceAvailable)` whenever `due` is computable — review
+    /// included: invalid money never entered `due` nor `advanceAvailable`, so
+    /// the number counts valid data only and the review status accompanies it.
+    /// Nil while the split is not calculable or awaits reconciliation.
     var payable: Decimal?
     /// Valid unapplied advances available for this member.
     var advanceAvailable: Decimal
@@ -122,9 +125,11 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         let participationEnded = member == nil
             || (data.knownResidentIDs.contains(residentID) && !data.activeResidentIDs.contains(residentID))
         let computable = participationEnded || context.isClosed || context.canCalculate
-        let priorDebt = (member?.priorDebt
-            ?? ((data.priorObligationByResident[residentID] ?? 0) - (data.priorPaidByResident[residentID] ?? 0)))
-            .currencyRounded
+        // Prior debt recomputed under the shared validity rule: an unbacked
+        // application never discounts debt here, exactly as it never consumes
+        // capacity in the posting walk, so balance and capacity cannot disagree.
+        let priorDebt = ((data.priorObligationByResident[residentID] ?? 0)
+            - (data.priorPaidByResident[residentID] ?? 0)).currencyRounded
         var monthObligation: Decimal?
         var monthBalance: Decimal?
         if let member, computable {
@@ -146,11 +151,13 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         var due: Decimal?
         var payable: Decimal?
         if sourcesMissing || advanceStale || receiptsNeedReview {
-            // Show every amount that is still computable, but never turn missing
-            // data into a payable figure.
+            // Show every amount that is still computable. The payable counts
+            // valid data only — invalid money never entered `due` or
+            // `advanceAvailable` by construction — and the review status keeps
+            // owning the repair work; a review never claims paid.
             status = .review
             due = computable ? (priorDebt + current).currencyRounded : nil
-            payable = nil
+            payable = due.map { max(0, $0 - advanceAvailable).currencyRounded }
         } else if context.historical && !participationEnded {
             // The estimated split never becomes debt on its own.
             status = .toReconcile
@@ -277,14 +284,15 @@ struct PropertyMemberSettlement: Equatable, Sendable {
             ).mapValues { $0.reduce(Decimal.zero) { $0 + $1.amount } }
 
             // Valid collections of the report month, mirroring the report's own
-            // application filter.
+            // application filter through the shared validity rule.
             let monthObligationIDs = Set(report.obligations.map(\.id))
             for application in propertyApplications
             where !PropertyPaymentAdvance.isAdvance(application)
                 && monthObligationIDs.contains(application.obligationID)
-                && !reconciliation.overallocatedPaymentIDs.contains(application.paymentTransactionID)
-                && !reconciliation.doubleUsedReceipts.contains(application.paymentTransactionID)
-                && Self.countsAsCollected(application, inputsByID: inputsByID, asOf: asOf) {
+                && PropertyCollectionPosting.isValidAppliedCollection(application,
+                    inputsByID: inputsByID, appliedByPayment: appliedByPayment,
+                    overallocatedPaymentIDs: reconciliation.overallocatedPaymentIDs,
+                    doubleUsedReceipts: reconciliation.doubleUsedReceipts, asOf: asOf) {
                 monthReceiptIDsByResident[application.residentID, default: []]
                     .insert(application.paymentTransactionID)
             }
@@ -303,7 +311,10 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                 for application in propertyApplications
                 where obligationIDs.contains(application.obligationID)
                     && !reimbursementTransactionIDs.contains(application.paymentTransactionID)
-                    && Self.countsAsCollected(application, inputsByID: inputsByID, asOf: asOf) {
+                    && PropertyCollectionPosting.isValidAppliedCollection(application,
+                        inputsByID: inputsByID, appliedByPayment: appliedByPayment,
+                        overallocatedPaymentIDs: reconciliation.overallocatedPaymentIDs,
+                        doubleUsedReceipts: reconciliation.doubleUsedReceipts, asOf: asOf) {
                     priorPaidByResident[application.residentID, default: 0] += application.amount
                     priorReceiptIDsByResident[application.residentID, default: []]
                         .insert(application.paymentTransactionID)

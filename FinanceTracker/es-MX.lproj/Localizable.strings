@@ -870,7 +870,6 @@
 "The movement was saved, but its due date could not be cleared: %@" = "El movimiento se guardó, pero no se pudo quitar su fecha de liquidación: %@";
 "A promotion is no longer available for this movement." = "Una promoción ya no está disponible para este movimiento.";
 "The movement was saved, but its property association could not be saved: %@" = "El movimiento se guardó, pero no se pudo guardar su asociación con la propiedad: %@";
-"A previous advance changed. Review its receipt and applications before registering another collection." = "Un anticipo anterior cambió. Revisa su cobro y sus aplicaciones antes de registrar otro.";
 "Choose a member of this property." = "Elige un integrante de esta propiedad.";
 "A previous advance changed. Review its receipt and applications before applying it." = "Un anticipo anterior cambió. Revisa su cobro y sus aplicaciones antes de aplicarlo.";
 "No pending balance is available for this advance." = "No hay saldo pendiente disponible para este anticipo.";

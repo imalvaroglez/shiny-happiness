@@ -604,10 +604,6 @@ final class PropertyWorkspaceModel {
             verifiedInputs = try inputsWithFreshAdvanceSources(propertyID: propertyID,
                                                                residentID: residentID, context: context)
         } catch { return .rejected(error.localizedDescription) }
-        if PropertyCollectionPosting.hasChangedAdvanceSource(propertyID: propertyID, residentID: residentID,
-                                                            ledger: ledger, inputs: verifiedInputs) {
-            return .rejected(String(localized: "A previous advance changed. Review its receipt and applications before registering another collection."))
-        }
         let transaction: Transaction
         if let pendingTransactionID {
             do {

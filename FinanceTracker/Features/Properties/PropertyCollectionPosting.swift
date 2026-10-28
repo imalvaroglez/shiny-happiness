@@ -50,21 +50,84 @@ enum PropertyCollectionPosting {
                                 ledger: PropertyLedger, inputs: [PropertyTransactionInput], asOf: Date,
                                 includeCurrent: Bool = true) -> Decimal {
         // The capture sheet cannot see the period flags the member table knows,
-        // so it asks for the calculable reading of the same settlement; a review
-        // gate collapses to zero instead of suggesting an untrustworthy amount.
+        // so it asks for the calculable reading of the same settlement. A review
+        // gate counts only valid data — invalid money never entered `due` or
+        // `advanceAvailable` — and the review status accompanies the number.
         let settlement = PropertyMemberSettlement.summarize(propertyID: propertyID, residentID: residentID,
             report: report, ledger: ledger, inputs: inputs, asOf: asOf,
             context: .init(canCalculate: true, isClosed: true, historical: false, includeCurrent: includeCurrent))
         return settlement.payable ?? 0
     }
 
+    /// The one validity rule balances and capacity share: an application counts
+    /// (as collected money, as prior paid, or as spent capacity) only while its
+    /// source still exists, is still a valid collection receipt as of `asOf`,
+    /// still matches the snapshots captured at reconciliation time, and its
+    /// receipt is neither overallocated nor used as reimbursement and collection
+    /// at once. `appliedByPayment` belongs to the shared context every caller
+    /// already computes for advance availability; the reconciliation sets encode
+    /// over-allocation for every live MXN source.
+    static func isValidAppliedCollection(_ application: PropertyPaymentApplication,
+                                         inputsByID: [UUID: PropertyTransactionInput],
+                                         appliedByPayment: [UUID: Decimal],
+                                         overallocatedPaymentIDs: Set<UUID>,
+                                         doubleUsedReceipts: Set<UUID>,
+                                         asOf: Date) -> Bool {
+        guard let source = inputsByID[application.paymentTransactionID],
+              PropertySettlementCalculator.isValidCollectionPayment(source, asOf: asOf),
+              !PropertySettlementCalculator.hasSourceChanged(
+                  amount: application.sourceAmountSnapshot, postedAt: application.sourcePostedAtSnapshot,
+                  currencyCode: application.sourceCurrencySnapshot,
+                  description: application.sourceDescriptionSnapshot, versus: source),
+              !overallocatedPaymentIDs.contains(application.paymentTransactionID),
+              !doubleUsedReceipts.contains(application.paymentTransactionID)
+        else { return false }
+        return true
+    }
+
+    /// The validity context `plan` and `applyAdvances` compute once per walk:
+    /// the same reconciliation sets and applied totals the member settlement
+    /// precalculates, so the walk's capacity can never disagree with the
+    /// settlement's balance.
+    private struct AppliedValidity {
+        var inputsByID: [UUID: PropertyTransactionInput] = [:]
+        var appliedByPayment: [UUID: Decimal] = [:]
+        var overallocatedPaymentIDs: Set<UUID> = []
+        var doubleUsedReceipts: Set<UUID> = []
+
+        init(propertyID: UUID, report: PropertyMonthlyReport, ledger: PropertyLedger,
+             inputs: [PropertyTransactionInput]) {
+            for input in inputs { inputsByID[input.id] = input }
+            appliedByPayment = Dictionary(
+                grouping: ledger.paymentApplications.filter { $0.deletedAt == nil },
+                by: \.paymentTransactionID
+            ).mapValues { $0.reduce(Decimal.zero) { $0 + $1.amount } }
+            let reconciliation = PropertySettlementCalculator.reconciliationReview(
+                propertyID: propertyID, obligations: report.obligations,
+                applications: ledger.paymentApplications.filter {
+                    $0.propertyID == propertyID && $0.deletedAt == nil
+                }, inputs: inputsByID)
+            overallocatedPaymentIDs = reconciliation.overallocatedPaymentIDs
+            doubleUsedReceipts = reconciliation.doubleUsedReceipts
+        }
+
+        func includes(_ application: PropertyPaymentApplication, asOf: Date) -> Bool {
+            isValidAppliedCollection(application, inputsByID: inputsByID,
+                appliedByPayment: appliedByPayment,
+                overallocatedPaymentIDs: overallocatedPaymentIDs,
+                doubleUsedReceipts: doubleUsedReceipts, asOf: asOf)
+        }
+    }
+
     private static func monthOutstanding(close: PropertySettlementClose, residentID: UUID,
-                                         ledger: PropertyLedger) -> Decimal {
+                                         ledger: PropertyLedger, validity: AppliedValidity,
+                                         asOf: Date) -> Decimal {
         guard let member = close.residents.first(where: { $0.id == residentID }) else { return 0 }
         let ids = Set(close.obligations.map(\.id))
         let applied = ledger.paymentApplications.filter {
             $0.propertyID == close.propertyID && $0.residentID == residentID && $0.deletedAt == nil
                 && ids.contains($0.obligationID)
+                && validity.includes($0, asOf: asOf)
         }.reduce(Decimal.zero) { $0 + $1.amount }
         return max(0, member.obligation - (member.directContribution ?? 0) - applied)
     }
@@ -93,9 +156,12 @@ enum PropertyCollectionPosting {
                      receipt: PropertyTransactionInput, asOf: Date, includeCurrent: Bool = true) -> Plan? {
         guard PropertySettlementCalculator.isValidCollectionPayment(receipt, asOf: asOf),
               ledger.residents.contains(where: { $0.id == residentID && $0.propertyID == propertyID }),
-              !ledger.attributions.contains(where: { $0.transactionID == receipt.id && $0.deletedAt == nil }),
-              !hasChangedAdvanceSource(propertyID: propertyID, residentID: residentID,
-                                       ledger: ledger, inputs: inputs) else { return nil }
+              !ledger.attributions.contains(where: { $0.transactionID == receipt.id && $0.deletedAt == nil })
+        else { return nil }
+        // A new collection is never blocked by a broken older reference: the
+        // walk below simply refuses to spend unsound advances, and unbacked
+        // applications stop consuming obligation capacity.
+        let validity = AppliedValidity(propertyID: propertyID, report: report, ledger: ledger, inputs: inputs)
         let active = ledger.paymentApplications.filter { $0.deletedAt == nil && $0.paymentTransactionID == receipt.id }
         guard !active.contains(where: {
             PropertySettlementCalculator.hasSourceChanged(amount: $0.sourceAmountSnapshot,
@@ -111,17 +177,28 @@ enum PropertyCollectionPosting {
         var remaining = available
         let candidates = ledger.closes.filter { $0.propertyID == propertyID && $0.monthStart <= report.monthStart }
             .map { ($0.monthStart, $0.obligations,
-                    monthOutstanding(close: $0, residentID: residentID, ledger: ledger)) }
+                    monthOutstanding(close: $0, residentID: residentID, ledger: ledger,
+                                     validity: validity, asOf: asOf)) }
             + (includeCurrent && !ledger.closes.contains { $0.propertyID == propertyID && $0.monthStart == report.monthStart }
                 ? [(report.monthStart, report.obligations,
                     max(0, report.residents.first { $0.id == residentID }?.balance ?? 0))] : [])
         let sorted = candidates.sorted { $0.0 < $1.0 }
-        let byID = Dictionary(inputs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var advances = ledger.paymentApplications.filter {
-            $0.propertyID == propertyID && ($0.residentID == residentID
-                || ($0.paymentTransactionID == receipt.id && $0.residentID == placeholder)) && $0.deletedAt == nil
-                && PropertyPaymentAdvance.isAdvance($0)
-                && PropertySettlementCalculator.isValidCollectionPayment(byID[$0.paymentTransactionID], asOf: asOf)
+        let byID = validity.inputsByID
+        // The full `memberAdvances` predicate: a broken advance (source gone,
+        // changed, over-applied, or not yet a valid receipt) is never spent —
+        // but it no longer blocks the receipt's own reconciliation either.
+        var advances = ledger.paymentApplications.filter { advance in
+            advance.propertyID == propertyID && (advance.residentID == residentID
+                || (advance.paymentTransactionID == receipt.id && advance.residentID == placeholder))
+                && advance.deletedAt == nil
+                && PropertyPaymentAdvance.isAdvance(advance)
+                && PropertySettlementCalculator.isValidCollectionPayment(byID[advance.paymentTransactionID], asOf: asOf)
+                && (byID[advance.paymentTransactionID].map { source in
+                    !PropertySettlementCalculator.hasSourceChanged(amount: advance.sourceAmountSnapshot,
+                        postedAt: advance.sourcePostedAtSnapshot, currencyCode: advance.sourceCurrencySnapshot,
+                        description: advance.sourceDescriptionSnapshot, versus: source)
+                        && (validity.appliedByPayment[source.id] ?? 0) <= source.amount
+                } ?? false)
         }.sorted {
             let first = byID[$0.paymentTransactionID]?.postedAt ?? .distantPast
             let second = byID[$1.paymentTransactionID]?.postedAt ?? .distantPast
@@ -142,6 +219,7 @@ enum PropertyCollectionPosting {
                 let assigned = obligation.allocations[residentID] ?? 0
                 let already = ledger.paymentApplications.filter {
                     $0.propertyID == propertyID && $0.residentID == residentID && $0.obligationID == obligation.id && $0.deletedAt == nil
+                        && validity.includes($0, asOf: asOf)
                 }.reduce(Decimal.zero) { $0 + $1.amount }
                 var capacity = min(monthRemaining, max(0, assigned - already))
                 guard capacity > 0 else { continue }
@@ -187,14 +265,16 @@ enum PropertyCollectionPosting {
         guard ledger.residents.contains(where: { $0.id == residentID && $0.propertyID == propertyID }),
               !hasChangedAdvanceSource(propertyID: propertyID, residentID: residentID,
                                        ledger: ledger, inputs: inputs) else { return nil }
+        let validity = AppliedValidity(propertyID: propertyID, report: report, ledger: ledger, inputs: inputs)
         let candidates = ledger.closes.filter { $0.propertyID == propertyID && $0.monthStart <= report.monthStart }
             .map { ($0.monthStart, $0.obligations,
-                    monthOutstanding(close: $0, residentID: residentID, ledger: ledger)) }
+                    monthOutstanding(close: $0, residentID: residentID, ledger: ledger,
+                                     validity: validity, asOf: asOf)) }
             + (includeCurrent && !ledger.closes.contains { $0.propertyID == propertyID && $0.monthStart == report.monthStart }
                 ? [(report.monthStart, report.obligations,
                     max(0, report.residents.first { $0.id == residentID }?.balance ?? 0))] : [])
         let sorted = candidates.sorted { $0.0 < $1.0 }
-        let byID = Dictionary(inputs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let byID = validity.inputsByID
         var advances = ledger.paymentApplications.filter {
             $0.propertyID == propertyID && $0.residentID == residentID && $0.deletedAt == nil
                 && PropertyPaymentAdvance.isAdvance($0)
@@ -215,6 +295,7 @@ enum PropertyCollectionPosting {
                 let assigned = obligation.allocations[residentID] ?? 0
                 let already = ledger.paymentApplications.filter {
                     $0.propertyID == propertyID && $0.residentID == residentID && $0.obligationID == obligation.id && $0.deletedAt == nil
+                        && validity.includes($0, asOf: asOf)
                 }.reduce(Decimal.zero) { $0 + $1.amount }
                 var capacity = min(monthRemaining, max(0, assigned - already))
                 guard capacity > 0 else { continue }
