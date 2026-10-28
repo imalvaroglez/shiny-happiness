@@ -76,7 +76,6 @@ struct PropertyExpenseFlow: Identifiable, Equatable {
                 leaves[leafID]!.amount += row.amount!
             }
             let categories = roots.values.sorted(by: precedes)
-            let palette = categories.compactMap(\.colorID)
             let totalID = currency + "/total"
             let total = categories.reduce(Decimal.zero) { $0 + $1.amount }
             let cut = visiblePrefix(of: categories, total: total)
@@ -115,8 +114,11 @@ struct PropertyExpenseFlow: Identifiable, Equatable {
             let contributions = contributionNodes(contributors, total: total, currency: currency)
             if let contributions {
                 nodes = contributions + nodes
-                links = contributions.map { Link(source: $0.id, target: totalID, amount: $0.amount, colorID: nil) } + links
+                links = contributions.map { Link(source: $0.id, target: totalID, amount: $0.amount, colorID: $0.colorID) } + links
             }
+            // Members join the palette so every column — contributors and
+            // categories alike — renders its own high-contrast hue.
+            let palette = categories.compactMap(\.colorID) + (contributions?.compactMap(\.colorID) ?? [])
             return Self(currency: currency, nodes: nodes, links: links, paletteIDs: palette,
                 canExpand: canExpand, contributionsAvailable: contributions != nil)
         }
@@ -171,7 +173,7 @@ struct PropertyExpenseFlow: Identifiable, Equatable {
         return members.map { member in
             Node(id: currency + "/contributor/" + member.id.uuidString, name: member.name,
                 amount: amounts[member.id, default: 0], stage: .contributors,
-                contributionShare: member.share, estimated: member.estimated)
+                contributionShare: member.share, estimated: member.estimated, colorID: member.id)
         }.sorted(by: precedes)
     }
 
