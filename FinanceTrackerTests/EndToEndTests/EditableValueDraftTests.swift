@@ -196,4 +196,26 @@ struct EditableValueDraftTests {
         #expect(!draft.isEditing)
         #expect(draft.errorText == nil)
     }
+
+    @Test("Begin from the value trigger seeds the edit form, not the display")
+    func beginFromValueTriggerSeedsEditForm() {
+        // The amount-as-trigger button opens the editor from the value the
+        // user is looking at, so the seeded text must be `edit` of that
+        // value; a display form with a currency symbol could never commit.
+        let amount = Decimal(string: "2500")!
+        var draft = EditableValueDraft(lastCommitted: amount)
+
+        draft.begin(from: amount, edit: { MoneyEntry.suggestedEntryText($0) })
+
+        #expect(draft.isEditing)
+        #expect(draft.text == "2500.00")
+        #expect(draft.text != "$\(amount)")
+
+        var committed: Decimal?
+        draft.commit(parse: { MoneyEntry.parseEntryAmount($0) }, onCommit: { committed = $0 })
+
+        #expect(committed == Decimal(string: "2500.00")!)
+        #expect(!draft.isEditing)
+        #expect(draft.errorText == nil)
+    }
 }

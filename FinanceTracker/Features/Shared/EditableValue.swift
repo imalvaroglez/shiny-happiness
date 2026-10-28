@@ -124,9 +124,11 @@ struct EditableValueDraft<Value: Equatable & Sendable>: Sendable {
 /// A value that renders read-only until the user presses "Change".
 ///
 /// Consultation shows `display(value)` plus a link-style button; the text
-/// field only exists while editing. Enter commits — an invalid draft is
-/// kept with an inline error — and Escape restores the committed value
-/// without triggering a containing sheet's cancel action.
+/// field only exists while editing. `changeTriggerShowsValue` replaces that
+/// pair with the amount itself as the trigger, styled as ordinary text.
+/// Enter commits — an invalid draft is kept with an inline error — and
+/// Escape restores the committed value without triggering a containing
+/// sheet's cancel action.
 ///
 /// The editor is seeded with `edit(value)` when provided (falling back to
 /// `display`), so fields whose display text is not directly parseable —
@@ -143,6 +145,7 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
     private let fieldLabel: LocalizedStringKey?
     private let changeTitle: LocalizedStringKey
     private let changeAccessibilityLabel: Text?
+    private let changeTriggerShowsValue: Bool
     private let onEditingChange: ((Bool) -> Void)?
 
     @State private var draft: EditableValueDraft<Value>
@@ -160,6 +163,7 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
         fieldLabel: LocalizedStringKey? = nil,
         changeTitle: LocalizedStringKey = "Change",
         changeAccessibilityLabel: Text? = nil,
+        changeTriggerShowsValue: Bool = false,
         onEditingChange: ((Bool) -> Void)? = nil
     ) {
         self.value = value
@@ -173,6 +177,7 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
         self.fieldLabel = fieldLabel
         self.changeTitle = changeTitle
         self.changeAccessibilityLabel = changeAccessibilityLabel
+        self.changeTriggerShowsValue = changeTriggerShowsValue
         self.onEditingChange = onEditingChange
         _draft = State(initialValue: EditableValueDraft(lastCommitted: value))
     }
@@ -198,15 +203,29 @@ struct EditableValueField<Value: Equatable & Sendable>: View {
     }
 
     /// Read-only value plus the "Change" trigger; no text field exists
-    /// until the user asks for one.
+    /// until the user asks for one. With `changeTriggerShowsValue` the
+    /// amount itself is the trigger: a plain-style button that renders
+    /// exactly like the static text it replaces (same font, color, and
+    /// metrics) instead of adding a link-style title next to it.
+    @ViewBuilder
     private var consultation: some View {
-        HStack(spacing: 4) {
-            Text(display(value))
-            Button(changeTitle) {
+        if changeTriggerShowsValue {
+            Button {
                 draft.begin(from: value, edit: editText)
+            } label: {
+                Text(display(value))
             }
-            .buttonStyle(.link)
+            .buttonStyle(.plain)
             .accessibilityLabel(changeAccessibilityLabel ?? Text(changeTitle))
+        } else {
+            HStack(spacing: 4) {
+                Text(display(value))
+                Button(changeTitle) {
+                    draft.begin(from: value, edit: editText)
+                }
+                .buttonStyle(.link)
+                .accessibilityLabel(changeAccessibilityLabel ?? Text(changeTitle))
+            }
         }
     }
 
@@ -282,6 +301,7 @@ struct EditableMoneyField: View {
     private let fieldLabel: LocalizedStringKey?
     private let changeTitle: LocalizedStringKey
     private let changeAccessibilityLabel: Text?
+    private let changeTriggerShowsValue: Bool
     private let onEditingChange: ((Bool) -> Void)?
 
     init(
@@ -294,6 +314,7 @@ struct EditableMoneyField: View {
         fieldLabel: LocalizedStringKey? = nil,
         changeTitle: LocalizedStringKey = "Change",
         changeAccessibilityLabel: Text? = nil,
+        changeTriggerShowsValue: Bool = false,
         onEditingChange: ((Bool) -> Void)? = nil
     ) {
         self.value = value
@@ -305,6 +326,7 @@ struct EditableMoneyField: View {
         self.fieldLabel = fieldLabel
         self.changeTitle = changeTitle
         self.changeAccessibilityLabel = changeAccessibilityLabel
+        self.changeTriggerShowsValue = changeTriggerShowsValue
         self.onEditingChange = onEditingChange
     }
 
@@ -321,6 +343,7 @@ struct EditableMoneyField: View {
             fieldLabel: fieldLabel,
             changeTitle: changeTitle,
             changeAccessibilityLabel: changeAccessibilityLabel,
+            changeTriggerShowsValue: changeTriggerShowsValue,
             onEditingChange: onEditingChange
         )
     }
