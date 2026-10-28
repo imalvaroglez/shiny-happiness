@@ -19,31 +19,54 @@ enum PropertyCollectionPosting {
         MoneyEntry.suggestedEntryText(amount)
     }
 
+    /// The obligation set every advance route reconciles against: the current
+    /// report's obligations plus every close of the property. A receipt used
+    /// as reimbursement in any settled month is double-used money on every
+    /// route alike — the settlement's precalculation, the posting walks, and
+    /// `memberAdvances` all feed this same set to `reconciliationReview`, so
+    /// their double-use flags can never disagree.
+    static func reconciliationObligations(report: PropertyMonthlyReport,
+                                          ledger: PropertyLedger) -> [PropertyObligationSnapshot] {
+        report.obligations + ledger.closes.filter { $0.propertyID == report.propertyID }
+            .flatMap(\.obligations)
+    }
+
+    /// The member's spendable advances under the one shared rule. The
+    /// `obligations` are the caller's reconciliation scope — pass
+    /// `reconciliationObligations(report:ledger:)`; an empty list is a real
+    /// statement (nothing to reconcile against), never an omission.
     static func memberAdvances(propertyID: UUID, residentID: UUID, ledger: PropertyLedger,
+                               obligations: [PropertyObligationSnapshot],
                                inputs: [PropertyTransactionInput], asOf: Date) -> Decimal {
         let byID = Dictionary(inputs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let appliedByPayment = Dictionary(grouping: ledger.paymentApplications.filter { $0.deletedAt == nil },
                                           by: \.paymentTransactionID).mapValues {
             $0.reduce(Decimal.zero) { $0 + $1.amount }
         }
+        let reconciliation = PropertySettlementCalculator.reconciliationReview(
+            propertyID: propertyID, obligations: obligations,
+            applications: ledger.paymentApplications.filter {
+                $0.propertyID == propertyID && $0.deletedAt == nil
+            }, inputs: byID)
         return ledger.paymentApplications.filter { advance in
             advance.propertyID == propertyID && advance.residentID == residentID && advance.deletedAt == nil
                 && PropertyPaymentAdvance.isAdvance(advance)
-                && PropertySettlementCalculator.isValidCollectionPayment(byID[advance.paymentTransactionID], asOf: asOf)
-                && (byID[advance.paymentTransactionID].map { source in
-                    !PropertySettlementCalculator.hasSourceChanged(amount: advance.sourceAmountSnapshot,
-                        postedAt: advance.sourcePostedAtSnapshot, currencyCode: advance.sourceCurrencySnapshot,
-                        description: advance.sourceDescriptionSnapshot, versus: source)
-                        && (appliedByPayment[source.id] ?? 0) <= source.amount
-                } ?? false)
+                && isSpendableAdvance(advance, inputsByID: byID, appliedByPayment: appliedByPayment,
+                    overallocatedPaymentIDs: reconciliation.overallocatedPaymentIDs,
+                    doubleUsedReceipts: reconciliation.doubleUsedReceipts, asOf: asOf)
         }.reduce(Decimal.zero) { $0 + $1.amount }
     }
 
     static func legacyAdvances(propertyID: UUID, ledger: PropertyLedger,
                                inputs: [PropertyTransactionInput], asOf: Date) -> Decimal {
+        // A legacy advance predates member reports, so the property's closes
+        // are its reconciliation scope — the same closes the shared set draws
+        // from, derived here because no report month owns the placeholder.
         memberAdvances(propertyID: propertyID,
             residentID: PropertyPaymentAdvance.placeholderResidentID(propertyID: propertyID),
-            ledger: ledger, inputs: inputs, asOf: asOf)
+            ledger: ledger,
+            obligations: ledger.closes.filter { $0.propertyID == propertyID }.flatMap(\.obligations),
+            inputs: inputs, asOf: asOf)
     }
 
     static func suggestedAmount(propertyID: UUID, residentID: UUID, report: PropertyMonthlyReport,
@@ -83,6 +106,33 @@ enum PropertyCollectionPosting {
         return true
     }
 
+    /// The one rule every advance-spending route applies — `plan`'s filter,
+    /// `applyAdvances`' walk, the settlement's published availability, and
+    /// `memberAdvances`: an advance is spendable only while its source still
+    /// exists, still matches the snapshots captured at reconciliation time,
+    /// has not been applied beyond its amount, is neither overallocated nor
+    /// used as reimbursement and collection at once, and is still a valid
+    /// collection receipt as of `asOf`. A broken advance never blocks a new
+    /// collection; it only stops being spendable money.
+    static func isSpendableAdvance(_ advance: PropertyPaymentApplication,
+                                   inputsByID: [UUID: PropertyTransactionInput],
+                                   appliedByPayment: [UUID: Decimal],
+                                   overallocatedPaymentIDs: Set<UUID>,
+                                   doubleUsedReceipts: Set<UUID>,
+                                   asOf: Date) -> Bool {
+        guard let source = inputsByID[advance.paymentTransactionID],
+              !PropertySettlementCalculator.hasSourceChanged(
+                  amount: advance.sourceAmountSnapshot, postedAt: advance.sourcePostedAtSnapshot,
+                  currencyCode: advance.sourceCurrencySnapshot,
+                  description: advance.sourceDescriptionSnapshot, versus: source),
+              (appliedByPayment[source.id] ?? 0) <= source.amount,
+              !overallocatedPaymentIDs.contains(advance.paymentTransactionID),
+              !doubleUsedReceipts.contains(advance.paymentTransactionID),
+              PropertySettlementCalculator.isValidCollectionPayment(source, asOf: asOf)
+        else { return false }
+        return true
+    }
+
     /// The validity context `plan` and `applyAdvances` compute once per walk:
     /// the same reconciliation sets and applied totals the member settlement
     /// precalculates, so the walk's capacity can never disagree with the
@@ -92,21 +142,37 @@ enum PropertyCollectionPosting {
         var appliedByPayment: [UUID: Decimal] = [:]
         var overallocatedPaymentIDs: Set<UUID> = []
         var doubleUsedReceipts: Set<UUID> = []
+        var validMonthPaidByResident: [UUID: Decimal] = [:]
 
         init(propertyID: UUID, report: PropertyMonthlyReport, ledger: PropertyLedger,
-             inputs: [PropertyTransactionInput]) {
+             inputs: [PropertyTransactionInput], asOf: Date) {
             for input in inputs { inputsByID[input.id] = input }
             appliedByPayment = Dictionary(
                 grouping: ledger.paymentApplications.filter { $0.deletedAt == nil },
                 by: \.paymentTransactionID
             ).mapValues { $0.reduce(Decimal.zero) { $0 + $1.amount } }
+            let propertyApplications = ledger.paymentApplications.filter {
+                $0.propertyID == propertyID && $0.deletedAt == nil
+            }
             let reconciliation = PropertySettlementCalculator.reconciliationReview(
-                propertyID: propertyID, obligations: report.obligations,
-                applications: ledger.paymentApplications.filter {
-                    $0.propertyID == propertyID && $0.deletedAt == nil
-                }, inputs: inputsByID)
+                propertyID: propertyID,
+                obligations: reconciliationObligations(report: report, ledger: ledger),
+                applications: propertyApplications, inputs: inputsByID)
             overallocatedPaymentIDs = reconciliation.overallocatedPaymentIDs
             doubleUsedReceipts = reconciliation.doubleUsedReceipts
+            // The month's valid collections per resident — the same
+            // accumulation the member settlement precalculates as
+            // `validMonthPaidByResident`, so the walk's current-month cap and
+            // the settlement's `monthBalance` are one figure, never two.
+            let monthObligationIDs = Set(report.obligations.map(\.id))
+            for application in propertyApplications
+            where !PropertyPaymentAdvance.isAdvance(application)
+                && monthObligationIDs.contains(application.obligationID)
+                && isValidAppliedCollection(application, inputsByID: inputsByID,
+                    overallocatedPaymentIDs: overallocatedPaymentIDs,
+                    doubleUsedReceipts: doubleUsedReceipts, asOf: asOf) {
+                validMonthPaidByResident[application.residentID, default: 0] += application.amount
+            }
         }
 
         func includes(_ application: PropertyPaymentApplication, asOf: Date) -> Bool {
@@ -127,6 +193,24 @@ enum PropertyCollectionPosting {
                 && validity.includes($0, asOf: asOf)
         }.reduce(Decimal.zero) { $0 + $1.amount }
         return max(0, member.obligation - (member.directContribution ?? 0) - applied)
+    }
+
+    /// The current month's net outstanding under the shared validity rule —
+    /// never the report's `balance`, whose looser filter still counts
+    /// collections whose source changed afterwards and would have the walk
+    /// re-ask money the settlement already re-owed. Components are the
+    /// resident's month slice, valid payments are the resident's non-advance
+    /// applications against the report's obligations (`validity.includes`),
+    /// and the direct contribution — money paid when the expense was
+    /// recorded — counts exactly once. Same figure the member settlement
+    /// publishes as `max(0, monthBalance)`.
+    private static func currentMonthOutstanding(report: PropertyMonthlyReport, residentID: UUID,
+                                                validity: AppliedValidity) -> Decimal {
+        guard let resident = report.residents.first(where: { $0.id == residentID }) else { return 0 }
+        let components = resident.rent + resident.sharedExpenses + resident.individualExpenses
+            + resident.adjustments
+        return max(0, components - (validity.validMonthPaidByResident[residentID] ?? 0)
+            - resident.directContribution)
     }
 
     static func hasChangedAdvanceSource(propertyID: UUID, residentID: UUID,
@@ -158,7 +242,8 @@ enum PropertyCollectionPosting {
         // A new collection is never blocked by a broken older reference: the
         // walk below simply refuses to spend unsound advances, and unbacked
         // applications stop consuming obligation capacity.
-        let validity = AppliedValidity(propertyID: propertyID, report: report, ledger: ledger, inputs: inputs)
+        let validity = AppliedValidity(propertyID: propertyID, report: report, ledger: ledger,
+                                       inputs: inputs, asOf: asOf)
         let active = ledger.paymentApplications.filter { $0.deletedAt == nil && $0.paymentTransactionID == receipt.id }
         guard !active.contains(where: {
             PropertySettlementCalculator.hasSourceChanged(amount: $0.sourceAmountSnapshot,
@@ -178,24 +263,23 @@ enum PropertyCollectionPosting {
                                      validity: validity, asOf: asOf)) }
             + (includeCurrent && !ledger.closes.contains { $0.propertyID == propertyID && $0.monthStart == report.monthStart }
                 ? [(report.monthStart, report.obligations,
-                    max(0, report.residents.first { $0.id == residentID }?.balance ?? 0))] : [])
+                    currentMonthOutstanding(report: report, residentID: residentID, validity: validity))] : [])
         let sorted = candidates.sorted { $0.0 < $1.0 }
         let byID = validity.inputsByID
-        // The full `memberAdvances` predicate: a broken advance (source gone,
-        // changed, over-applied, or not yet a valid receipt) is never spent —
-        // but it no longer blocks the receipt's own reconciliation either.
+        // The one spendable-advance rule, shared with `applyAdvances`,
+        // `memberAdvances`, and the settlement's published availability: a
+        // broken advance (source gone, changed, over-applied, overallocated,
+        // double-used, or not yet a valid receipt) is never spent — but it no
+        // longer blocks the receipt's own reconciliation either.
         var advances = ledger.paymentApplications.filter { advance in
             advance.propertyID == propertyID && (advance.residentID == residentID
                 || (advance.paymentTransactionID == receipt.id && advance.residentID == placeholder))
                 && advance.deletedAt == nil
                 && PropertyPaymentAdvance.isAdvance(advance)
-                && PropertySettlementCalculator.isValidCollectionPayment(byID[advance.paymentTransactionID], asOf: asOf)
-                && (byID[advance.paymentTransactionID].map { source in
-                    !PropertySettlementCalculator.hasSourceChanged(amount: advance.sourceAmountSnapshot,
-                        postedAt: advance.sourcePostedAtSnapshot, currencyCode: advance.sourceCurrencySnapshot,
-                        description: advance.sourceDescriptionSnapshot, versus: source)
-                        && (validity.appliedByPayment[source.id] ?? 0) <= source.amount
-                } ?? false)
+                && isSpendableAdvance(advance, inputsByID: byID,
+                    appliedByPayment: validity.appliedByPayment,
+                    overallocatedPaymentIDs: validity.overallocatedPaymentIDs,
+                    doubleUsedReceipts: validity.doubleUsedReceipts, asOf: asOf)
         }.sorted {
             let first = byID[$0.paymentTransactionID]?.postedAt ?? .distantPast
             let second = byID[$1.paymentTransactionID]?.postedAt ?? .distantPast
@@ -262,20 +346,24 @@ enum PropertyCollectionPosting {
         guard ledger.residents.contains(where: { $0.id == residentID && $0.propertyID == propertyID }),
               !hasChangedAdvanceSource(propertyID: propertyID, residentID: residentID,
                                        ledger: ledger, inputs: inputs) else { return nil }
-        let validity = AppliedValidity(propertyID: propertyID, report: report, ledger: ledger, inputs: inputs)
+        let validity = AppliedValidity(propertyID: propertyID, report: report, ledger: ledger,
+                                       inputs: inputs, asOf: asOf)
         let candidates = ledger.closes.filter { $0.propertyID == propertyID && $0.monthStart <= report.monthStart }
             .map { ($0.monthStart, $0.obligations,
                     monthOutstanding(close: $0, residentID: residentID, ledger: ledger,
                                      validity: validity, asOf: asOf)) }
             + (includeCurrent && !ledger.closes.contains { $0.propertyID == propertyID && $0.monthStart == report.monthStart }
                 ? [(report.monthStart, report.obligations,
-                    max(0, report.residents.first { $0.id == residentID }?.balance ?? 0))] : [])
+                    currentMonthOutstanding(report: report, residentID: residentID, validity: validity))] : [])
         let sorted = candidates.sorted { $0.0 < $1.0 }
         let byID = validity.inputsByID
-        var advances = ledger.paymentApplications.filter {
-            $0.propertyID == propertyID && $0.residentID == residentID && $0.deletedAt == nil
-                && PropertyPaymentAdvance.isAdvance($0)
-                && PropertySettlementCalculator.isValidCollectionPayment(byID[$0.paymentTransactionID], asOf: asOf)
+        var advances = ledger.paymentApplications.filter { advance in
+            advance.propertyID == propertyID && advance.residentID == residentID && advance.deletedAt == nil
+                && PropertyPaymentAdvance.isAdvance(advance)
+                && isSpendableAdvance(advance, inputsByID: byID,
+                    appliedByPayment: validity.appliedByPayment,
+                    overallocatedPaymentIDs: validity.overallocatedPaymentIDs,
+                    doubleUsedReceipts: validity.doubleUsedReceipts, asOf: asOf)
         }.sorted {
             let first = byID[$0.paymentTransactionID]?.postedAt ?? .distantPast
             let second = byID[$1.paymentTransactionID]?.postedAt ?? .distantPast

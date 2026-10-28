@@ -326,7 +326,8 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                 $0.propertyID == propertyID && $0.deletedAt == nil
             }
             let reconciliation = PropertySettlementCalculator.reconciliationReview(
-                propertyID: propertyID, obligations: report.obligations,
+                propertyID: propertyID,
+                obligations: PropertyCollectionPosting.reconciliationObligations(report: report, ledger: ledger),
                 applications: propertyApplications, inputs: inputsByID)
             // Applied totals per receipt across every property: the same totals
             // `memberAdvances` and `hasChangedAdvanceSource` compare against.
@@ -448,7 +449,10 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                         .insert(source.id)
                     continue
                 }
-                if PropertySettlementCalculator.isValidCollectionPayment(source, asOf: asOf) {
+                if PropertyCollectionPosting.isSpendableAdvance(advance, inputsByID: inputsByID,
+                    appliedByPayment: appliedByPayment,
+                    overallocatedPaymentIDs: reconciliation.overallocatedPaymentIDs,
+                    doubleUsedReceipts: reconciliation.doubleUsedReceipts, asOf: asOf) {
                     advanceByResident[advance.residentID, default: 0] += advance.amount
                 }
             }
