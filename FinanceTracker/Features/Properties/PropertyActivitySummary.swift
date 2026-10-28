@@ -3,13 +3,18 @@ import Foundation
 struct PropertyActivityColumnFilters {
     var accounts: Set<String> = []
     var responsibilities: Set<String> = []
-    var isActive: Bool { !accounts.isEmpty || !responsibilities.isEmpty }
+    /// Label-independent attribution scopes. Detail deep links set these so the
+    /// selection survives concatenated closed-month labels and `.selected`
+    /// member-name collisions; the label filters stay untouched for the user.
+    var identities: Set<PropertyActivityIdentity> = []
+    var isActive: Bool { !accounts.isEmpty || !responsibilities.isEmpty || !identities.isEmpty }
 
     func apply(to rows: [PropertyActivityRow]) -> [PropertyActivityRow] {
         let unavailableAccount = String(localized: "Account unavailable")
         return rows.filter {
             (accounts.isEmpty || accounts.contains($0.account ?? unavailableAccount))
                 && (responsibilities.isEmpty || responsibilities.contains($0.responsibility))
+                && (identities.isEmpty || $0.identity.map(identities.contains) == true)
         }
     }
 }

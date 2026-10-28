@@ -98,6 +98,7 @@ struct PropertiesView: View {
     @State private var activitySelection: Set<UUID> = []
     @State private var activityAccountFilters: Set<String> = []
     @State private var activityResponsibilityFilters: Set<String> = []
+    @State private var activityIdentityFilters: Set<PropertyActivityIdentity> = []
     @State private var assignmentDraft: PropertyAssignmentDraft?
     @State private var memberCollection: PropertyMemberCollectionSelection?
     @State private var pendingLinkSources: [PropertyTransactionInput] = []
@@ -156,13 +157,13 @@ struct PropertiesView: View {
             }
             .onChange(of: workspace.destination) {
                 activitySelection = []; activityFilter = .linked
-                activityAccountFilters = []; activityResponsibilityFilters = []
+                activityAccountFilters = []; activityResponsibilityFilters = []; activityIdentityFilters = []
                 rentDraft = nil; maintenanceDraft = nil
                 proxy.scrollTo("properties-top", anchor: .top)
             }
             .onChange(of: selectedMonth) {
                 activitySelection = []; activityFilter = .linked
-                activityAccountFilters = []; activityResponsibilityFilters = []
+                activityAccountFilters = []; activityResponsibilityFilters = []; activityIdentityFilters = []
                 proxy.scrollTo("properties-top", anchor: .top)
             }
             .onChange(of: workspace.section) {
@@ -173,7 +174,7 @@ struct PropertiesView: View {
                     PropertyMemberCollectionsSheet(workspace: workspace, propertyID: property.id,
                         residentID: selection.id,
                         onShowDetail: { scope in
-                            openAccountDetail(scope, residentID: selection.id, propertyID: property.id, proxy: proxy)
+                            openAccountDetail(scope, residentID: selection.id, proxy: proxy)
                         },
                         registerPayment: {
                             // The sheet dismisses itself first; presenting the capture
@@ -463,6 +464,7 @@ struct PropertiesView: View {
                 residents: ledger.residents(for: property.id, month: selectedMonth),
                 filter: $activityFilter, selection: $activitySelection,
                 accountFilters: $activityAccountFilters, responsibilityFilters: $activityResponsibilityFilters,
+                identityFilters: $activityIdentityFilters,
                 assign: applyActivityAssignment, adjustment: { activeSheet = .adjustment },
                 allowsUserAssignment: workspace.householdActiveMemberIDs.contains((ledger.householdLink ?? PropertyHouseholdAdapter.link).userID),
                 allowsPartnerAssignment: workspace.householdActiveMemberIDs.contains((ledger.householdLink ?? PropertyHouseholdAdapter.link).partnerID))
@@ -475,31 +477,23 @@ struct PropertiesView: View {
         }
     }
 
-    /// Deep link from the member account sheet: swaps the activity filters for the
-    /// exact responsibility labels behind one breakdown row and scrolls to the
-    /// table, so its subtotal can verify the sheet's figure.
+    /// Deep link from the member account sheet: swaps the activity filters for
+    /// the attribution identities behind one breakdown row and scrolls to the
+    /// table, so its subtotal can verify the sheet's figure. Identity, never
+    /// label text: closed months render concatenated split labels and
+    /// `.selected` groups render member names, but the identity still matches
+    /// exactly the obligations `houseSharedTotal` / `individualCharges` summed.
     private func openAccountDetail(_ scope: PropertyAccountDetailScope, residentID: UUID,
-                                   propertyID: UUID, proxy: ScrollViewProxy) {
+                                   proxy: ScrollViewProxy) {
         activityFilter = .linked
         activitySelection = []
         activityAccountFilters = []
-        let residents = ledger.residents(for: propertyID, month: selectedMonth)
+        activityResponsibilityFilters = []
         switch scope {
         case .sharedCharges:
-            // Every shared-scope label present in the ledger, not just "Shared":
-            // `.selected` groups display as their member names joined by ", ".
-            var labels: Set<String> = [String(localized: "Shared")]
-            for attribution in ledger.attributions where attribution.deletedAt == nil {
-                if case .selected(let members) = attribution.responsibility {
-                    labels.insert(PropertyActivityPresenter.label(.selected(residentIDs: members), residents: residents))
-                }
-            }
-            activityResponsibilityFilters = labels
+            activityIdentityFilters = [.shared]
         case .memberCharges:
-            let name = residents.first { $0.id == residentID }?.name
-                ?? workspace.member(id: residentID)?.name
-                ?? String(localized: "Former member")
-            activityResponsibilityFilters = [name]
+            activityIdentityFilters = [.individual(residentID)]
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             proxy.scrollTo("property-activity-table", anchor: .top)

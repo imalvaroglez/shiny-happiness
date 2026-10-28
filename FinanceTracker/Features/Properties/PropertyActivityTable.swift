@@ -20,6 +20,7 @@ struct PropertyActivityTable: View {
     @Binding var selection: Set<UUID>
     @Binding var accountFilters: Set<String>
     @Binding var responsibilityFilters: Set<String>
+    @Binding var identityFilters: Set<PropertyActivityIdentity>
     var assign: (Set<UUID>, PropertyAssignmentChoice) -> Void
     var adjustment: () -> Void
     var allowsUserAssignment = true
@@ -28,7 +29,8 @@ struct PropertyActivityTable: View {
     @State private var sortDirection = PropertyActivitySortDirection.descending
 
     private var columnFilters: PropertyActivityColumnFilters {
-        PropertyActivityColumnFilters(accounts: accountFilters, responsibilities: responsibilityFilters)
+        PropertyActivityColumnFilters(accounts: accountFilters, responsibilities: responsibilityFilters,
+            identities: identityFilters)
     }
 
     private var filteredRows: [PropertyActivityRow] {
@@ -63,6 +65,7 @@ struct PropertyActivityTable: View {
         .onChange(of: rows) { updateSelectionForVisibleRows() }
         .onChange(of: accountFilters) { updateSelectionForVisibleRows() }
         .onChange(of: responsibilityFilters) { updateSelectionForVisibleRows() }
+        .onChange(of: identityFilters) { updateSelectionForVisibleRows() }
     }
 
     private var activityControls: some View {
@@ -95,18 +98,27 @@ struct PropertyActivityTable: View {
     }
 
     private var responsibilityFilterMenu: some View {
+        // The identity scopes deep links install ride the responsibility menu:
+        // its badge and clear action cover both, while the label options stay
+        // exactly the user-facing text filters.
         filterMenu(column: .responsibility, clearTitle: "All responsibilities", options: responsibilityFilterOptions,
-                   selection: $responsibilityFilters)
+                   selection: $responsibilityFilters, extraCount: identityFilters.count,
+                   clear: { identityFilters.removeAll() })
     }
 
     private func filterMenu(column: PropertyActivitySortColumn, clearTitle: String, options: [String],
-                            selection: Binding<Set<String>>) -> some View {
-        Menu {
+                            selection: Binding<Set<String>>, extraCount: Int = 0,
+                            clear: (() -> Void)? = nil) -> some View {
+        let selectedCount = selection.wrappedValue.count + extraCount
+        return Menu {
             Button("Ascending") { sortColumn = column; sortDirection = .ascending }
             Button("Descending") { sortColumn = column; sortDirection = .descending }
             Divider()
-            Button(LocalizedStringKey(clearTitle)) { selection.wrappedValue.removeAll() }
-                .disabled(selection.wrappedValue.isEmpty)
+            Button(LocalizedStringKey(clearTitle)) {
+                selection.wrappedValue.removeAll()
+                clear?()
+            }
+            .disabled(selectedCount == 0)
             if !options.isEmpty { Divider() }
             ForEach(options, id: \.self) { option in
                 Button {
@@ -127,8 +139,8 @@ struct PropertyActivityTable: View {
             HStack(spacing: 5) {
                 Text(LocalizedStringKey(column.rawValue))
                 if sortColumn == column { Image(systemName: sortDirection.symbolName) }
-                if !selection.wrappedValue.isEmpty {
-                    Text(verbatim: "\(selection.wrappedValue.count)").monospacedDigit()
+                if selectedCount > 0 {
+                    Text(verbatim: "\(selectedCount)").monospacedDigit()
                 }
             }
             .lineLimit(1)
@@ -136,7 +148,7 @@ struct PropertyActivityTable: View {
         }
         .menuStyle(.borderlessButton)
         .accessibilityLabel(Text(LocalizedStringKey(column.rawValue)))
-        .accessibilityValue(Text("\(selection.wrappedValue.count) filters selected"))
+        .accessibilityValue(Text("\(selectedCount) filters selected"))
         .accessibilityHint(Text("Select one or more values to filter the table."))
         .help(filterAccessibilityName(column.rawValue))
         .fixedSize(horizontal: true, vertical: false)

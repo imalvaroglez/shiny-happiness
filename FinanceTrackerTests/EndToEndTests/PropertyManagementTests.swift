@@ -581,6 +581,112 @@ struct PropertyManagementTests {
         #expect(throws: (any Error).self) { try PropertyLedgerStore.read(fileURL: url) }
     }
 
+    @Test("Account detail scopes filter activity rows by identity")
+    @MainActor
+    func accountDetailScopesFilterByIdentity() throws {
+        let property = PropertyRecord(name: "Casa de prueba")
+        let october = date(2026, 10)
+        let alex = PropertyResident(propertyID: property.id, name: "Alex", activeFrom: october,
+                                    referenceMonthlyIncome: 1_000)
+        let sam = PropertyResident(propertyID: property.id, name: "Sam", activeFrom: october,
+                                   referenceMonthlyIncome: 1_000)
+        let sharedID = UUID()
+        let individualID = UUID()
+        let reimbursementID = UUID()
+        var ledger = PropertyLedger()
+        ledger.properties = [property]
+        ledger.residents = [alex, sam]
+        ledger.incomes = [confirmedIncome(property.id, alex.id, october, 1_000),
+                          confirmedIncome(property.id, sam.id, october, 1_000)]
+        ledger.attributions = [
+            PropertyTransactionAttribution(propertyID: property.id, transactionID: sharedID,
+                kind: .operation, responsibility: .shared),
+            PropertyTransactionAttribution(propertyID: property.id, transactionID: individualID,
+                kind: .operation, responsibility: .individual(residentID: alex.id)),
+            PropertyTransactionAttribution(propertyID: property.id, transactionID: reimbursementID,
+                kind: .reimbursement, responsibility: .owner),
+        ]
+        let inputs = [
+            PropertyTransactionInput(id: sharedID, amount: -600, postedAt: date(2026, 10, 15),
+                description: "Compra compartida"),
+            PropertyTransactionInput(id: individualID, amount: -250, postedAt: date(2026, 10, 20),
+                description: "Gasto de Alex"),
+            PropertyTransactionInput(id: reimbursementID, amount: 80, postedAt: date(2026, 10, 22),
+                description: "Reembolso", isCashAccount: true),
+        ]
+        // The month is closed, so the report is frozen and its activity rows
+        // render the concatenated split instead of "Shared".
+        let original = PropertySettlementCalculator.report(propertyID: property.id, month: october,
+            ledger: ledger, transactions: inputs)
+        let close = try #require(PropertySettlementCalculator.close(original))
+        ledger.closes = [close]
+        let frozen = PropertySettlementCalculator.frozenReport(close, ledger: ledger, transactions: inputs)
+        let rows = PropertyActivityPresenter.rows(propertyID: property.id, month: october, asOf: .distantFuture,
+            filter: .linked, ledger: ledger, report: frozen, inputs: inputs)
+
+        #expect(rows.count == 3)
+        let shared = try #require(rows.first { $0.id == sharedID })
+        let individual = try #require(rows.first { $0.id == individualID })
+        let reimbursement = try #require(rows.first { $0.id == reimbursementID })
+        #expect(shared.isClosed && individual.isClosed && reimbursement.isClosed)
+        #expect(shared.responsibility.contains("·")) // Concatenated closed label, never "Shared".
+        #expect(shared.identity == .shared)
+        #expect(individual.identity == .individual(alex.id))
+        #expect(reimbursement.identity == nil)
+
+        let account = PropertyMemberAccount.account(propertyID: property.id, residentID: alex.id,
+            report: frozen, ledger: ledger, inputs: inputs, asOf: .distantFuture,
+            context: .init(canCalculate: true, isClosed: true, historical: false, includeCurrent: true))
+        #expect(try #require(account.houseSharedTotal) == 600)
+        #expect(try #require(account.individualCharges) == 250)
+
+        let sharedScope = PropertyActivityColumnFilters(identities: [.shared]).apply(to: rows)
+        #expect(sharedScope.map(\.id) == [sharedID])
+        #expect(sharedScope.compactMap(\.amount).reduce(Decimal.zero, +) == account.houseSharedTotal)
+
+        let memberScope = PropertyActivityColumnFilters(identities: [.individual(alex.id)]).apply(to: rows)
+        #expect(memberScope.map(\.id) == [individualID])
+        #expect(memberScope.compactMap(\.amount).reduce(Decimal.zero, +) == account.individualCharges)
+    }
+
+    @Test("A selected single-member scope stays shared")
+    @MainActor
+    func selectedSingleMemberStaysShared() throws {
+        let property = PropertyRecord(name: "Casa de prueba")
+        let november = date(2026, 11)
+        let alex = PropertyResident(propertyID: property.id, name: "Alex", activeFrom: november,
+                                    referenceMonthlyIncome: 1_000)
+        let chargeID = UUID()
+        var ledger = PropertyLedger()
+        ledger.properties = [property]
+        ledger.residents = [alex]
+        ledger.incomes = [confirmedIncome(property.id, alex.id, november, 1_000)]
+        ledger.attributions = [PropertyTransactionAttribution(propertyID: property.id,
+            transactionID: chargeID, kind: .operation, responsibility: .selected(residentIDs: [alex.id]))]
+        let inputs = [PropertyTransactionInput(id: chargeID, amount: -400, postedAt: date(2026, 11, 12),
+            description: "Compra del grupo")]
+        let report = PropertySettlementCalculator.report(propertyID: property.id, month: november,
+            ledger: ledger, transactions: inputs)
+        let rows = PropertyActivityPresenter.rows(propertyID: property.id, month: november, asOf: .distantFuture,
+            filter: .linked, ledger: ledger, report: report, inputs: inputs)
+
+        let row = try #require(rows.first { $0.id == chargeID })
+        // The label collides with Alex's individual-scope label, but the
+        // identity stays shared because houseSharedTotal counts `.selected`.
+        #expect(row.responsibility == "Alex")
+        #expect(row.identity == .shared)
+        #expect(PropertyActivityColumnFilters(identities: [.individual(alex.id)]).apply(to: rows).isEmpty)
+
+        let account = PropertyMemberAccount.account(propertyID: property.id, residentID: alex.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: .distantFuture,
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(try #require(account.houseSharedTotal) == 400)
+        #expect(try #require(account.individualCharges) == 0)
+        let sharedScope = PropertyActivityColumnFilters(identities: [.shared]).apply(to: rows)
+        #expect(sharedScope.map(\.id) == [chargeID])
+        #expect(sharedScope.compactMap(\.amount).reduce(Decimal.zero, +) == account.houseSharedTotal)
+    }
+
     // MARK: - Workspace model (moved from the former PropertyWorkspaceTests and
     // PropertyMonthlyRefactorTests suites). Pure ledger/workspace tests live here;
     // container-backed ones live in HouseholdSettlementReportTests.

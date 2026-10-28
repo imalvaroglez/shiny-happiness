@@ -1,5 +1,16 @@
 import Foundation
 
+/// Attribution identity behind a row, independent of the responsibility label
+/// it renders. Detail scopes ("View detail" in the member account sheet)
+/// filter by this identity instead of by label text: closed months render the
+/// concatenated split («Tú: $X · Fer: $Y»), `.selected` groups render member
+/// names, and household custom splits render «Custom · Fer $X», so labels can
+/// never reliably identify the rows a scope's figure was built from.
+enum PropertyActivityIdentity: Hashable, Sendable {
+    case shared
+    case individual(UUID)
+}
+
 struct PropertyActivityRow: Identifiable, Equatable {
     enum Kind: String, CaseIterable { case expense = "Expense", collection = "Collection", reimbursement = "Reimbursement" }
     var id: UUID
@@ -16,6 +27,7 @@ struct PropertyActivityRow: Identifiable, Equatable {
     var categoryID: UUID? = nil
     var categoryName: String? = nil
     var categoryHierarchy: PropertyCategoryHierarchy? = nil
+    var identity: PropertyActivityIdentity? = nil
 }
 
 enum PropertyActivitySortColumn: String, CaseIterable, Identifiable {
@@ -219,6 +231,34 @@ enum PropertyActivityPresenter {
             let signedAmount = historical ? snapshot?.amount : input?.amount
             let kind: PropertyActivityRow.Kind = attribution?.kind == .reimbursement || obligation?.kind == .reimbursement ? .reimbursement
                 : application != nil || (signedAmount ?? -1) > 0 ? .collection : .expense
+            // Attribution identity comes from the same source that feeds the
+            // breakdown figures, not from the label the row renders: the
+            // household allocation when present, else the responsibility
+            // behind the row — the close's obligation for closed rows, the
+            // attribution otherwise. Collections, reimbursements, and owner
+            // rows never match a scope, mirroring what
+            // `PropertyMemberAccount.houseSharedTotal` and `individualCharges`
+            // exclude.
+            let identity: PropertyActivityIdentity?
+            if kind == .collection || kind == .reimbursement {
+                identity = nil
+            } else if let allocation = household?[id] {
+                let roles = ledger.householdLink ?? PropertyHouseholdAdapter.link
+                switch allocation {
+                case .user: identity = .individual(roles.userID)
+                case .partner: identity = .individual(roles.partnerID)
+                case .shared, .custom: identity = .shared
+                }
+            } else {
+                let responsibility = closed
+                    ? obligation?.responsibility ?? attribution?.responsibility
+                    : attribution?.responsibility ?? obligation?.responsibility
+                switch responsibility {
+                case .shared, .selected: identity = .shared
+                case .individual(let memberID): identity = .individual(memberID)
+                case .owner, nil: identity = nil
+                }
+            }
             let incompatible = kind == .expense && input.map { !availability.allows($0) } == true
             let assignment: String
             if closed, let obligation {
@@ -251,7 +291,7 @@ enum PropertyActivityPresenter {
                     && input.map { availability.allows($0) } == true,
                 isClosed: closed, categoryID: historical ? nil : input?.categoryID,
                 categoryName: historical ? nil : input?.categoryName,
-                categoryHierarchy: historical ? .unavailable : input?.categoryHierarchy)
+                categoryHierarchy: historical ? .unavailable : input?.categoryHierarchy, identity: identity)
         }.sorted {
             if $0.date != $1.date { return ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
             return $0.id.uuidString < $1.id.uuidString
