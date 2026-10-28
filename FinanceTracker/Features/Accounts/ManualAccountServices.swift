@@ -196,6 +196,10 @@ enum BalanceSnapshotService {
         note: String?,
         context: ModelContext
     ) throws -> AccountBalanceSnapshot {
+        // Same fresh-state barrier as movements and transfers: a valuation on
+        // an archived, closed, or vanished account is rejected with zero
+        // insertions — no snapshot and no mirror transaction.
+        try AccountCaptureValidation.ensureAvailable(account, context: context)
         guard displayAmount >= 0 else { throw ManualAccountError.invalidAmount }
         let signed = account.type.isLiability ? -abs(displayAmount) : abs(displayAmount)
         let snapshot = AccountBalanceSnapshot(

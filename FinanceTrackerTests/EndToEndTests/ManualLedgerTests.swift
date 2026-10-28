@@ -901,4 +901,54 @@ struct ManualLedgerTests {
         #expect(!archived.isAvailableForCapture)
         #expect(!closed.isAvailableForCapture)
     }
+
+    // MARK: - Ajustes de valuación sobre cuentas disponibles
+
+    @Test("Valuation adjustments reject archived and closed accounts without inserting")
+    func valuationAdjustmentRejectsArchivedAndClosedAccounts() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let archived = Account(institution: "Bank", type: .checking, currency: "MXN",
+                               nickname: "Old", archivedAt: .now)
+        let closed = Account(institution: "Bank", type: .savings, currency: "MXN",
+                             nickname: "Shut", closedAt: .now)
+        context.insert(archived)
+        context.insert(closed)
+        try context.save()
+
+        for account in [archived, closed] {
+            #expect(throws: ManualAccountError.accountUnavailable) {
+                _ = try BalanceSnapshotService.createAdjustment(account: account, date: .now,
+                    displayAmount: 2_000, note: nil, context: context)
+            }
+        }
+        // The barrier runs before any construction: no snapshot and no mirror.
+        #expect(try context.fetch(FetchDescriptor<AccountBalanceSnapshot>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+    }
+
+    @Test("Valuation adjustment rejects a stale archived account object")
+    func valuationAdjustmentRejectsStaleArchivedAccountObject() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Stale")
+        context.insert(account)
+        try context.save()
+
+        // Otra ventana archiva la cuenta en su propio contexto y guarda; el
+        // llamador conserva su objeto pre-archivo, sin relaciones entre contextos.
+        let otherContext = ModelContext(container)
+        let accountID = account.id
+        let otherSide = try #require(try otherContext.fetch(FetchDescriptor<Account>(
+            predicate: #Predicate<Account> { $0.id == accountID })).first)
+        otherSide.archivedAt = .now
+        try otherContext.save()
+
+        #expect(throws: ManualAccountError.accountUnavailable) {
+            _ = try BalanceSnapshotService.createAdjustment(account: account, date: .now,
+                displayAmount: 2_000, note: nil, context: context)
+        }
+        #expect(try context.fetch(FetchDescriptor<AccountBalanceSnapshot>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
+    }
 }
