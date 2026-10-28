@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-28
+
 ### Added
 
 - El Sankey de gasto muestra, por moneda, el prefijo de categorías dentro del 80 % del total y agrupa el resto en «Otras categorías» al final con el restante real, sin saltar categorías grandes; la expansión solo se ofrece cuando el desglose cambia y las cifras no cambian entre presentaciones.
