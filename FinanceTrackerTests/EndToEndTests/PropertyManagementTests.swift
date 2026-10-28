@@ -741,6 +741,71 @@ struct PropertyManagementTests {
         #expect(scope.compactMap(\.amount).reduce(Decimal.zero, +) == ferAccount.individualCharges)
     }
 
+    @Test("Closed months keep their frozen identity over current assignments")
+    @MainActor
+    func closedMonthsKeepFrozenIdentityOverCurrentAssignments() throws {
+        let roles = PropertyHouseholdAdapter.link
+        let october = date(2026, 10)
+        let account = Account(institution: "Banco sintético", type: .checking)
+        let ferExpense = Transaction(account: account, postedAt: date(2026, 10, 8), amount: -400,
+            descriptionRaw: "Gasto solo Fer")
+        ferExpense.setHouseholdScope(.included)
+        ferExpense.setExpenseAssignment(.partner)
+        // The current classification assigns the row to Fer alone…
+        let household = HouseholdSettlementReportService.build(monthStart: october,
+            transactions: [ferExpense], dueDates: [:],
+            setup: HouseholdSettlementSetup(partnerIncomeEstimate: 1_000,
+                useUserIncomeManualOverride: true, userIncomeManualOverride: 1_000))
+        var ledger = PropertyLedger()
+        ledger.householdLink = roles
+        ledger.properties = [PropertyRecord(id: roles.propertyID, name: "Casa sintética")]
+        ledger.residents = [PropertyResident(id: roles.userID, propertyID: roles.propertyID,
+            name: "Tú", activeFrom: .distantPast),
+            PropertyResident(id: roles.partnerID, propertyID: roles.propertyID,
+                name: "Fer", activeFrom: .distantPast)]
+        // …but the month was closed under the old classification, which froze
+        // the row as shared with a half-and-half allocation.
+        ledger.closes = [PropertySettlementClose(id: UUID(), propertyID: roles.propertyID,
+            monthStart: october, closedAt: date(2026, 10, 31), residents: [
+                PropertyResidentSnapshot(id: roles.userID, name: "Tú", income: 1_000, share: 0.5,
+                    obligation: 200, paid: 200, directContribution: 200),
+                PropertyResidentSnapshot(id: roles.partnerID, name: "Fer", income: 1_000, share: 0.5,
+                    obligation: 200, paid: 0, directContribution: nil),
+            ], obligations: [
+                PropertyObligationSnapshot(id: UUID.deterministic(ferExpense.id, october, "household-obligation"),
+                    title: "Gasto solo Fer", kind: .operation, amount: 400,
+                    allocations: [roles.userID: 200, roles.partnerID: 200],
+                    transactionID: ferExpense.id, responsibility: .shared,
+                    sourcePostedAt: date(2026, 10, 8), sourceCurrencyCode: "MXN"),
+            ], totalObligations: 400, warnings: [])]
+        let inputs = [PropertyTransactionInput(capturing: ferExpense)]
+        let report = PropertyHouseholdAdapter.report(household, ledger: ledger,
+            transactions: inputs, asOf: date(2026, 10, 28))
+        let rows = PropertyActivityPresenter.rows(propertyID: roles.propertyID, month: october,
+            asOf: date(2026, 10, 28), filter: .linked, ledger: ledger, report: report,
+            inputs: inputs, household: [ferExpense.id: .partner])
+
+        let row = try #require(rows.first { $0.id == ferExpense.id })
+        #expect(row.isClosed)
+        // The frozen close, not the current `.partner` assignment, decides.
+        #expect(row.identity == .shared)
+
+        let ferAccount = PropertyMemberAccount.account(propertyID: roles.propertyID,
+            residentID: roles.partnerID, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(2026, 10, 28),
+            context: .init(canCalculate: household.splitAvailable, isClosed: true,
+                historical: false, includeCurrent: true))
+        // The frozen breakdown counts no individual charge for Fer, so Fer's
+        // scope must stay empty — a consistent zero, not a contradictory one.
+        #expect(try #require(ferAccount.individualCharges) == 0)
+        let memberScope = PropertyActivityColumnFilters(identities: [.individual(roles.partnerID)]).apply(to: rows)
+        #expect(!memberScope.contains { $0.id == ferExpense.id })
+        #expect(memberScope.compactMap(\.amount).reduce(Decimal.zero, +) == ferAccount.individualCharges)
+        let sharedScope = PropertyActivityColumnFilters(identities: [.shared]).apply(to: rows)
+        #expect(sharedScope.map(\.id) == [ferExpense.id])
+        #expect(sharedScope.compactMap(\.amount).reduce(Decimal.zero, +) == ferAccount.houseSharedTotal)
+    }
+
     // MARK: - Workspace model (moved from the former PropertyWorkspaceTests and
     // PropertyMonthlyRefactorTests suites). Pure ledger/workspace tests live here;
     // container-backed ones live in HouseholdSettlementReportTests.

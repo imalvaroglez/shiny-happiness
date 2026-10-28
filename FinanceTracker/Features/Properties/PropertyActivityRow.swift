@@ -234,7 +234,12 @@ enum PropertyActivityPresenter {
             let kind: PropertyActivityRow.Kind = attribution?.kind == .reimbursement || obligation?.kind == .reimbursement ? .reimbursement
                 : application != nil || (signedAmount ?? -1) > 0 ? .collection : .expense
             // Attribution identity comes from the same source that feeds the
-            // breakdown figures, not from the label the row renders: the
+            // breakdown figures, not from the label the row renders. A closed
+            // month's breakdown is computed from the frozen close snapshot,
+            // so a closed row with an obligation in that snapshot counts the
+            // snapshot's way: the current household allocation may have moved
+            // since the close, and letting it win would make a member scope
+            // sum rows the frozen breakdown counts as zero. Otherwise the
             // household allocation when present, else the responsibility
             // behind the row — the close's obligation for closed rows, the
             // attribution otherwise. Collections, reimbursements, and owner
@@ -248,6 +253,15 @@ enum PropertyActivityPresenter {
                 identity = nil
             } else if deferredHouseholdIDs.contains(id) {
                 identity = nil
+            } else if closed, let frozenResponsibility = obligation?.responsibility {
+                // A closed month's breakdown is computed from the frozen
+                // close snapshot; identity must count the same rows that
+                // snapshot's breakdown counted.
+                switch frozenResponsibility {
+                case .shared, .selected: identity = .shared
+                case .individual(let memberID): identity = .individual(memberID)
+                case .owner: identity = nil
+                }
             } else if let allocation = household?[id] {
                 let roles = ledger.householdLink ?? PropertyHouseholdAdapter.link
                 switch allocation {
