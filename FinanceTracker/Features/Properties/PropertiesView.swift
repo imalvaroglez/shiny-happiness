@@ -102,149 +102,151 @@ struct PropertiesView: View {
     @State private var memberCollection: PropertyMemberCollectionSelection?
     @State private var recoverySources: [PropertyTransactionInput] = []
     @State private var rentDraft: PropertyRentDraft?
+    @State private var maintenanceDraft: PropertyMaintenanceDraft?
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: DashboardCardTokens.topStackSpacing) {
-                monthHeader
-                if let loadError {
-                    HStack(alignment: .top) {
-                        Label(loadError, systemImage: "exclamationmark.triangle")
-                            .font(.callout).foregroundStyle(.orange)
-                        Spacer()
-                        Button("Retry") { Task { await workspace.retry() } }
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: DashboardCardTokens.topStackSpacing) {
+                    Color.clear.frame(height: 0).accessibilityHidden(true).id("properties-top")
+                    monthHeader
+                    if let loadError {
+                        HStack(alignment: .top) {
+                            Label(loadError, systemImage: "exclamationmark.triangle")
+                                .font(.callout).foregroundStyle(.orange)
+                            Spacer()
+                            Button("Retry") { Task { await workspace.retry() } }
+                        }
+                        .accessibilityIdentifier("properties.error")
                     }
-                    .accessibilityIdentifier("properties.error")
+                    if workspace.isLoading && !ledgerAvailable { ProgressView("Cargando propiedades…") }
+                    sectionPicker
+                    if workspace.isLoadingPeriod || (!workspace.periodReady && loadError == nil) {
+                        ProgressView("Actualizando el reporte…").frame(maxWidth: .infinity, alignment: .leading)
+                    } else if !workspace.periodReady {
+                        ContentUnavailableView("Reporte no disponible", systemImage: "calendar.badge.exclamationmark",
+                            description: Text("Retry the read to show the selected month's data."))
+                    } else { detail }
                 }
-                if workspace.isLoading && !ledgerAvailable { ProgressView("Cargando propiedades…") }
-                sectionPicker
-                if workspace.isLoadingPeriod || (!workspace.periodReady && loadError == nil) {
-                    ProgressView("Actualizando el reporte…").frame(maxWidth: .infinity, alignment: .leading)
-                } else if !workspace.periodReady {
-                    ContentUnavailableView("Reporte no disponible", systemImage: "calendar.badge.exclamationmark",
-                        description: Text("Retry the read to show the selected month's data."))
-                } else { detail }
+                .padding(28)
+                .frame(maxWidth: 1120, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(28)
-            .frame(maxWidth: 1120, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .top)
-        }
-        .background {
-            PropertyWorkspaceRenderProbe(workspace: workspace, destination: workspace.destination,
-                section: workspace.section, month: selectedMonth).allowsHitTesting(false)
-        }
-        .navigationTitle(workspace.title)
-        .accessibilityIdentifier("properties.workspace")
-        .toolbar { workspaceToolbar }
-        .task { await load() }
-        .onChange(of: workspace.showingNewProperty) {
-            if workspace.showingNewProperty { activeSheet = .property; workspace.showingNewProperty = false }
-        }
-        .confirmationDialog("Remove member", isPresented: Binding(get: { participationEndID != nil }, set: { if !$0 { participationEndID = nil } }), titleVisibility: .visible) {
-            Button("Remove from \(propertyMonthText(PropertyParticipation.firstInactiveMonth(selected: selectedMonth, today: .now)))", role: .destructive) {
-                guard let id = participationEndID else { return }
-                if workspace.removeMember(id: id) { participationEndID = nil }
+            .background {
+                PropertyWorkspaceRenderProbe(workspace: workspace, destination: workspace.destination,
+                    section: workspace.section, month: selectedMonth).allowsHitTesting(false)
             }
-            Button("Cancel", role: .cancel) { participationEndID = nil }
-        } message: {
-            let name = participationEndID.flatMap { workspace.member(id: $0)?.name } ?? String(localized: "Member")
-            Text("\(name) stops participating from the indicated month. Open periods recalculate; history and previous closes are preserved.")
-        }
-        .onChange(of: workspace.destination) {
-            activitySelection = []; activityFilter = .linked
-            activityAccountFilters = []; activityResponsibilityFilters = []
-            rentDraft = nil
-        }
-        .onChange(of: selectedMonth) {
-            activitySelection = []; activityFilter = .linked
-            activityAccountFilters = []; activityResponsibilityFilters = []
-        }
-        .sheet(item: $memberCollection) { selection in
-            if let property = selectedProperty {
-                PropertyMemberCollectionsSheet(workspace: workspace, propertyID: property.id,
-                    residentID: selection.id)
+            .navigationTitle(workspace.title)
+            .accessibilityIdentifier("properties.workspace")
+            .toolbar { workspaceToolbar }
+            .task { await load() }
+            .onChange(of: workspace.showingNewProperty) {
+                if workspace.showingNewProperty { activeSheet = .property; workspace.showingNewProperty = false }
             }
-        }
-        .sheet(item: $assignmentDraft) { draft in
-            PropertyAssignmentEditor(workspace: workspace, draft: draft,
-                residents: selectedProperty.map { ledger.residents(for: $0.id, month: selectedMonth) } ?? []) {
-                    activitySelection = []
+            .confirmationDialog("Remove member", isPresented: Binding(get: { participationEndID != nil }, set: { if !$0 { participationEndID = nil } }), titleVisibility: .visible) {
+                Button("Remove from \(propertyMonthText(PropertyParticipation.firstInactiveMonth(selected: selectedMonth, today: .now)))", role: .destructive) {
+                    guard let id = participationEndID else { return }
+                    if workspace.removeMember(id: id) { participationEndID = nil }
                 }
-        }
-        .sheet(item: $activeSheet) { sheet in
-            VStack(spacing: 0) {
-            switch sheet {
-            case .property:
-                PropertyNameSheet { name in
-                    var property = PropertyRecord(name: name)
-                    property.updatedAt = .now
-                    ledger.properties.append(property)
-                    selectedPropertyID = property.id
-                    return persist()
-                }
-            case .resident:
+                Button("Cancel", role: .cancel) { participationEndID = nil }
+            } message: {
+                let name = participationEndID.flatMap { workspace.member(id: $0)?.name } ?? String(localized: "Member")
+                Text("\(name) stops participating from the indicated month. Open periods recalculate; history and previous closes are preserved.")
+            }
+            .onChange(of: workspace.destination) {
+                activitySelection = []; activityFilter = .linked
+                activityAccountFilters = []; activityResponsibilityFilters = []
+                rentDraft = nil; maintenanceDraft = nil
+                proxy.scrollTo("properties-top", anchor: .top)
+            }
+            .onChange(of: selectedMonth) {
+                activitySelection = []; activityFilter = .linked
+                activityAccountFilters = []; activityResponsibilityFilters = []
+                proxy.scrollTo("properties-top", anchor: .top)
+            }
+            .onChange(of: workspace.section) {
+                proxy.scrollTo("properties-top", anchor: .top)
+            }
+            .sheet(item: $memberCollection) { selection in
                 if let property = selectedProperty {
-                    PropertyResidentSheet(property: property, defaultMonth: nextMonth) { resident in
-                        ledger.residents.append(resident)
+                    PropertyMemberCollectionsSheet(workspace: workspace, propertyID: property.id,
+                        residentID: selection.id)
+                }
+            }
+            .sheet(item: $assignmentDraft) { draft in
+                PropertyAssignmentEditor(workspace: workspace, draft: draft,
+                    residents: selectedProperty.map { ledger.residents(for: $0.id, month: selectedMonth) } ?? []) {
+                        activitySelection = []
+                    }
+            }
+            .sheet(item: $activeSheet) { sheet in
+                VStack(spacing: 0) {
+                switch sheet {
+                case .property:
+                    PropertyNameSheet { name in
+                        var property = PropertyRecord(name: name)
+                        property.updatedAt = .now
+                        ledger.properties.append(property)
+                        selectedPropertyID = property.id
                         return persist()
                     }
-                }
-            case .residentEdit(let residentID):
-                if let member = workspace.member(id: residentID) {
-                    PropertyResidentRenameSheet(name: member.name, errorMessage: { workspace.error }) { name in
-                        workspace.renameMember(id: residentID, name: name)
-                    }
-                }
-            case .attribution:
-                if let property = selectedProperty {
-                    PropertyAttributionSheet(property: property, month: selectedMonth,
-                        residents: ledger.residents(for: property.id, month: selectedMonth),
-                        programs: ledger.maintenancePrograms.filter { $0.propertyID == property.id && $0.deletedAt == nil },
-                        transactions: transactionInputs.filter {
-                            $0.deletedAt == nil && !$0.isDuplicate && !$0.isTransfer && $0.amount < 0
-                                && $0.currencyCode == "MXN"
-                                && isAvailableForProperty($0, propertyID: property.id)
-                        }) { proposedAttribution in
-                            workspace.linkAttribution(proposedAttribution)
-                        }
-                }
-            case .payment(let memberID):
-                if let property = selectedProperty, let report {
-                    PropertyCollectionCaptureSheet(workspace: workspace, property: property, report: report,
-                        accounts: accounts, initialResidentID: memberID)
-                }
-            case .existingPayment:
-                if let property = selectedProperty, let report {
-                    PropertyCollectionCaptureSheet(workspace: workspace, property: property, report: report,
-                        accounts: accounts, existingSources: recoverySources)
-                }
-            case .adjustment:
-                if let property = selectedProperty, let report {
-                    PropertyAdjustmentSheet(propertyID: property.id, month: selectedMonth,
-                        residents: report.residents) { adjustment in
-                            ledger.adjustments.append(adjustment)
+                case .resident:
+                    if let property = selectedProperty {
+                        PropertyResidentSheet(property: property, defaultMonth: nextMonth) { resident in
+                            ledger.residents.append(resident)
                             return persist()
                         }
-                }
-            case .maintenance:
-                if let property = selectedProperty {
-                    PropertyMaintenanceSheet(propertyID: property.id) { program in
-                        ledger.maintenancePrograms.append(program)
-                        return persist()
+                    }
+                case .residentEdit(let residentID):
+                    if let member = workspace.member(id: residentID) {
+                        PropertyResidentRenameSheet(name: member.name, errorMessage: { workspace.error }) { name in
+                            workspace.renameMember(id: residentID, name: name)
+                        }
+                    }
+                case .attribution:
+                    if let property = selectedProperty {
+                        PropertyAttributionSheet(property: property, month: selectedMonth,
+                            residents: ledger.residents(for: property.id, month: selectedMonth),
+                            programs: ledger.maintenancePrograms.filter { $0.propertyID == property.id && $0.deletedAt == nil },
+                            transactions: transactionInputs.filter {
+                                $0.deletedAt == nil && !$0.isDuplicate && !$0.isTransfer && $0.amount < 0
+                                    && $0.currencyCode == "MXN"
+                                    && isAvailableForProperty($0, propertyID: property.id)
+                            }) { proposedAttribution in
+                                workspace.linkAttribution(proposedAttribution)
+                            }
+                    }
+                case .payment(let memberID):
+                    if let property = selectedProperty, let report {
+                        PropertyCollectionCaptureSheet(workspace: workspace, property: property, report: report,
+                            accounts: accounts, initialResidentID: memberID)
+                    }
+                case .existingPayment:
+                    if let property = selectedProperty, let report {
+                        PropertyCollectionCaptureSheet(workspace: workspace, property: property, report: report,
+                            accounts: accounts, existingSources: recoverySources)
+                    }
+                case .adjustment:
+                    if let property = selectedProperty, let report {
+                        PropertyAdjustmentSheet(propertyID: property.id, month: selectedMonth,
+                            residents: report.residents) { adjustment in
+                                ledger.adjustments.append(adjustment)
+                                return persist()
+                            }
+                    }
+                case .reserve:
+                    if let property = selectedProperty {
+                        PropertyReserveSheet(propertyID: property.id) { movement in
+                            ledger.reserveMovements.append(movement)
+                            return persist()
+                        }
                     }
                 }
-            case .reserve:
-                if let property = selectedProperty {
-                    PropertyReserveSheet(propertyID: property.id) { movement in
-                        ledger.reserveMovements.append(movement)
-                        return persist()
-                    }
+                if let loadError {
+                    Label(loadError, systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(.orange).padding()
                 }
-            }
-            if let loadError {
-                Label(loadError, systemImage: "exclamationmark.triangle")
-                    .font(.callout).foregroundStyle(.orange).padding()
-            }
+                }
             }
         }
     }
@@ -274,7 +276,6 @@ struct PropertiesView: View {
                     Button("Add adjustment…") { activeSheet = .adjustment }
                         .disabled(ledger.closes.contains { $0.propertyID == property.id && $0.monthStart == selectedMonth })
                     Divider()
-                    Button("Maintenance program…") { activeSheet = .maintenance }
                     Button("Set aside reserve…") { activeSheet = .reserve }
                 } else if workspace.destination == .household, let summary = workspace.householdSummary {
                     if let onReviewHouseholdTransactions {
@@ -377,7 +378,7 @@ struct PropertiesView: View {
                     monthlyDetail(property, report)
                 } else {
                     rentAgreementsSection(property)
-                    PropertySectionHeading(title: "Maintenance program", actionTitle: "Set up program") { activeSheet = .maintenance }
+                    maintenanceConfigurationSection(property)
                 }
             }
         }
@@ -589,52 +590,140 @@ struct PropertiesView: View {
         return saved
     }
 
+    /// The month tab shows recovery only for properties that actually have a
+    /// program; the household never has one, and with no program the whole
+    /// section (including its empty state) is omitted.
+    @ViewBuilder
     private func maintenanceSection(_ property: PropertyRecord) -> some View {
-        let programs = ledger.maintenancePrograms.filter { $0.propertyID == property.id && $0.deletedAt == nil }
-        return VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
-            PropertySectionHeading(title: "Maintenance and recovery")
-            PropertyTableCard {
-            VStack(alignment: .leading, spacing: 8) {
-            if programs.isEmpty {
-                Text("No recovery program configured.").foregroundStyle(.secondary)
-                Button("Set up program") { workspace.section = .configuration }
-            } else {
-                ForEach(programs) { program in
-                    let summary = PropertyMaintenanceCalculator.summary(program: program, ledger: ledger,
-                        transactions: transactionInputs)
-                    PropertyMetricGrid(values: [
-                        .init(title: "Budget", amount: program.budget, note: "Program limit"),
-                        .init(title: "Investment", amount: summary.invested, note: "Registered disbursements"),
-                        .init(title: "Unexercised", amount: summary.budgetAvailable, note: "Remaining budget"),
-                        .init(title: "Recovered", amount: summary.recovered, note: "From rent actually collected"),
-                        .init(title: "Pending capital", amount: summary.capitalPending, note: "To recover"),
-                    ])
-                    let progress = program.budget > 0
-                        ? min(1, NSDecimalNumber(decimal: summary.invested / program.budget).doubleValue) : 0
-                    ProgressView(value: progress)
-                    if summary.invested > program.budget {
-                        Label("Investment exceeds the budget by \(propertyMoneyText(summary.invested - program.budget)).", systemImage: "exclamationmark.triangle")
-                            .font(.caption).foregroundStyle(.orange)
+        if workspace.destination != .household {
+            let programs = ledger.maintenancePrograms.filter { $0.propertyID == property.id && $0.deletedAt == nil }
+            if !programs.isEmpty {
+                VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
+                    PropertySectionHeading(title: "Maintenance and recovery")
+                    PropertyTableCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(programs) { program in
+                                let summary = PropertyMaintenanceCalculator.summary(program: program, ledger: ledger,
+                                    transactions: transactionInputs)
+                                PropertyMetricGrid(values: [
+                                    .init(title: "Budget", amount: program.budget, note: "Program limit"),
+                                    .init(title: "Investment", amount: summary.invested, note: "Registered disbursements"),
+                                    .init(title: "Unexercised", amount: summary.budgetAvailable, note: "Remaining budget"),
+                                    .init(title: "Recovered", amount: summary.recovered, note: "From rent actually collected"),
+                                    .init(title: "Pending capital", amount: summary.capitalPending, note: "To recover"),
+                                ])
+                                let progress = program.budget > 0
+                                    ? min(1, NSDecimalNumber(decimal: summary.invested / program.budget).doubleValue) : 0
+                                ProgressView(value: progress)
+                                if summary.invested > program.budget {
+                                    Label("Investment exceeds the budget by \(propertyMoneyText(summary.invested - program.budget)).", systemImage: "exclamationmark.triangle")
+                                        .font(.caption).foregroundStyle(.orange)
+                                }
+                                ForEach(summary.warnings, id: \.self) { warning in
+                                    Label(warning, systemImage: "exclamationmark.triangle")
+                                        .font(.caption).foregroundStyle(.orange)
+                                }
+                                Text("\(propertyMonthText(program.startsAt))–\(propertyMonthText(program.endsAt)) · max \(propertyMoneyText(program.monthlyRecoveryLimit)) per month")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            HStack {
+                                Text("Future reserve available")
+                                Spacer()
+                                let reserve = ledger.reserveMovements.filter { $0.propertyID == property.id && $0.deletedAt == nil }
+                                    .reduce(Decimal.zero) { $0 + $1.amount }
+                                Text(propertyMoneyText(reserve)).monospacedDigit()
+                            }
+                            .padding(.top, 6)
+                        }
                     }
-                    ForEach(summary.warnings, id: \.self) { warning in
-                        Label(warning, systemImage: "exclamationmark.triangle")
-                            .font(.caption).foregroundStyle(.orange)
-                    }
-                    Text("\(propertyMonthText(program.startsAt))–\(propertyMonthText(program.endsAt)) · max \(propertyMoneyText(program.monthlyRecoveryLimit)) per month")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
-                HStack {
-                    Text("Future reserve available")
-                    Spacer()
-                    let reserve = ledger.reserveMovements.filter { $0.propertyID == property.id && $0.deletedAt == nil }
-                        .reduce(Decimal.zero) { $0 + $1.amount }
-                    Text(propertyMoneyText(reserve)).monospacedDigit()
-                }
-                .padding(.top, 6)
             }
         }
+    }
+
+    /// Configuration owns the maintenance program: read values plus inline
+    /// editing on the same surface. The household never has a program.
+    @ViewBuilder
+    private func maintenanceConfigurationSection(_ property: PropertyRecord) -> some View {
+        if workspace.destination != .household {
+            VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
+                if let draft = maintenanceDraft, draft.propertyID == property.id {
+                    PropertyMaintenanceProgramEditor(draft: draft,
+                        errorMessage: { loadError },
+                        onSave: { startsAt, endsAt, budget, monthlyLimit in
+                            saveMaintenanceProgram(propertyID: property.id, existingID: draft.editingID,
+                                startsAt: startsAt, endsAt: endsAt, budget: budget, monthlyLimit: monthlyLimit)
+                        },
+                        onCancel: { maintenanceDraft = nil })
+                } else if let program = activeMaintenanceProgram(for: property.id) {
+                    PropertySectionHeading(title: "Maintenance program", actionTitle: "Edit") {
+                        maintenanceDraft = PropertyMaintenanceDraft(propertyID: property.id, editingID: program.id,
+                            startsAt: program.startsAt, endsAt: program.endsAt,
+                            budget: program.budget, monthlyLimit: program.monthlyRecoveryLimit)
+                    }
+                    PropertyTableCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            maintenanceFactRow("Start", propertyMonthText(program.startsAt))
+                            maintenanceFactRow("End", propertyMonthText(program.endsAt))
+                            maintenanceFactRow("Budget", propertyMoneyText(program.budget))
+                            maintenanceFactRow("Maximum recovery per month", propertyMoneyText(program.monthlyRecoveryLimit))
+                            Text("The budget helps planning. Only linked expenses count as actual investment.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    PropertySectionHeading(title: "Maintenance program", actionTitle: "Set up program") {
+                        maintenanceDraft = PropertyMaintenanceDraft(propertyID: property.id, editingID: nil,
+                            startsAt: Calendar.current.propertyMonthStart(for: .now),
+                            endsAt: Calendar.current.date(byAdding: .month, value: 11,
+                                to: Calendar.current.propertyMonthStart(for: .now)) ?? .now,
+                            budget: 24_000, monthlyLimit: 2_000)
+                    }
+                    PropertyTableCard {
+                        Text("No recovery program configured.").foregroundStyle(.secondary)
+                    }
+                }
             }
         }
+    }
+
+    private func maintenanceFactRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(LocalizedStringKey(title)).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Text(value).monospacedDigit()
+        }.font(.callout)
+    }
+
+    /// Active program: not deleted, covering the selected month when possible,
+    /// otherwise the most recently updated one.
+    private func activeMaintenanceProgram(for propertyID: UUID) -> PropertyMaintenanceProgram? {
+        let programs = ledger.maintenancePrograms.filter { $0.propertyID == propertyID && $0.deletedAt == nil }
+        let byMostRecent: (PropertyMaintenanceProgram, PropertyMaintenanceProgram) -> Bool = {
+            if $0.updatedAt != $1.updatedAt { return $0.updatedAt < $1.updatedAt }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+        let month = Calendar.current.propertyMonthStart(for: selectedMonth)
+        return programs.filter { $0.startsAt <= month && month <= $0.endsAt }.max(by: byMostRecent)
+            ?? programs.max(by: byMostRecent)
+    }
+
+    /// Saving replaces the program by identity — same id, fresh updatedAt —
+    /// and only a genuinely new program appends. Cancel never writes.
+    private func saveMaintenanceProgram(propertyID: UUID, existingID: UUID?, startsAt: Date, endsAt: Date,
+                                        budget: Decimal, monthlyLimit: Decimal) -> Bool {
+        if let existingID, let index = ledger.maintenancePrograms.firstIndex(where: { $0.id == existingID }) {
+            ledger.maintenancePrograms[index] = PropertyMaintenanceProgram(id: existingID, propertyID: propertyID,
+                startsAt: startsAt, endsAt: endsAt, budget: budget, monthlyRecoveryLimit: monthlyLimit, updatedAt: .now)
+        } else if existingID == nil {
+            ledger.maintenancePrograms.append(PropertyMaintenanceProgram(propertyID: propertyID,
+                startsAt: startsAt, endsAt: endsAt, budget: budget, monthlyRecoveryLimit: monthlyLimit, updatedAt: .now))
+        } else {
+            return false
+        }
+        let saved = persist()
+        if saved { maintenanceDraft = nil }
+        return saved
     }
 
     private func close(_ report: PropertyMonthlyReport) {
@@ -664,7 +753,7 @@ struct PropertiesView: View {
 }
 
 private enum PropertySheet: Identifiable {
-    case property, resident, attribution, existingPayment, adjustment, maintenance, reserve
+    case property, resident, attribution, existingPayment, adjustment, reserve
     case payment(UUID?)
     case residentEdit(UUID)
     var id: String {
@@ -676,7 +765,6 @@ private enum PropertySheet: Identifiable {
         case .payment(let id): "payment-\(id?.uuidString ?? "choose")"
         case .existingPayment: "existing-payment"
         case .adjustment: "adjustment"
-        case .maintenance: "maintenance"
         case .reserve: "reserve"
         }
     }
@@ -689,6 +777,74 @@ private struct PropertyRentDraft {
     var editingID: UUID?
     var month: Date
     var amount: Decimal
+}
+
+/// Draft for the inline maintenance editor. `editingID` points at the program
+/// being edited; `nil` means a new program seeded with the creation defaults.
+private struct PropertyMaintenanceDraft {
+    var propertyID: UUID
+    var editingID: UUID?
+    var startsAt: Date
+    var endsAt: Date
+    var budget: Decimal
+    var monthlyLimit: Decimal
+}
+
+/// Inline maintenance program editor seeded from the existing program: money
+/// fields parse with MoneyEntry (two decimals), a failed save keeps the draft
+/// with its message, and Cancel never writes.
+private struct PropertyMaintenanceProgramEditor: View {
+    @State private var startsAt: Date
+    @State private var endsAt: Date
+    @State private var budgetText: String
+    @State private var limitText: String
+    @State private var saveError: String?
+    var errorMessage: () -> String?
+    var onSave: (_ startsAt: Date, _ endsAt: Date, _ budget: Decimal, _ monthlyLimit: Decimal) -> Bool
+    var onCancel: () -> Void
+
+    init(draft: PropertyMaintenanceDraft, errorMessage: @escaping () -> String? = { nil },
+         onSave: @escaping (Date, Date, Decimal, Decimal) -> Bool, onCancel: @escaping () -> Void) {
+        _startsAt = State(initialValue: draft.startsAt)
+        _endsAt = State(initialValue: draft.endsAt)
+        _budgetText = State(initialValue: MoneyEntry.suggestedEntryText(draft.budget))
+        _limitText = State(initialValue: MoneyEntry.suggestedEntryText(draft.monthlyLimit))
+        self.errorMessage = errorMessage
+        self.onSave = onSave
+        self.onCancel = onCancel
+    }
+
+    private var budget: Decimal? { MoneyEntry.parseEntryAmount(budgetText) }
+    private var monthlyLimit: Decimal? { MoneyEntry.parseEntryAmount(limitText) }
+
+    var body: some View {
+        StandardEditorForm(title: "Maintenance program",
+            isValid: budget != nil && monthlyLimit != nil && startsAt <= endsAt,
+            onCancel: onCancel, onSave: {
+                guard let budget, let monthlyLimit else { return }
+                if !onSave(startsAt, endsAt, budget, monthlyLimit) {
+                    saveError = errorMessage() ?? String(localized: "Could not save the maintenance program. Try again.")
+                }
+            }) {
+            DatePicker("Start", selection: $startsAt, displayedComponents: .date)
+            DatePicker("End", selection: $endsAt, displayedComponents: .date)
+            LabeledContent("Investment budget") {
+                TextField("MXN", text: $budgetText)
+                    .frame(width: 170)
+                    .monospacedDigit()
+            }
+            LabeledContent {
+                TextField("MXN", text: $limitText)
+                    .frame(width: 170)
+                    .monospacedDigit()
+            } label: {
+                Text("Maximum recovery per month").fixedSize(horizontal: false, vertical: true)
+            }
+            Text("The budget helps planning. Only linked expenses count as actual investment.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let saveError { Text(saveError).font(.callout).foregroundStyle(.red) }
+        }
+    }
 }
 
 /// Inline rent agreement editor: seeded draft, Cancel/Save, and a failed save

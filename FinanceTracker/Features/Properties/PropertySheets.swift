@@ -200,39 +200,6 @@ struct PropertyAdjustmentSheet: View {
     }
 }
 
-struct PropertyMaintenanceSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let propertyID: UUID
-    @State private var startsAt = Calendar.current.propertyMonthStart(for: .now)
-    @State private var endsAt = Calendar.current.date(byAdding: .month, value: 11,
-        to: Calendar.current.propertyMonthStart(for: .now)) ?? .now
-    @State private var budget: Decimal = 24_000
-    @State private var monthlyLimit: Decimal = 2_000
-    var onSave: (PropertyMaintenanceProgram) -> Bool
-    var body: some View {
-        StandardEditorForm(title: "Maintenance program", isValid: budget >= 0 && monthlyLimit >= 0 && startsAt <= endsAt,
-            onCancel: { dismiss() }, onSave: {
-                if onSave(PropertyMaintenanceProgram(propertyID: propertyID, startsAt: startsAt, endsAt: endsAt,
-                    budget: budget, monthlyRecoveryLimit: monthlyLimit)) { dismiss() }
-            }) {
-                DatePicker("Start", selection: $startsAt, displayedComponents: .date)
-                DatePicker("End", selection: $endsAt, displayedComponents: .date)
-                LabeledContent("Investment budget") {
-                    TextField("MXN", value: $budget, format: .currency(code: "MXN").locale(Locale(identifier: "es-MX")))
-                        .frame(width: 170)
-                }
-                LabeledContent {
-                    TextField("MXN", value: $monthlyLimit, format: .currency(code: "MXN").locale(Locale(identifier: "es-MX")))
-                        .frame(width: 170)
-                } label: {
-                    Text("Maximum recovery per month").fixedSize(horizontal: false, vertical: true)
-                }
-                Text("The budget helps planning. Only linked expenses count as actual investment.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-    }
-}
-
 struct PropertyReserveSheet: View {
     @Environment(\.dismiss) private var dismiss
     let propertyID: UUID

@@ -880,3 +880,4 @@
 "Configuration" = "Configuración";
 "No rent agreements yet." = "Aún no hay acuerdos de renta.";
 "Could not save the rent agreement. Try again." = "No se pudo guardar el acuerdo de renta. Inténtalo de nuevo.";
+"Could not save the maintenance program. Try again." = "No se pudo guardar el programa de mantenimiento. Inténtalo de nuevo.";
