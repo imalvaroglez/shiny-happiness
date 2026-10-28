@@ -892,3 +892,10 @@
 "Applied payments" = "Pagos aplicados";
 "Projection" = "Proyección";
 "Outstanding balance" = "Saldo pendiente";
+
+/* Member account review notes (TA) */
+"Net of earlier collections" = "neta de cobros anteriores";
+"This balance does not discount a previous record of %@ because its movement could not be found." = "Este saldo no descuenta un registro anterior de %@ porque no encontramos el movimiento correspondiente.";
+"This balance does not discount a previous record of %@ because its movement changed after registration." = "Este saldo no descuenta un registro anterior de %@ porque su movimiento cambió después del registro.";
+"An advance of %@ lost its backing; it is not available money." = "Un anticipo de %@ perdió su respaldo; no cuenta como dinero disponible.";
+"Suggested payment" = "Importe sugerido a pagar";

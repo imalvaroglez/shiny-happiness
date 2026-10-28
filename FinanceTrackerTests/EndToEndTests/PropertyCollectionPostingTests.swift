@@ -1237,14 +1237,18 @@ struct PropertyCollectionPostingTests {
         #expect(account.memberSharedShare == 80)
         #expect(account.individualCharges == 30)
         #expect(account.adjustments == 10)
-        #expect(account.appliedPayments == 100)
+        // Applied payments are the month slice only (30); the 70 that covered
+        // the closed August rent travels as priorPaid, already net in priorDebt.
+        #expect(account.appliedPayments == settlement.monthPaid)
+        #expect(account.appliedPayments == 30)
+        #expect(account.priorPaid == settlement.priorPaid)
+        #expect(account.priorPaid == 70)
         #expect(account.priorDebt == 80)
         #expect(account.status == .partial)
-        // Conservation invariant: the breakdown reproduces the settlement due.
-        let monthPaid = settlement.monthPaid
+        // Conservation invariant: the visible rows sum to the balance by hand.
         #expect(account.balanceDue == account.priorDebt
             + max(0, (account.rent ?? 0) + (account.memberSharedShare ?? 0)
-                + (account.individualCharges ?? 0) + (account.adjustments ?? 0) - monthPaid))
+                + (account.individualCharges ?? 0) + (account.adjustments ?? 0) - account.appliedPayments))
         #expect(account.balanceDue == settlement.due)
         #expect(account.balanceDue == 270)
     }
@@ -1339,6 +1343,14 @@ struct PropertyCollectionPostingTests {
         #expect(projection.rent == nil)
         #expect(projection.adjustments == nil)
         #expect(projection.priorDebt == 0)
+        // The projection's settlement still computes a due, but the future is
+        // never presented as debt — nor as a payable suggestion.
+        let octoberSettlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: october, ledger: ledger, inputs: inputs,
+            asOf: date(9, 15), context: context)
+        #expect(octoberSettlement.due != nil)
+        #expect(projection.balanceDue == nil)
+        #expect(projection.suggestedPayment == nil)
         // The asOf calendar month is the boundary: it is already a fact.
         let september = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
             ledger: ledger, transactions: inputs, asOf: date(9, 15))
@@ -1346,38 +1358,41 @@ struct PropertyCollectionPostingTests {
             report: september, ledger: ledger, inputs: inputs, asOf: date(9, 15), context: context)
         #expect(!current.isProjection)
         #expect(current.rent == 100)
+        #expect(current.balanceDue != nil)
+        #expect(current.balanceDue == 100)
     }
 
     @Test("A valid advance counts while a broken advance only flags repair")
     func validAdvancesAreSeparateFromRepairReferences() throws {
         var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
-        let valid = PropertyTransactionInput(id: UUID(), amount: 40, postedAt: date(9, 2),
-            description: "Anticipo válido", isCashAccount: true)
-        let validID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: valid.id)
         let original = PropertyTransactionInput(id: UUID(), amount: 60, postedAt: date(9, 3),
             description: "Anticipo cambiado", isCashAccount: true)
         let staleID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: original.id)
         ledger.paymentApplications = [
-            PropertyPaymentApplication(id: validID, propertyID: house.id,
-                paymentTransactionID: valid.id, obligationID: validID, residentID: resident.id,
-                amount: 40, snapshots: PropertySourceSnapshots(capturing: valid)),
             PropertyPaymentApplication(id: staleID, propertyID: house.id,
                 paymentTransactionID: original.id, obligationID: staleID, residentID: resident.id,
                 amount: 60, snapshots: PropertySourceSnapshots(capturing: original))]
         var changed = original
         changed.amount = 25
-        inputs += [valid, changed]
+        inputs.append(changed)
         let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
             ledger: ledger, transactions: inputs, asOf: date(9, 20))
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
         let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
-            report: report, ledger: ledger, inputs: inputs, asOf: date(9, 20),
-            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
-        // The live 40 advance is money; the 60 whose source changed is repair
-        // work, never spendable, and it blocks any debt figure.
-        #expect(account.advanceAvailable == 40)
+            report: report, ledger: ledger, inputs: inputs, asOf: date(9, 20), context: context)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(9, 20), context: context)
+        // The 60 advance whose source changed is repair work, never spendable
+        // money — but it no longer hides the debt: review keeps a numeric
+        // balance and quantifies the unbacked advance separately.
         #expect(account.advancesNeedRepair)
         #expect(account.status == .review)
-        #expect(account.balanceDue == nil)
+        #expect(account.balanceDue == settlement.due)
+        #expect(account.balanceDue == 100)
+        #expect(settlement.unbackedAdvances == 60)
+        #expect(account.advanceAvailable == 0)
     }
 
     @Test("An uncalculable split keeps nil month figures and never zeroes the prior debt")
@@ -1410,6 +1425,134 @@ struct PropertyCollectionPostingTests {
         #expect(account.adjustments == nil)
         #expect(account.balanceDue == nil)
         #expect(account.priorDebt == 150)
+    }
+
+    @Test("Account rows sum by hand when prior debt is net")
+    func accountRowsSumByHandWhenPriorDebtIsNet() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let augustRentID = try #require(august.obligations.first(where: \.isRent)?.id)
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        // A 20 collection against the closed August debt (150): priorDebt nets
+        // to 130 and the 20 surfaces on its own row.
+        let prior = PropertyTransactionInput(id: UUID(), amount: 20, postedAt: date(9, 2),
+            description: "Cobro previo", isCashAccount: true)
+        // The month slice: 30 collected against September's rent.
+        let month = PropertyTransactionInput(id: UUID(), amount: 30, postedAt: date(9, 10),
+            description: "Cobro del mes", isCashAccount: true)
+        inputs += [prior, month]
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let septemberRentID = try #require(report.obligations.first(where: \.isRent)?.id)
+        ledger.paymentApplications = [
+            PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: prior.id,
+                obligationID: augustRentID, residentID: resident.id, amount: 20,
+                snapshots: PropertySourceSnapshots(capturing: prior)),
+            PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: month.id,
+                obligationID: septemberRentID, residentID: resident.id, amount: 30,
+                snapshots: PropertySourceSnapshots(capturing: month))]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(account.priorPaid == 20)
+        #expect(account.appliedPayments == 30)
+        #expect(account.priorDebt == 130)
+        // The visible rows sum by hand: 130 + max(0, 100 - 30) = 200.
+        let visibleSum = account.priorDebt + max(0, (account.rent ?? 0) + (account.memberSharedShare ?? 0)
+            + (account.individualCharges ?? 0) + (account.adjustments ?? 0) - account.appliedPayments)
+        #expect(account.balanceDue == visibleSum)
+        #expect(account.balanceDue == 200)
+    }
+
+    @Test("Review account shows numeric balance without discounting unbacked")
+    func reviewAccountShowsNumericBalanceWithoutDiscountingUnbacked() throws {
+        var (ledger, house, resident, inputs) = fixture()
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let augustRentID = try #require(august.obligations.first(where: \.isRent)?.id)
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        // The 150 collection was applied against the closed debt, then its
+        // transaction vanished from the inputs.
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 150, postedAt: date(9, 5),
+            description: "Cobro sobre cierre", isCashAccount: true)
+        ledger.paymentApplications = [PropertyPaymentApplication(propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: augustRentID, residentID: resident.id,
+            amount: 150, snapshots: PropertySourceSnapshots(capturing: receipt))]
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(10), context: context)
+        #expect(account.status == .review)
+        #expect(account.balanceDue != nil)
+        // The vanished 150 is not discounted: the balance carries the full
+        // closed debt (150) plus the month rent (100), and the unbacked money
+        // is quantified separately with its reason.
+        #expect(account.balanceDue == 250)
+        #expect(settlement.unbackedCollectedMissing == 150)
+        #expect(settlement.unbackedCollectedChanged == 0)
+        #expect(account.advanceAvailable == 0)
+        #expect(account.suggestedPayment == max(0, (account.balanceDue ?? 0) - account.advanceAvailable))
+        #expect(account.suggestedPayment == 250)
+    }
+
+    @Test("Review account flags unbacked advance separately")
+    func reviewAccountFlagsUnbackedAdvanceSeparately() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        // The real-world shape: a 515.73 advance whose movement cannot be found.
+        let movement = PropertyTransactionInput(id: UUID(), amount: Decimal(string: "515.73")!,
+            postedAt: date(8, 5), description: "Anticipo sin fuente", isCashAccount: true)
+        let advanceID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: movement.id)
+        ledger.paymentApplications = [PropertyPaymentApplication(id: advanceID, propertyID: house.id,
+            paymentTransactionID: movement.id, obligationID: advanceID, residentID: resident.id,
+            amount: Decimal(string: "515.73")!, snapshots: PropertySourceSnapshots(capturing: movement))]
+        // The movement never joins the inputs: the advance lost its backing.
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 10))
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(9, 10), context: context)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(9, 10), context: context)
+        #expect(settlement.unbackedAdvances == Decimal(string: "515.73"))
+        #expect(account.advanceAvailable == 0)
+        #expect(settlement.unbackedCollectedMissing == 0)
+        #expect(settlement.unbackedCollectedChanged == 0)
+        #expect(account.status == .review)
+        #expect(account.balanceDue != nil)
+        #expect(account.balanceDue == 100)
+    }
+
+    @Test("Suggested payment is never negative with a larger advance")
+    func suggestedPaymentIsNeverNegativeWithLargerAdvance() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 200, postedAt: date(9, 5),
+            description: "Anticipo grande", isCashAccount: true)
+        inputs.append(receipt)
+        let advanceID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: receipt.id)
+        ledger.paymentApplications = [PropertyPaymentApplication(id: advanceID, propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: advanceID, residentID: resident.id,
+            amount: 200, snapshots: PropertySourceSnapshots(capturing: receipt))]
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 10))
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(9, 10),
+            context: .init(canCalculate: true, isClosed: false, historical: false, includeCurrent: true))
+        #expect(account.balanceDue == 100)
+        #expect(account.advanceAvailable == 200)
+        // The advance exceeds the balance: the suggestion floors at 0 and the
+        // remainder stays available — it is not lost and not an error.
+        #expect(account.suggestedPayment == 0)
+        #expect(account.advanceAvailable == 200)
     }
 
 }

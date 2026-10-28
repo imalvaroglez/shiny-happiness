@@ -19,15 +19,16 @@ import Foundation
 /// component: its split is an estimate of the future, not a settled fact.
 ///
 /// Conservation invariant: whenever every month component and `balanceDue`
-/// are non-nil (a calculable month that counts toward the debt), the
-/// breakdown reproduces the settlement exactly:
+/// are non-nil (a calculable month that counts toward the debt), the visible
+/// rows sum by hand:
 ///
 ///     balanceDue == priorDebt
-///         + max(0, rent + memberSharedShare + individualCharges + adjustments - monthPaid)
+///         + max(0, rent + memberSharedShare + individualCharges + adjustments - appliedPayments)
 ///
-/// where `monthPaid` is the report-month slice of `appliedPayments`
-/// (`appliedPayments` minus the slice that covered closed months — the prior
-/// slice is already netted out of `priorDebt`).
+/// `appliedPayments` is the month slice only — the valid collections applied
+/// to this month's obligations. The slice that covered closed months travels
+/// separately as `priorPaid`, and that money is already net inside
+/// `priorDebt`, so adding it back into the sum would double-count it.
 struct PropertyMemberAccount: Equatable, Sendable {
     var residentID: UUID
     /// The report month this account summarizes (`report.monthStart`).
@@ -49,9 +50,13 @@ struct PropertyMemberAccount: Equatable, Sendable {
     var individualCharges: Decimal?
     var rent: Decimal?
     var adjustments: Decimal?
-    /// Valid collections applied to this month's and closed months'
-    /// obligations (`settlement.monthPaid + settlement.priorPaid`).
+    /// Valid collections applied to this month's obligations
+    /// (`settlement.monthPaid`). The slice that covered closed months is
+    /// `priorPaid`, already net inside `priorDebt`.
     var appliedPayments: Decimal
+    /// Valid collections applied to obligations of closed months
+    /// (`settlement.priorPaid`); already net inside `priorDebt`.
+    var priorPaid: Decimal
     var priorDebt: Decimal
     /// Valid unapplied advances available for this member.
     var advanceAvailable: Decimal
@@ -59,9 +64,20 @@ struct PropertyMemberAccount: Equatable, Sendable {
     /// stopped being a valid collection receipt: repair work, not spendable money.
     var advancesNeedRepair: Bool
     var receiptsNeedReview: Bool
-    /// The settlement's outstanding debt; nil in `.review`, `.toCalculate`,
-    /// and `.toReconcile` states.
+    /// This member's receipts flagged by reconciliation (overallocated or used
+    /// as reimbursement and collection), newest first.
+    var overallocatedReceiptIDs: [UUID]
+    /// The settlement's outstanding debt. Numeric in `.review` while the month
+    /// is computable — unbacked records are exposed separately instead of
+    /// being silently discounted from the balance. Nil in `.toCalculate` and
+    /// `.toReconcile`, and always nil in a projection month: the future is
+    /// never presented as debt.
     var balanceDue: Decimal?
+    /// The amount that opens the capture: `max(0, balanceDue -
+    /// advanceAvailable)`, nil exactly when `balanceDue` is nil. Never
+    /// negative: an advance larger than the balance suggests `0` and keeps its
+    /// remainder — the surplus is not lost and not an error.
+    var suggestedPayment: Decimal?
 
     /// Account of one member. Pure: computes from the report, the ledger, and
     /// the transaction inputs without writing anywhere.
@@ -98,22 +114,33 @@ struct PropertyMemberAccount: Equatable, Sendable {
             adjustments = member.adjustments.currencyRounded
         }
         // `settlement.due` stays non-nil in `.review` while the month is still
-        // computable; the account never presents a review figure as debt.
-        let balanceDue: Decimal?
+        // computable — review shows a numeric balance and owns the unbacked
+        // records separately instead of hiding the debt behind them.
+        var balanceDue: Decimal?
         switch settlement.status {
-        case .pending, .partial, .paid, .nothingDue: balanceDue = settlement.due
-        case .review, .toCalculate, .toReconcile: balanceDue = nil
+        case .pending, .partial, .paid, .nothingDue, .review: balanceDue = settlement.due
+        case .toCalculate, .toReconcile: balanceDue = nil
         }
+        // A projection month never presents the future as debt, even when its
+        // estimate computes a due.
+        if isProjection { balanceDue = nil }
+        // The capture opener: never negative — an advance larger than the
+        // balance suggests 0 and keeps its remainder available.
+        let suggestedPayment = balanceDue
+            .map { max(0, $0 - settlement.advanceAvailable).currencyRounded }
         return Self(residentID: residentID, month: report.monthStart, asOf: asOf,
                     isProjection: isProjection, status: settlement.status,
                     houseSharedTotal: houseSharedTotal, memberSharedShare: memberSharedShare,
                     individualCharges: individualCharges, rent: rent, adjustments: adjustments,
-                    appliedPayments: (settlement.monthPaid + settlement.priorPaid).currencyRounded,
+                    appliedPayments: settlement.monthPaid,
+                    priorPaid: settlement.priorPaid,
                     priorDebt: settlement.priorDebt,
                     advanceAvailable: settlement.advanceAvailable,
                     advancesNeedRepair: settlement.advanceStale || settlement.sourcesMissing,
                     receiptsNeedReview: settlement.receiptsNeedReview,
-                    balanceDue: balanceDue)
+                    overallocatedReceiptIDs: settlement.overallocatedReceiptIDs,
+                    balanceDue: balanceDue,
+                    suggestedPayment: suggestedPayment)
     }
 
     private static func isSharedResponsibility(_ responsibility: PropertyResponsibility) -> Bool {

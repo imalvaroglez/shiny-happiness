@@ -61,6 +61,21 @@ struct PropertyMemberSettlement: Equatable, Sendable {
     var sourcesMissing: Bool
     /// A receipt of this member is overallocated or used as reimbursement and collection.
     var receiptsNeedReview: Bool
+    /// Non-advance applications whose source transaction is gone from the
+    /// inputs. Exposure only: this money never enters `due`, `payable`, or
+    /// `advanceAvailable` — the review notes own it.
+    var unbackedCollectedMissing: Decimal
+    /// Non-advance applications whose source still exists but changed or
+    /// stopped being a valid collection receipt. Exposure only, like
+    /// `unbackedCollectedMissing`.
+    var unbackedCollectedChanged: Decimal
+    /// Advances whose source is missing, changed, or invalid — repair work,
+    /// never spendable money. Exposure only.
+    var unbackedAdvances: Decimal
+    /// This member's receipts flagged by reconciliation (overallocated or
+    /// used as reimbursement and collection), newest first like
+    /// `paymentTransactionIDs`.
+    var overallocatedReceiptIDs: [UUID]
     /// Receipts backing the valid collections, newest first. Prior receipts can
     /// include overallocated or double-used ones, inherited from `priorBalances`.
     var paymentTransactionIDs: [UUID]
@@ -174,21 +189,36 @@ struct PropertyMemberSettlement: Equatable, Sendable {
 
         var receiptIDs = data.monthReceiptIDsByResident[residentID] ?? []
         receiptIDs.formUnion(data.priorReceiptIDsByResident[residentID] ?? [])
-        let paymentTransactionIDs = receiptIDs
-            .map { ($0, data.inputsByID[$0]?.postedAt ?? .distantPast) }
-            .sorted {
-                if $0.1 != $1.1 { return $0.1 > $1.1 }
-                return $0.0.uuidString < $1.0.uuidString
-            }
-            .map(\.0)
+        let paymentTransactionIDs = Self.newestFirst(receiptIDs, inputsByID: data.inputsByID)
+        let overallocatedReceiptIDs = Self.newestFirst(
+            data.overallocatedReceiptIDsByResident[residentID] ?? [], inputsByID: data.inputsByID)
+        let unbackedCollectedMissing = (data.unbackedCollectedMissingByResident[residentID] ?? 0).currencyRounded
+        let unbackedCollectedChanged = (data.unbackedCollectedChangedByResident[residentID] ?? 0).currencyRounded
+        let unbackedAdvances = (data.unbackedAdvancesByResident[residentID] ?? 0).currencyRounded
 
         return Self(residentID: residentID, month: report.monthStart, asOf: asOf, status: status,
                     monthObligation: monthObligation, monthBalance: monthBalance, priorDebt: priorDebt,
                     priorPaid: priorPaid, monthPaid: monthPaid, due: due, payable: payable,
                     advanceAvailable: advanceAvailable, advanceStale: advanceStale,
                     sourcesMissing: sourcesMissing, receiptsNeedReview: receiptsNeedReview,
+                    unbackedCollectedMissing: unbackedCollectedMissing,
+                    unbackedCollectedChanged: unbackedCollectedChanged,
+                    unbackedAdvances: unbackedAdvances,
+                    overallocatedReceiptIDs: overallocatedReceiptIDs,
                     paymentTransactionIDs: paymentTransactionIDs,
                     participationEnded: participationEnded)
+    }
+
+    /// Receipt IDs newest first, then stable by UUID — the order the payment
+    /// surfaces already publish.
+    private static func newestFirst(_ ids: Set<UUID>,
+                                    inputsByID: [UUID: PropertyTransactionInput]) -> [UUID] {
+        ids.map { ($0, inputsByID[$0]?.postedAt ?? .distantPast) }
+            .sorted {
+                if $0.1 != $1.1 { return $0.1 > $1.1 }
+                return $0.0.uuidString < $1.0.uuidString
+            }
+            .map(\.0)
     }
 
     /// One pass over the ledger shared by every member of a report. Replicates
@@ -207,6 +237,10 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         var advanceStaleByResident: Set<UUID> = []
         var sourcesMissingByResident: Set<UUID> = []
         var receiptsNeedReviewByResident: Set<UUID> = []
+        var unbackedCollectedMissingByResident: [UUID: Decimal] = [:]
+        var unbackedCollectedChangedByResident: [UUID: Decimal] = [:]
+        var unbackedAdvancesByResident: [UUID: Decimal] = [:]
+        var overallocatedReceiptIDsByResident: [UUID: Set<UUID>] = [:]
 
         /// The receipt gate `report()` warns about, applied to the money math:
         /// an application only counts as collected when its source is a valid
@@ -286,17 +320,37 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                 if !Self.countsAsCollected(application, inputsByID: inputsByID, asOf: .distantFuture) {
                     sourcesMissingByResident.insert(application.residentID)
                 }
+                // Unbacked non-advance applications, split by reason for the
+                // review notes: a source that vanished entirely versus one that
+                // still exists but changed or stopped being a valid collection
+                // receipt. Exposure only — these amounts never enter any
+                // balance or availability figure.
+                if !PropertyPaymentAdvance.isAdvance(application) {
+                    if inputsByID[application.paymentTransactionID] == nil {
+                        unbackedCollectedMissingByResident[application.residentID, default: 0]
+                            += application.amount
+                    } else if !Self.countsAsCollected(application, inputsByID: inputsByID,
+                                                      asOf: .distantFuture) {
+                        unbackedCollectedChangedByResident[application.residentID, default: 0]
+                            += application.amount
+                    }
+                }
                 if reconciliation.overallocatedPaymentIDs.contains(application.paymentTransactionID)
                     || reconciliation.doubleUsedReceipts.contains(application.paymentTransactionID) {
                     receiptsNeedReviewByResident.insert(application.residentID)
+                    overallocatedReceiptIDsByResident[application.residentID, default: []]
+                        .insert(application.paymentTransactionID)
                 }
             }
 
             // Advance availability and staleness, mirroring `memberAdvances` and
-            // `hasChangedAdvanceSource` member for member.
+            // `hasChangedAdvanceSource` member for member. An advance that
+            // loses its backing is quantified for the notes; it is never
+            // available money.
             for advance in propertyApplications where PropertyPaymentAdvance.isAdvance(advance) {
                 guard let source = inputsByID[advance.paymentTransactionID] else {
                     advanceStaleByResident.insert(advance.residentID)
+                    unbackedAdvancesByResident[advance.residentID, default: 0] += advance.amount
                     continue
                 }
                 let changed = PropertySettlementCalculator.hasSourceChanged(
@@ -308,6 +362,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                       PropertySettlementCalculator.isValidCollectionPayment(source, asOf: .distantFuture)
                 else {
                     advanceStaleByResident.insert(advance.residentID)
+                    unbackedAdvancesByResident[advance.residentID, default: 0] += advance.amount
                     continue
                 }
                 if PropertySettlementCalculator.isValidCollectionPayment(source, asOf: asOf) {
