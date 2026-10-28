@@ -5,6 +5,14 @@ struct PropertyMemberCollectionSelection: Identifiable {
     var id: UUID
 }
 
+/// Detail scopes the member account sheet hands back to its presenter: the
+/// sheet never navigates by itself, it dismisses and reports the surface the
+/// caller should open next.
+enum PropertyAccountDetailScope {
+    case sharedCharges
+    case memberCharges
+}
+
 enum PropertyCollectionHistory {
     static func needsReview(_ application: PropertyPaymentApplication, source: PropertyTransactionInput?) -> Bool {
         guard let source else { return true }
@@ -33,16 +41,38 @@ struct PropertyMemberCollectionsSheet: View {
         var entries: [PropertyPaymentApplication]
         var source: PropertyTransactionInput?
     }
+    /// One repair lead for an advance that lost its source or whose source
+    /// changed: the concrete reason plus the movement to reopen when the
+    /// receipt still exists. The amount is repair work, never spendable.
+    private struct AdvanceRepair {
+        var reason: LocalizedStringKey
+        var movementID: UUID?
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Bindable var workspace: PropertyWorkspaceModel
     let propertyID: UUID
     let residentID: UUID
+    var onShowDetail: ((PropertyAccountDetailScope) -> Void)? = nil
+    var registerPayment: (() -> Void)? = nil
     @State private var movement: Transaction?
     @State private var removalID: UUID?
     @State private var removalLabel = ""
     @State private var error: String?
 
+    private var report: PropertyMonthlyReport? {
+        workspace.destination == .household ? workspace.householdMonthlyReport : workspace.reports[propertyID]
+    }
+    private var account: PropertyMemberAccount? {
+        guard let report else { return nil }
+        return workspace.memberAccount(propertyID: propertyID, residentID: residentID, report: report)
+    }
+    private var displayName: String {
+        residentID == PropertyPaymentAdvance.placeholderResidentID(propertyID: propertyID)
+            ? String(localized: "Unassigned older advances")
+            : workspace.member(id: residentID)?.name ?? String(localized: "Former member")
+    }
     private var applications: [PropertyPaymentApplication] {
         let sources = Dictionary(workspace.transactionInputs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let obligations = Set(workspace.ledger.closes.filter {
@@ -79,105 +109,127 @@ struct PropertyMemberCollectionsSheet: View {
         }
         return labels
     }
-    private var settlement: PropertyMemberSettlement? {
-        guard let report = workspace.destination == .household ? workspace.householdMonthlyReport : workspace.reports[propertyID] else { return nil }
-        return workspace.memberSettlements(propertyID: propertyID, report: report).first { $0.residentID == residentID }
-    }
     private var directContribution: Decimal {
-        let report = workspace.destination == .household ? workspace.householdMonthlyReport : workspace.reports[propertyID]
-        return report?.residents.first { $0.id == residentID }?.directContribution ?? 0
+        report?.residents.first { $0.id == residentID }?.directContribution ?? 0
+    }
+
+    /// The single repair explanation the account demands: the first advance
+    /// group whose receipt is missing or changed, plus the movement to reopen
+    /// when it still exists.
+    private func advanceRepair(for account: PropertyMemberAccount?, in groups: [ReceiptGroup]) -> AdvanceRepair? {
+        guard account?.advancesNeedRepair == true else { return nil }
+        for group in groups where group.entries.contains(where: PropertyPaymentAdvance.isAdvance) {
+            guard let transaction = group.source else {
+                return AdvanceRepair(reason: "Source unavailable · historical reference", movementID: nil)
+            }
+            let changed = !PropertySettlementCalculator.isValidCollectionPayment(transaction, asOf: .distantFuture)
+                || group.entries.contains { application in
+                    PropertySettlementCalculator.hasSourceChanged(amount: application.sourceAmountSnapshot,
+                        postedAt: application.sourcePostedAtSnapshot, currencyCode: application.sourceCurrencySnapshot,
+                        description: application.sourceDescriptionSnapshot, versus: transaction)
+                }
+            if changed {
+                return AdvanceRepair(reason: "Source changed · review required", movementID: group.id)
+            }
+        }
+        // The settlement flagged repair work; surface it even when the walk
+        // above could not pin the concrete reason yet.
+        return AdvanceRepair(reason: "Source changed · review required", movementID: nil)
     }
 
     var body: some View {
         let receipts = grouped
         let labels = applicationLabels
+        let account = self.account
+        let repair = advanceRepair(for: account, in: receipts)
         return VStack(alignment: .leading, spacing: 16) {
-            Text("Member collections").font(.headline)
-            Text(residentID == PropertyPaymentAdvance.placeholderResidentID(propertyID: propertyID)
-                ? String(localized: "Unassigned older advances")
-                : workspace.member(id: residentID)?.name ?? String(localized: "Former member"))
-                .font(.subheadline).foregroundStyle(.secondary)
-            Text(workspace.title).font(.caption).foregroundStyle(.secondary)
-            if let settlement {
-                HStack {
-                    Text(LocalizedStringKey(settlement.status.title))
-                    Spacer()
-                    if let due = settlement.due { Text(propertyMoneyText(due)).monospacedDigit() }
-                }.font(.callout)
+            Text(String(format: String(localized: "%1$@ — Account as of %2$@"), displayName,
+                workspace.asOf.formatted(date: .abbreviated, time: .omitted)))
+                .font(.headline)
+            HStack(spacing: 4) {
+                Text(workspace.title)
+                Text("·").foregroundStyle(.tertiary)
+                Text(propertyMonthText(workspace.selectedMonth))
+                if account?.isProjection == true {
+                    Text("·").foregroundStyle(.tertiary)
+                    Text("Projection")
+                }
             }
+            .font(.subheadline).foregroundStyle(.secondary)
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if receipts.isEmpty {
-                        Text("No collections recorded for this member.").foregroundStyle(.secondary)
-                        if directContribution > 0 {
-                            Text("Covered by directly paid expenses · \(propertyMoneyText(directContribution))")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                VStack(alignment: .leading, spacing: 14) {
+                    if let account {
+                        breakdown(of: account)
                     }
-                    ForEach(receipts) { group in
-                        let id = group.id
-                        let entries = group.entries
-                        let transaction = group.source
-                        let snapshot = entries.first
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(transaction?.description ?? snapshot?.sourceDescriptionSnapshot ?? String(localized: "Transaction unavailable"))
-                                    .font(.callout.weight(.medium))
-                                Spacer()
-                                if let amount = transaction?.amount ?? snapshot?.sourceAmountSnapshot {
-                                    Text(propertyMoneyText(abs(amount))).monospacedDigit()
-                                }
-                            }
-                            Text(transaction?.accountName ?? String(localized: "Account unavailable"))
-                                .font(.caption).foregroundStyle(.secondary)
-                            if let date = transaction?.postedAt ?? snapshot?.sourcePostedAtSnapshot {
-                                Text(date.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(.secondary)
-                            }
-                            let applied = entries.filter { !PropertyPaymentAdvance.isAdvance($0) }.reduce(Decimal.zero) { $0 + $1.amount }
-                            let advance = entries.filter(PropertyPaymentAdvance.isAdvance).reduce(Decimal.zero) { $0 + $1.amount }
-                            Text("Applied to member · \(propertyMoneyText(applied))").font(.caption).foregroundStyle(.secondary)
-                            if advance > 0 { Text("Available advance · \(propertyMoneyText(advance))").font(.caption).foregroundStyle(.secondary) }
-                            if let transaction {
-                                if !PropertySettlementCalculator.isValidCollectionPayment(transaction, asOf: .distantFuture)
-                                    || entries.contains(where: { application in
-                                        PropertySettlementCalculator.hasSourceChanged(amount: application.sourceAmountSnapshot,
-                                            postedAt: application.sourcePostedAtSnapshot, currencyCode: application.sourceCurrencySnapshot,
-                                            description: application.sourceDescriptionSnapshot, versus: transaction)
-                                    }) {
-                                    Label("Source changed · review required", systemImage: "exclamationmark.triangle")
-                                        .font(.caption).foregroundStyle(.orange)
-                                }
-                            } else {
-                                Label("Source unavailable · historical reference", systemImage: "exclamationmark.triangle")
-                                    .font(.caption).foregroundStyle(.orange)
-                            }
-                            ForEach(entries) { application in
-                                HStack {
-                                    let label = PropertyPaymentAdvance.isAdvance(application) ? String(localized: "Available advance")
-                                        : labels[application.obligationID] ?? String(localized: "Obligation")
-                                    Text(label)
-                                    Spacer()
-                                    Text(propertyMoneyText(application.amount)).monospacedDigit()
-                                    Button { removalLabel = label; removalID = application.id } label: { Image(systemName: "minus.circle") }
-                                        .buttonStyle(.borderless).accessibilityLabel(Text("Remove application: \(label)"))
-                                }.font(.caption)
-                            }
-                            if transaction != nil {
-                                Button("Open movement") {
-                                    let id = id
-                                    let descriptor = FetchDescriptor<Transaction>(predicate: #Predicate<Transaction> { $0.id == id })
-                                    do { movement = try modelContext.fetch(descriptor).first }
-                                    catch { self.error = error.localizedDescription }
-                                }.buttonStyle(.link)
+                    if let repair { repairRow(repair) }
+                    if account?.receiptsNeedReview == true {
+                        Label("Review required", systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    Divider()
+                    Text("Member collections").font(.subheadline.weight(.semibold))
+                    VStack(alignment: .leading, spacing: 12) {
+                        if receipts.isEmpty {
+                            Text("No collections recorded for this member.").foregroundStyle(.secondary)
+                            if directContribution > 0 {
+                                Text("Covered by directly paid expenses · \(propertyMoneyText(directContribution))")
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                        Divider()
+                        ForEach(receipts) { group in
+                            let id = group.id
+                            let entries = group.entries
+                            let transaction = group.source
+                            let snapshot = entries.first
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(transaction?.description ?? snapshot?.sourceDescriptionSnapshot ?? String(localized: "Transaction unavailable"))
+                                        .font(.callout.weight(.medium))
+                                    Spacer()
+                                    if let amount = transaction?.amount ?? snapshot?.sourceAmountSnapshot {
+                                        Text(propertyMoneyText(abs(amount))).monospacedDigit()
+                                    }
+                                }
+                                Text(transaction?.accountName ?? String(localized: "Account unavailable"))
+                                    .font(.caption).foregroundStyle(.secondary)
+                                if let date = transaction?.postedAt ?? snapshot?.sourcePostedAtSnapshot {
+                                    Text(date.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(.secondary)
+                                }
+                                let applied = entries.filter { !PropertyPaymentAdvance.isAdvance($0) }.reduce(Decimal.zero) { $0 + $1.amount }
+                                let advance = entries.filter(PropertyPaymentAdvance.isAdvance).reduce(Decimal.zero) { $0 + $1.amount }
+                                Text("Applied to member · \(propertyMoneyText(applied))").font(.caption).foregroundStyle(.secondary)
+                                if advance > 0 { Text("Available advance · \(propertyMoneyText(advance))").font(.caption).foregroundStyle(.secondary) }
+                                ForEach(entries) { application in
+                                    HStack {
+                                        let label = PropertyPaymentAdvance.isAdvance(application) ? String(localized: "Available advance")
+                                            : labels[application.obligationID] ?? String(localized: "Obligation")
+                                        Text(label)
+                                        Spacer()
+                                        Text(propertyMoneyText(application.amount)).monospacedDigit()
+                                        Button { removalLabel = label; removalID = application.id } label: { Image(systemName: "minus.circle") }
+                                            .buttonStyle(.borderless).accessibilityLabel(Text("Remove application: \(label)"))
+                                    }.font(.caption)
+                                }
+                                if transaction != nil {
+                                    Button("Open movement") { openMovement(id) }.buttonStyle(.link)
+                                }
+                            }
+                            Divider()
+                        }
                     }
                 }
             }
             if let error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
             HStack {
+                Button("Register payment") {
+                    dismiss()
+                    registerPayment?()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                Spacer()
                 Button("Close") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
             }
         }
         .padding(20).frame(minWidth: 480, idealWidth: 560, minHeight: 280, idealHeight: 420)
@@ -197,5 +249,95 @@ struct PropertyMemberCollectionsSheet: View {
         } message: {
             Text("Remove application: \(removalLabel). The original financial transaction is preserved; the amount remains available to reconcile.")
         }
+    }
+
+    /// Aligned account breakdown: the member's addends first (share, rent,
+    /// individual charges, adjustments, prior debt), then the applied payments
+    /// subtracted with an explicit minus, then the balance they reproduce —
+    /// the column sums by hand. A figure the model cannot compute stays
+    /// «Not yet calculated»; it never collapses to 0.00.
+    private func breakdown(of account: PropertyMemberAccount) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DetailRow("House shared expenses", alignment: .trailing) {
+                HStack(spacing: 8) {
+                    Button("View detail") {
+                        dismiss()
+                        onShowDetail?(.sharedCharges)
+                    }.buttonStyle(.link).font(.caption)
+                    amountOrPending(account.houseSharedTotal)
+                }
+            }
+            DetailRow("\(displayName)'s share", alignment: .trailing) {
+                amountOrPending(account.memberSharedShare)
+            }
+            DetailRow("Individual charges", alignment: .trailing) {
+                HStack(spacing: 8) {
+                    Button("View detail") {
+                        dismiss()
+                        onShowDetail?(.memberCharges)
+                    }.buttonStyle(.link).font(.caption)
+                    amountOrPending(account.individualCharges)
+                }
+            }
+            if let rent = account.rent, rent > 0 {
+                DetailRow("Rent", alignment: .trailing) {
+                    Text(propertyMoneyText(rent)).monospacedDigit()
+                }
+            }
+            if account.priorDebt > 0 {
+                DetailRow("Prior debt", alignment: .trailing) {
+                    Text(propertyMoneyText(account.priorDebt)).monospacedDigit()
+                }
+            }
+            if let adjustments = account.adjustments, adjustments != 0 {
+                DetailRow("Adjustments", alignment: .trailing) {
+                    Text(propertyMoneyText(adjustments)).monospacedDigit()
+                }
+            }
+            DetailRow("Applied payments", alignment: .trailing) {
+                Text(propertyMoneyText(account.appliedPayments > 0 ? -account.appliedPayments : account.appliedPayments)).monospacedDigit()
+            }
+            DetailRow("Outstanding balance", alignment: .trailing) {
+                if let balance = account.balanceDue {
+                    Text(propertyMoneyText(balance)).monospacedDigit()
+                } else {
+                    Text(LocalizedStringKey(account.status.title)).foregroundStyle(.secondary)
+                }
+            }
+            .font(.callout.weight(.semibold))
+            if account.advanceAvailable > 0 {
+                DetailRow("Available advance", alignment: .trailing) {
+                    Text(propertyMoneyText(account.advanceAvailable)).monospacedDigit()
+                }
+                .foregroundStyle(.secondary)
+            }
+        }
+        .font(.callout)
+    }
+
+    @ViewBuilder
+    private func amountOrPending(_ value: Decimal?) -> some View {
+        if let value {
+            Text(propertyMoneyText(value)).monospacedDigit()
+        } else {
+            Text("Not yet calculated").foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func repairRow(_ repair: AdvanceRepair) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(repair.reason, systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+            if let movementID = repair.movementID {
+                Button("Open movement") { openMovement(movementID) }.buttonStyle(.link)
+            }
+        }
+    }
+
+    private func openMovement(_ id: UUID) {
+        let descriptor = FetchDescriptor<Transaction>(predicate: #Predicate<Transaction> { $0.id == id })
+        do { movement = try modelContext.fetch(descriptor).first }
+        catch { self.error = error.localizedDescription }
     }
 }

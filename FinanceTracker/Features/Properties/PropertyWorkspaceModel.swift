@@ -119,6 +119,16 @@ final class PropertyWorkspaceModel {
             visibleIDs: visible, additionalResidentIDs: former)
     }
 
+    /// The member account behind the collection sheet: the settlement facts
+    /// decomposed into the components the sheet explains money with. Pure —
+    /// same ledger, inputs, and context pieces as `memberSettlements`;
+    /// nothing is written and the ledger is not rescanned twice.
+    func memberAccount(propertyID: UUID, residentID: UUID, report: PropertyMonthlyReport) -> PropertyMemberAccount? {
+        PropertyMemberAccount.account(propertyID: propertyID, residentID: residentID, report: report,
+            ledger: ledger, inputs: transactionInputs, asOf: asOf,
+            context: settlementContext(propertyID: propertyID, report: report))
+    }
+
     var householdSummary: String? {
         guard let source = householdReport else { return nil }
         let roles = ledger.householdLink ?? PropertyHouseholdAdapter.link
