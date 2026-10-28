@@ -41,6 +41,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Overview and asset-account Cash Flow now show cash received and paid. Credit-card purchases enter Cash Flow when the bank payment is recorded; consumption and category reports retain purchase dates. Manually captured interest is distributed as a clearly labeled daily estimate across its accrual interval, including in per-account Balance Over Time charts; imported interest keeps its recorded date.
 - Cash Flow charts omit repeated methodology notes and reserve inline text for exceptions that need attention.
 
+### Fixed
+
+- La captura de cobros es marcador-primero: el marcador de recuperación se fija con un UUID nuevo antes de crear el ingreso, así que un fallo del marcador no crea dinero, un fallo al guardar el ingreso no publica nada (el insert se elimina) y, con el ingreso ya real, cualquier fallo posterior deja recuperación durable por UUID; el retiro de marcadores ya no destruye estados de recuperación cuando la consulta de pagos falla.
+- Los anticipos se rigen por una única regla de gastable — fuente existente, snapshots sin cambios, no sobre-aplicada, no sobreasignada, sin doble uso, recibo válido — compartida por el plan de pagos, el walk de aplicaciones, la disponibilidad publicada y los cierres; el pendiente neto del mes usa componentes − pagos válidos − contribución directa, la misma cifra del cierre, y nunca el saldo laxo del reporte.
+- Los ajustes de valuación rechazan cuentas archivadas, cerradas o desaparecidas releyendo su estado persistido antes de insertar nada; los meses cerrados conservan la identidad congelada del cierre sobre las asignaciones vigentes del hogar, y «Capturar importe» nunca queda oculto por una nota de revisión de la sugerencia.
+
 ## [0.17.0] - 2026-10-21
 
 ### Added

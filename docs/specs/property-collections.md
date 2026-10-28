@@ -244,3 +244,125 @@ Logs: `/private/tmp/property-accounts-rounding-focus-final.log`,
   `git diff --check` limpio. Verificación visual, teclado, VoiceOver y
   latencia visible pendientes de disponibilidad de pantalla: este binario es
   para prueba, no «listo para validación».
+
+### Marcador-primero, identidad congelada y una sola regla de validez (28 de octubre de 2026, ronda 4)
+
+Correcciones de la cuarta ronda de revisión (`87559fd`…`f2aac51` sobre el
+lote anterior; el binario de prueba lleva el sello `afc8700`).
+
+- **El retiro de marcadores sobrevive a errores de lectura.** Antes,
+  `retirePendingLinks` trataba un fetch fallido de los pagos guardados como
+  «todos los movimientos desaparecieron»: el `try?` convertía el error en un
+  diccionario vacío, se retiraban todos los marcadores y se guardaba el
+  registro — destruyendo en disco el estado de recuperación de ingresos que
+  seguían vivos. Ahora el fetch corre en `do/catch`: con error no se retira
+  ni se guarda nada, los marcadores se conservan para que la siguiente tarea
+  reintente, y el usuario ve el motivo («no se pudieron consultar los pagos
+  guardados; se conservaron los marcadores de recuperación»). El retiro
+  (ausente o borrado suave) solo ocurre tras una consulta exitosa. La lectura
+  pura del aviso, `pendingLinks(propertyID:)`, no cambia. Las pruebas inyectan
+  el fallo por la costura `pendingLinkFetchOverride`, espejo de
+  `revisionCheckOverride`.
+- **El marcador se escribe antes que el ingreso.** `registerCollection`
+  creaba el ingreso y fijaba el marcador después: un fallo intermedio
+  publicaba dinero que el registro de Propiedades jamás podría señalar. La
+  rama de creación ahora es marcador-primero: valida cuenta/MXN y la revisión
+  de asignaciones, fija durable un UUID de pago nuevo
+  (`upsertPendingMarker`, escritura pura de estado de flujo, sin filas
+  financieras) y luego crea el ingreso con exactamente ese UUID —
+  `ManualTransactionService.create` acepta un `id` opcional y, si su guardado
+  falla, elimina el insert antes de relanzar, de modo que ningún save o
+  autosave posterior puede publicarlo. Tabla de resultados:
+  - fallo del marcador → rechazo limpio, sin ingreso creado;
+  - fallo al guardar el ingreso → rechazo limpio, sin ingreso publicable; el
+    marcador huérfano se retira solo en la siguiente tarea cuando una
+    consulta exitosa no encuentra fila;
+  - ingreso ya existe y falla la escritura de aplicaciones → recuperación
+    durable `needsLink` por UUID; el reintento reutiliza el mismo recibo,
+    nunca un segundo ingreso.
+  La ventana residual documentada el 27 de octubre (muerte del proceso entre
+  ingreso y marcador) queda cerrada por inversión: ahora el marcador precede
+  al dinero y el huérfano posible es el marcador, no el ingreso.
+- **La identidad congelada del cierre manda en meses cerrados.** El desglose
+  de un mes cerrado se calcula desde el snapshot congelado del cierre, así
+  que una fila cerrada con obligación en ese snapshot toma su identidad de la
+  responsabilidad congelada — compartida y `.selected` → compartida,
+  `individual(miembro)` → individual, propietario → fuera de los alcances —
+  antes de consultar la asignación actual del hogar. Antes, el mapa vigente
+  (p. ej. `.partner`) podía re-alcancear una fila que el cierre clasificó
+  compartida, haciendo que un alcance de integrante sumara filas que el
+  desglose congelado cuenta como cero: el cero contradictorio.
+- **La entrada manual de importe nunca queda oculta por revisión.** El botón
+  «Capturar importe» permanece visible también cuando el estado de la
+  sugerencia es revisión: la nota explica por qué la sugerencia no es de
+  confiar, pero jamás bloquea registrar el pago. Esa combinación (ingresos
+  sin confirmar + referencia inválida → importe desconocido + revisión) antes
+  dejaba el flujo sin forma de guardar.
+- **Los ajustes de valuación rechazan cuentas no disponibles.**
+  `BalanceSnapshotService.createAdjustment` escribía un snapshot
+  `manualAdjustment` y su movimiento espejo sobre cualquier cuenta recibida,
+  sin verificar disponibilidad: una valuación podía re-expresar el saldo de
+  una cuenta que otra ventana ya había archivado o cerrado. Ahora corre
+  primero la misma barrera de estado fresco que los movimientos manuales —
+  `AccountCaptureValidation.ensureAvailable` re-lee la cuenta desde un
+  `ModelContext` nuevo, de modo que tanto el objeto rancio como la cuenta
+  persistida-no-disponible se rechazan con cero inserciones, sin snapshot ni
+  movimiento espejo, antes de que la hoja construya nada.
+- **Una sola regla de anticipo gastable, de extremo a extremo.** El walk de
+  pagos aplica la regla de validez compartida sin huecos:
+  - `isSpendableAdvance` es LA regla que aplican por igual las cuatro rutas
+    — el filtro de `plan`, el walk de `applyAdvances`, la disponibilidad que
+    publica el cierre del integrante y `memberAdvances` —: la fuente existe,
+    sus snapshots no cambiaron, no está sobre-aplicada, no está
+    sobreasignada, no se usó como reembolso y cobro a la vez, y sigue siendo
+    recibo válido a la fecha. Un anticipo roto nunca bloquea un cobro nuevo:
+    solo deja de ser dinero gastable.
+  - `memberAdvances` recibe ahora `obligations` obligatorio — el alcance de
+    conciliación del llamador — y `reconciliationObligations(report:ledger:)`
+    lo define una vez: obligaciones del reporte más todos los cierres de la
+    propiedad. Un recibo usado como reembolso en un mes ya cerrado es dinero
+    doble-usado en todas las rutas por igual — la precalculación del cierre,
+    los walks y `memberAdvances` alimentan el mismo conjunto a
+    `reconciliationReview`, de modo que sus banderas de doble uso jamás
+    discrepan.
+  - El pendiente neto estricto del mes en `plan()` y `applyAdvances()` es
+    `currentMonthOutstanding` = max(0, componentes − pagosVálidos −
+    contribución directa), donde componentes es la porción del mes del
+    integrante (renta + compartidos + gastos suyos + ajustes), los pagos
+    válidos son sus aplicaciones no-anticipo contra las obligaciones del
+    reporte bajo `validity.includes`, y la contribución directa — dinero
+    pagado al registrar el gasto — cuenta exactamente una vez. Nunca el
+    `balance` del reporte, cuyo filtro más laxo aún cuenta cobros cuya fuente
+    cambió después y haría que el walk volviera a pedir dinero que el cierre
+    ya reintegró. Es la misma cifra que el cierre del integrante publica como
+    `max(0, monthBalance)`.
+
+**Evidencia de esta ronda** (`87559fd`…`f2aac51` sobre el lote del 28 de
+octubre por la mañana; binario de prueba sellado en `afc8700`):
+
+- Suites enfocadas re-corridas en serie, todas `TEST SUCCEEDED` sin fallos:
+  «Property collection posting» 68 pruebas en 1 suite (0.246 s);
+  «Property management» 25 pruebas en 1 suite (0.056 s); «Manual Ledger»
+  32 pruebas en 1 suite (0.345 s); «Property Sankey» 19 pruebas (0.040 s) más
+  «Property assignment continuation» 25 pruebas (0.202 s) = 44. Los conteos
+  coinciden con el recuento estático de `@Test` por archivo y con los del
+  reporte de la ronda.
+- Suite serial completa: 775 pruebas, 77 suites, exactamente los 2 fallos
+  preexistentes diferidos por decisión del dueño — «Dashboard refresh stays
+  responsive with larger imported history» (`periodSwitchElapsed` =
+  0.8982150554656982 s frente al umbral < 0.75 s; el test corrió 5.942 s) y
+  «V5 on-disk store migrates to V6 and supports a due-date override»
+  (`unknownDataStoreSchema` en HouseholdSettlementReportTests.swift:898,
+  probada preexistente por bisect en `d417ad9` el 27 de octubre). La porción
+  de pruebas duró 13.461 s; ningún otro fallo.
+- Build Debug canónico: `BUILD SUCCEEDED`. `plutil -lint` OK sobre el
+  catálogo es-MX, 873 claves y 0 duplicadas; `git diff --check` limpio; sin
+  `Double` ni `Float` en Domain. El commit de esta ronda toca solo
+  documentación: sin `.swift` nuevos ni `xcodegen`.
+- Verificación visual, teclado, VoiceOver y latencia visible siguen
+  pendientes de disponibilidad de pantalla; este binario es para prueba, no
+  «listo para validación».
+
+Logs: `/tmp/f6-r4/full-suite.log`, `focus-posting.log`,
+`focus-management.log`, `focus-manualledger.log`, `focus-sankey.log`,
+`focus-assignment.log` y `debug-build.log`.
