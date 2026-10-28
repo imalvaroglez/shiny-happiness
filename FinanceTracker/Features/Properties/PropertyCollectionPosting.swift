@@ -57,15 +57,19 @@ enum PropertyCollectionPosting {
         }.reduce(Decimal.zero) { $0 + $1.amount }
     }
 
+    /// The placeholder's spendable advances under the one shared rule. The
+    /// `obligations` are the caller's reconciliation scope, like
+    /// `memberAdvances`' — the month rendering the legacy row passes
+    /// `reconciliationObligations(report:ledger:)`, so a receipt already used
+    /// as reimbursement in that scope is double-used money here exactly as it
+    /// is for every member row.
     static func legacyAdvances(propertyID: UUID, ledger: PropertyLedger,
+                               obligations: [PropertyObligationSnapshot],
                                inputs: [PropertyTransactionInput], asOf: Date) -> Decimal {
-        // A legacy advance predates member reports, so the property's closes
-        // are its reconciliation scope — the same closes the shared set draws
-        // from, derived here because no report month owns the placeholder.
         memberAdvances(propertyID: propertyID,
             residentID: PropertyPaymentAdvance.placeholderResidentID(propertyID: propertyID),
             ledger: ledger,
-            obligations: ledger.closes.filter { $0.propertyID == propertyID }.flatMap(\.obligations),
+            obligations: obligations,
             inputs: inputs, asOf: asOf)
     }
 
@@ -210,7 +214,7 @@ enum PropertyCollectionPosting {
         let components = resident.rent + resident.sharedExpenses + resident.individualExpenses
             + resident.adjustments
         return max(0, components - (validity.validMonthPaidByResident[residentID] ?? 0)
-            - resident.directContribution)
+            - resident.directContribution).currencyRounded
     }
 
     static func hasChangedAdvanceSource(propertyID: UUID, residentID: UUID,

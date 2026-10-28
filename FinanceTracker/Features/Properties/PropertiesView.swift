@@ -419,7 +419,9 @@ struct PropertiesView: View {
                 settlement: settlement, former: true))
         }
         let legacyAdvance = PropertyCollectionPosting.legacyAdvances(propertyID: property.id,
-            ledger: ledger, inputs: transactionInputs, asOf: workspace.asOf)
+            ledger: ledger,
+            obligations: PropertyCollectionPosting.reconciliationObligations(report: report, ledger: ledger),
+            inputs: transactionInputs, asOf: workspace.asOf)
         let legacyID = PropertyPaymentAdvance.placeholderResidentID(propertyID: property.id)
         let legacyPresent = ledger.paymentApplications.contains {
             $0.propertyID == property.id && $0.residentID == legacyID && $0.deletedAt == nil && PropertyPaymentAdvance.isAdvance($0)
@@ -428,11 +430,14 @@ struct PropertiesView: View {
             residentID: legacyID, ledger: ledger, inputs: transactionInputs)
         let linkedActivity = PropertyActivitySummary.linkedExpensesAndReimbursements(workspace.activityRows(filter: .linked))
         let pendingLinks = workspace.pendingLinks(propertyID: property.id)
+        // The panel's aggregates read the same shared-rule settlements the
+        // member table below renders — one figure per concept on screen.
+        let panel = PropertyPresentationAdapter.property(report, settlements: settlements)
         return VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
             PropertyMetricGrid(values: historical
-                ? Array(PropertyPresentationAdapter.property(report).metrics.prefix(2)) + [
+                ? Array(panel.metrics.prefix(2)) + [
                     .init(title: "Historical pending reconciliation", amount: report.residents.reduce(0) { $0 + max(0, $1.balance) }, note: "Estimated split, no confirmed debt")]
-                : PropertyPresentationAdapter.property(report).metrics)
+                : panel.metrics)
             PropertySectionHeading(title: "Members and contributions", actionTitle: workspace.destination == .household ? nil : "Add member") { activeSheet = .resident }
             PropertyMonthlyTable(rows: rows, isClosed: closed, legacyAdvance: legacyAdvance,
                 legacyAdvancePresent: legacyPresent, legacyAdvanceNeedsReview: legacyNeedsReview,

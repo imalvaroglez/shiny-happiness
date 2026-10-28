@@ -103,8 +103,23 @@ enum PropertyPresentationAdapter {
         ], warnings: report.warnings.map { String(localized: String.LocalizationValue($0)) })
     }
 
-    static func property(_ report: PropertyMonthlyReport) -> PropertySummaryPresentation {
-        let pending = report.residents.reduce(Decimal.zero) { $0 + max(0, $1.balance) }
+    /// The aggregates read the same shared-rule settlements the member table
+    /// renders, so the panel can never contradict the table beside it: the
+    /// report's looser filter still counts collections whose source changed
+    /// afterwards and reconciles only against the month's own obligations.
+    /// Population stays the report's residents (former members never enter
+    /// the panel), and a resident whose `due` is not calculable contributes
+    /// zero, exactly like the `balance` this sum replaces.
+    static func property(_ report: PropertyMonthlyReport,
+                         settlements: [PropertyMemberSettlement]) -> PropertySummaryPresentation {
+        let settlementByID = Dictionary(settlements.map { ($0.residentID, $0) },
+                                        uniquingKeysWith: { first, _ in first })
+        let pending = report.residents.reduce(Decimal.zero) {
+            $0 + max(0, settlementByID[$1.id]?.due ?? 0)
+        }
+        let advances = report.residents.reduce(Decimal.zero) {
+            $0 + (settlementByID[$1.id]?.advanceAvailable ?? 0)
+        }
         return PropertySummaryPresentation(metrics: [
             .init(title: "Rent generated", amount: report.rent, note: "Obligation of the month"),
             .init(title: "Actual expenses", amount: report.expenses, note: "Attributed transactions"),
@@ -122,7 +137,7 @@ enum PropertyPresentationAdapter {
         ], status: [
             .init(title: "Collected operating result", value: propertyMoneyText(report.operatingResult)),
             .init(title: "After maintenance", value: propertyMoneyText(report.afterMaintenanceResult)),
-            .init(title: "Advances available", value: propertyMoneyText(report.advanceAvailable)),
+            .init(title: "Advances available", value: propertyMoneyText(advances)),
         ], warnings: report.warnings)
     }
 }

@@ -178,6 +178,7 @@ struct PropertyCollectionPostingTests {
         ledger.paymentApplications += proposal.applications
         #expect(PropertyLedgerStore.validate(ledger).isEmpty)
         #expect(PropertyCollectionPosting.legacyAdvances(propertyID: house.id, ledger: ledger,
+            obligations: PropertyCollectionPosting.reconciliationObligations(report: september, ledger: ledger),
             inputs: inputs, asOf: date(9, 10)) == 0)
         #expect(PropertyCollectionPosting.memberAdvances(propertyID: house.id, residentID: resident.id,
             ledger: ledger, obligations: PropertyCollectionPosting.reconciliationObligations(
@@ -186,7 +187,7 @@ struct PropertyCollectionPostingTests {
 
     @Test("An unavailable legacy advance remains identifiable for review")
     func unavailableLegacyAdvanceRemainsReviewable() {
-        var (ledger, house, _, _) = fixture(rent: 100, expense: 0)
+        var (ledger, house, _, inputs) = fixture(rent: 100, expense: 0)
         let receipt = PropertyTransactionInput(id: UUID(), amount: 80, postedAt: date(8, 5),
             description: "Anticipo sintético", isCashAccount: true)
         let placeholder = PropertyPaymentAdvance.placeholderResidentID(propertyID: house.id)
@@ -195,10 +196,41 @@ struct PropertyCollectionPostingTests {
             paymentTransactionID: receipt.id, obligationID: advanceID, residentID: placeholder,
             amount: 80, snapshots: PropertySourceSnapshots(capturing: receipt))
         ledger.paymentApplications = [application]
-        #expect(PropertyCollectionPosting.legacyAdvances(propertyID: house.id, ledger: ledger, inputs: [], asOf: date(9)) == 0)
+        let september = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9))
+        #expect(PropertyCollectionPosting.legacyAdvances(propertyID: house.id, ledger: ledger,
+            obligations: PropertyCollectionPosting.reconciliationObligations(report: september, ledger: ledger),
+            inputs: [], asOf: date(9)) == 0)
         #expect(PropertyCollectionPosting.hasChangedAdvanceSource(propertyID: house.id, residentID: placeholder,
             ledger: ledger, inputs: []))
         #expect(PropertyCollectionHistory.includes(application, source: nil, obligationIDs: [], asOf: date(9)))
+    }
+
+    @Test("The legacy advance row reconciles against the full obligation set")
+    func legacyAdvanceRowUsesTheFullObligationSet() throws {
+        var (ledger, house, _, inputs) = fixture(rent: 100, expense: 0)
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 80, postedAt: date(9, 5),
+            description: "Reembolso del mes", isCashAccount: true)
+        inputs.append(receipt)
+        // The same receipt is a live reimbursement of the report month, so it
+        // is double-used money under the shared rule.
+        ledger.attributions.append(PropertyTransactionAttribution(propertyID: house.id,
+            transactionID: receipt.id, kind: .reimbursement, responsibility: .owner))
+        let placeholder = PropertyPaymentAdvance.placeholderResidentID(propertyID: house.id)
+        let advanceID = PropertyPaymentAdvance.obligationID(propertyID: house.id, paymentTransactionID: receipt.id)
+        ledger.paymentApplications = [PropertyPaymentApplication(id: advanceID, propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: advanceID, residentID: placeholder,
+            amount: 80, snapshots: PropertySourceSnapshots(capturing: receipt))]
+        let september = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(9, 10))
+        // The closes-only scope the row used to derive still counts the
+        // advance — the over-shown spendable figure.
+        #expect(ledger.closes.isEmpty)
+        #expect(PropertyCollectionPosting.memberAdvances(propertyID: house.id, residentID: placeholder,
+            ledger: ledger, obligations: [], inputs: inputs, asOf: date(9, 10)) == 80)
+        #expect(PropertyCollectionPosting.legacyAdvances(propertyID: house.id, ledger: ledger,
+            obligations: PropertyCollectionPosting.reconciliationObligations(report: september, ledger: ledger),
+            inputs: inputs, asOf: date(9, 10)) == 0)
     }
 
     @Test("A changed linked source cannot allocate additional money silently")

@@ -366,3 +366,11 @@ octubre por la mañana; binario de prueba sellado en `afc8700`):
 Logs: `/tmp/f6-r4/full-suite.log`, `focus-posting.log`,
 `focus-management.log`, `focus-manualledger.log`, `focus-sankey.log`,
 `focus-assignment.log` y `debug-build.log`.
+
+- **El panel de resumen y la fila legada, bajo la misma regla.** «To collect»
+  y «Advances available» del panel de propiedad se calculan desde los mismos
+  settlements de la regla compartida que renderiza la tabla
+  (`PropertyPresentationAdapter.property(_:settlements:)`), y `legacyAdvances`
+  reconcilia contra `reconciliationObligations(report:ledger:)` — ya no solo
+  cierres — mientras `currentMonthOutstanding` aplica `.currencyRounded` como
+  el settlement. Panel y tabla dejan de poder contradecirse en pantalla.

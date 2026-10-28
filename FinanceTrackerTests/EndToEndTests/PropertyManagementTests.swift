@@ -985,4 +985,99 @@ struct PropertyManagementTests {
         let future = YearMonth(year: 2027, month: 2).startDate
         #expect(PropertyParticipation.lastActiveMonth(selected: future, today: today) == date(2027, 1))
     }
+
+    @Test("The summary panel's To collect and Advances available follow the shared rule")
+    @MainActor
+    func summaryPanelMatchesTheSharedRule() throws {
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+                                                       historical: false, includeCurrent: true)
+        // The panel's population: the report's residents, never the extra
+        // former members the table also lists.
+        func settlementsByID(_ settlements: [PropertyMemberSettlement]) -> [UUID: PropertyMemberSettlement] {
+            Dictionary(settlements.map { ($0.residentID, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+
+        // Edited source: the applied receipt's description changed after the
+        // reconciliation. The report's loose balance still credits the money
+        // while the shared rule re-owes it — the panel must side with the rule.
+        do {
+            let property = PropertyRecord(name: "Casa de prueba")
+            let month = date(2026, 11)
+            let resident = PropertyResident(propertyID: property.id, name: "Alex",
+                activeFrom: month, referenceMonthlyIncome: 1_000)
+            var ledger = PropertyLedger()
+            ledger.properties = [property]
+            ledger.residents = [resident]
+            ledger.incomes = [confirmedIncome(property.id, resident.id, month, 1_000)]
+            ledger.rents = [PropertyRentAgreement(propertyID: property.id, monthlyAmount: 100, effectiveMonth: month)]
+            let report = PropertySettlementCalculator.report(propertyID: property.id, month: month,
+                ledger: ledger, transactions: [])
+            let rent = try #require(report.obligations.first(where: { $0.isRent }))
+            let receipt = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(2026, 11, 10),
+                description: "Cobro", isCashAccount: true)
+            ledger.paymentApplications = [PropertyPaymentApplication(propertyID: property.id,
+                paymentTransactionID: receipt.id, obligationID: rent.id, residentID: resident.id,
+                amount: 100, snapshots: PropertySourceSnapshots(capturing: receipt))]
+            let edited = PropertyTransactionInput(id: receipt.id, amount: 100, postedAt: receipt.postedAt,
+                description: "Cobro editado", isCashAccount: true)
+            let editedReport = PropertySettlementCalculator.report(propertyID: property.id, month: month,
+                ledger: ledger, transactions: [edited])
+            // The loose figure the panel used to publish beside a table that said 100.
+            #expect(editedReport.residents.reduce(Decimal.zero) { $0 + max(0, $1.balance) } == 0)
+            let settlements = settlementsByID(PropertyMemberSettlement.summarizeAll(propertyID: property.id,
+                report: editedReport, ledger: ledger, inputs: [edited], asOf: date(2026, 11, 28),
+                context: context))
+            let due = editedReport.residents.reduce(Decimal.zero) {
+                $0 + max(0, settlements[$1.id]?.due ?? 0)
+            }
+            #expect(due == 100)
+            let panel = PropertyPresentationAdapter.property(editedReport, settlements: Array(settlements.values))
+            #expect(panel.metrics.first { $0.title == "To collect" }?.amount == due)
+        }
+
+        // Double use: the advance's receipt is already a reimbursement of a
+        // closed month, so only the shared scope (report + closes) flags it.
+        do {
+            let property = PropertyRecord(name: "Casa de prueba")
+            let august = date(2026, 8)
+            let september = date(2026, 9)
+            let resident = PropertyResident(propertyID: property.id, name: "Alex",
+                activeFrom: august, referenceMonthlyIncome: 1_000)
+            var ledger = PropertyLedger()
+            ledger.properties = [property]
+            ledger.residents = [resident]
+            ledger.incomes = [confirmedIncome(property.id, resident.id, august, 1_000),
+                              confirmedIncome(property.id, resident.id, september, 1_000)]
+            ledger.rents = [PropertyRentAgreement(propertyID: property.id, monthlyAmount: 100, effectiveMonth: august)]
+            let receipt = PropertyTransactionInput(id: UUID(), amount: 40, postedAt: date(2026, 8, 5),
+                description: "Reembolso", isCashAccount: true)
+            ledger.attributions = [PropertyTransactionAttribution(propertyID: property.id,
+                transactionID: receipt.id, kind: .reimbursement, responsibility: .owner)]
+            let augustReport = PropertySettlementCalculator.report(propertyID: property.id, month: august,
+                ledger: ledger, transactions: [receipt])
+            ledger.closes = [try #require(PropertySettlementCalculator.close(augustReport))]
+            // Later the same money is also captured as a member advance.
+            let advanceID = PropertyPaymentAdvance.obligationID(propertyID: property.id, paymentTransactionID: receipt.id)
+            ledger.paymentApplications = [PropertyPaymentApplication(id: advanceID, propertyID: property.id,
+                paymentTransactionID: receipt.id, obligationID: advanceID, residentID: resident.id,
+                amount: 40, snapshots: PropertySourceSnapshots(capturing: receipt))]
+            let septemberReport = PropertySettlementCalculator.report(propertyID: property.id, month: september,
+                ledger: ledger, transactions: [receipt])
+            // The loose figure the panel used to publish beside a table that said 0.
+            #expect(septemberReport.advanceAvailable == 40)
+            let settlements = settlementsByID(PropertyMemberSettlement.summarizeAll(propertyID: property.id,
+                report: septemberReport, ledger: ledger, inputs: [receipt], asOf: date(2026, 9, 28),
+                context: context))
+            let advances = septemberReport.residents.reduce(Decimal.zero) {
+                $0 + (settlements[$1.id]?.advanceAvailable ?? 0)
+            }
+            let due = septemberReport.residents.reduce(Decimal.zero) {
+                $0 + max(0, settlements[$1.id]?.due ?? 0)
+            }
+            #expect(advances == 0)
+            let panel = PropertyPresentationAdapter.property(septemberReport, settlements: Array(settlements.values))
+            #expect(panel.status.first { $0.title == "Advances available" }?.value == propertyMoneyText(0))
+            #expect(panel.metrics.first { $0.title == "To collect" }?.amount == due)
+        }
+    }
 }

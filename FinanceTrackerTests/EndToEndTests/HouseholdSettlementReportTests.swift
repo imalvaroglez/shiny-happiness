@@ -1291,7 +1291,9 @@ struct HouseholdSettlementReportTests {
         let report = try #require(workspace.reports[property.id])
         #expect(report.expenses == 10_000)
         let view = NSHostingView(rootView: PropertySummaryPanel(
-            presentation: PropertyPresentationAdapter.property(report), onOpenSettlement: {}))
+            presentation: PropertyPresentationAdapter.property(report,
+                settlements: workspace.memberSettlements(propertyID: property.id, report: report)),
+            onOpenSettlement: {}))
         view.frame = NSRect(x: 0, y: 0, width: 780, height: 700)
         view.layoutSubtreeIfNeeded()
         if let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
