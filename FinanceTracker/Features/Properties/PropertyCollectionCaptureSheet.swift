@@ -127,9 +127,7 @@ struct PropertyCollectionCaptureSheet: View {
                     } else {
                         HStack {
                             Text(LocalizedStringKey(suggestionStatus?.title ?? "Not yet calculated")).foregroundStyle(.secondary)
-                            if suggestionStatus != .review {
-                                Button("Enter amount") { enteringUnknownAmount = true }.buttonStyle(.link)
-                            }
+                            Button("Enter amount") { enteringUnknownAmount = true }.buttonStyle(.link)
                         }
                     }
                 }
