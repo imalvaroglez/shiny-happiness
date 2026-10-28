@@ -180,6 +180,31 @@ struct PropertyAssignmentTests {
         #expect(rows.map(\.id) == [free.id])
     }
 
+    @Test("A movement destined to one property cannot be claimed by another and keeps its single attribution")
+    func singleFinancialDestinationMovesBetweenProperties() throws {
+        let (base, house, _, _) = fixture(); let input = source(-222)
+        var ledger = try PropertyAssignmentService.assigning(.owner, to: [input.id], propertyID: house.id, ledger: base, inputs: [input])
+        let original = try #require(ledger.attributions.first { $0.transactionID == input.id && $0.deletedAt == nil })
+        let rival = PropertyRecord(name: "Casa rival"); ledger.properties.append(rival)
+        #expect(throws: PropertyAssignmentService.AssignmentError.self) {
+            _ = try PropertyAssignmentService.assigning(.shared, to: [input.id], propertyID: rival.id, ledger: ledger, inputs: [input])
+        }
+        var direct = ledger
+        do {
+            try PropertyAssignmentService.upsert(PropertyTransactionAttribution(propertyID: rival.id,
+                transactionID: input.id, kind: .operation, responsibility: .shared), source: input, ledger: &direct)
+            Issue.record("The rival destination must be rejected")
+        } catch is PropertyAssignmentService.AssignmentError {
+            #expect(direct == ledger)
+        }
+        let live = ledger.attributions.filter { $0.transactionID == input.id && $0.deletedAt == nil }
+        #expect(live.map(\.propertyID) == [house.id])
+        #expect(live.first?.id == original.id)
+        // Re-assigning to the owning house still replaces the same attribution.
+        let updated = try PropertyAssignmentService.assigning(.shared, to: [input.id], propertyID: house.id, ledger: ledger, inputs: [input])
+        #expect(updated.attributions.filter { $0.transactionID == input.id && $0.deletedAt == nil }.map(\.id) == [original.id])
+    }
+
     @Test("Household isolated save supports custom allocations, preserves repeated shared overrides and rolls back failures")
     func householdAtomicAssignments() throws {
         let container = try container(); let context = container.mainContext
@@ -544,11 +569,23 @@ struct PropertyAssignmentTests {
         var unavailable = a; unavailable.id = UUID(); unavailable.categoryID = nil; unavailable.categoryName = nil; unavailable.amount = 3
         var uncategorized = unavailable; uncategorized.id = UUID(); uncategorized.categoryName = String(localized: "Uncategorized"); uncategorized.amount = 4
         var missing = a; missing.id = UUID(); missing.amount = nil
-        let groups = PropertyExpenseFlow.groups(rows: [a, b, receipt, refund, foreign, unavailable, uncategorized, missing, a])
+        let rows = [a, b, receipt, refund, foreign, unavailable, uncategorized, missing, a]
+        let groups = PropertyExpenseFlow.groups(rows: rows)
         let mxn = groups.first { $0.currency == "MXN" }
         #expect(mxn?.total == 38)
         #expect(mxn?.nodes.first { $0.colorID == category && $0.stage == .categories }?.amount == 31)
-        #expect(mxn?.nodes.filter { $0.stage == .categories }.count == 3)
+        // The 31 category alone crosses the 30.4 budget, so the compact graph keeps it
+        // visible and groups Uncategorized (4) plus Category unavailable (3) into a 7 Others node.
+        let compact = mxn?.nodes.filter { $0.stage == .categories } ?? []
+        #expect(compact.count == 2)
+        #expect(compact.contains { $0.name == String(localized: "Other categories") && $0.amount == 7 })
+        // The expanded presentation still lists the three real categories with exact amounts.
+        let full = PropertyExpenseFlow.groups(rows: rows, expanded: true)
+            .first { $0.currency == "MXN" }?.nodes.filter { $0.stage == .categories } ?? []
+        #expect(full.map(\.amount) == [31, 4, 3])
+        #expect(full.first { $0.colorID == category }?.name == "Categoría de prueba")
+        #expect(full.contains { $0.name == String(localized: "Uncategorized") && $0.amount == 4 })
+        #expect(full.contains { $0.name == String(localized: "Category unavailable") && $0.amount == 3 })
         #expect(groups.first { $0.currency == "USD" }?.total == 7)
         #expect(PropertyExpenseFlow.groups(rows: [receipt, refund, missing]).isEmpty)
     }
