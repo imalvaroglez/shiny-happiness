@@ -2310,4 +2310,131 @@ struct PropertyCollectionPostingTests {
         #expect(account.advanceAvailable == 200)
     }
 
+    @Test("Whole-second comparison floors both sides, including pre-1970 dates")
+    func isSameWholeSecondFloorsBothSides() {
+        #expect(PropertySettlementCalculator.isSameWholeSecond(
+            Date(timeIntervalSince1970: 1_700_000_000.75),
+            Date(timeIntervalSince1970: 1_700_000_000.1)))
+        #expect(!PropertySettlementCalculator.isSameWholeSecond(
+            Date(timeIntervalSince1970: 1_700_000_000.75),
+            Date(timeIntervalSince1970: 1_700_000_001.0)))
+        // Pre-1970 instants floor toward minus infinity: -0.9 and -0.1 share the
+        // -1 second, while 0.1 already belongs to the next second.
+        #expect(PropertySettlementCalculator.isSameWholeSecond(
+            Date(timeIntervalSince1970: -0.9),
+            Date(timeIntervalSince1970: -0.1)))
+        #expect(!PropertySettlementCalculator.isSameWholeSecond(
+            Date(timeIntervalSince1970: -0.9),
+            Date(timeIntervalSince1970: 0.1)))
+    }
+
+    @Test("A sub-second attribution snapshot survives the disk round trip without review")
+    func attributionSubSecondRoundTripDoesNotFlagReview() throws {
+        var (ledger, house, _, inputs) = fixture(rent: 100, expense: 50)
+        let subSecond = date(8, 4).addingTimeInterval(0.75)
+        inputs[0].postedAt = subSecond
+        ledger.attributions[0].sourceSnapshots = PropertySourceSnapshots(capturing: inputs[0])
+        // The sidecar encodes ISO8601 without fractional seconds: the snapshot
+        // comes back from disk truncated to the whole second.
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("subsecond-attribution-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        let stored = try PropertyLedgerStore.read(fileURL: url)
+        let storedSnapshot = try #require(stored.attributions.first?.sourcePostedAtSnapshot)
+        #expect(storedSnapshot != subSecond)
+        // The live input keeps full precision: whole-second comparison sees the
+        // same instant and the attribution still counts as an obligation.
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: stored, transactions: inputs, asOf: date(10))
+        #expect(!report.warnings.contains { $0.contains("cambió desde que se atribuyó") })
+        #expect(report.obligations.contains { $0.transactionID == inputs[0].id && $0.amount == 50 })
+    }
+
+    @Test("A posted date moved to another second still flags review")
+    func postedAtMovedToAnotherSecondStillFlagsReview() throws {
+        var (ledger, house, _, inputs) = fixture(rent: 100, expense: 50)
+        let subSecond = date(8, 4).addingTimeInterval(0.75)
+        inputs[0].postedAt = subSecond
+        ledger.attributions[0].sourceSnapshots = PropertySourceSnapshots(capturing: inputs[0])
+        // A real edit crosses the second boundary: the snapshot no longer matches.
+        inputs[0].postedAt = subSecond.addingTimeInterval(1)
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        #expect(report.warnings.contains { $0.contains("cambió desde que se atribuyó") })
+    }
+
+    @Test("A frozen close keeps a sub-second source date without a discrepancy")
+    func frozenCloseRoundTripDoesNotFlagDiscrepancy() throws {
+        var (ledger, house, _, inputs) = fixture(rent: 100, expense: 50)
+        let subSecond = date(8, 4).addingTimeInterval(0.75)
+        inputs[0].postedAt = subSecond
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        // The persisted close loses the fraction on disk while the live input
+        // keeps full precision.
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("subsecond-close-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        let stored = try PropertyLedgerStore.read(fileURL: url)
+        let storedClose = try #require(stored.closes.first)
+        let obligation = try #require(storedClose.obligations.first { $0.transactionID == inputs[0].id })
+        #expect(obligation.sourcePostedAt != nil && obligation.sourcePostedAt! != subSecond)
+        let frozen = PropertySettlementCalculator.frozenReport(storedClose, ledger: stored,
+            transactions: inputs, asOf: date(10))
+        #expect(!frozen.warnings.contains { $0.contains("cambió después del cierre") })
+    }
+
+    @Test("A registered collection discounts once after the disk round trip")
+    @MainActor
+    func paymentDiscountsOnceAfterDiskRoundTripWithoutFalseReview() async throws {
+        let container = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, isStoredInMemoryOnly: true)])
+        let context = container.mainContext
+        let account = Account(institution: "Banco sintético", type: .checking, currency: "MXN")
+        context.insert(account)
+        try context.save()
+        var (ledger, house, resident, _) = fixture(rent: 100, expense: 0)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("subsecond-collection-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        let workspace = PropertyWorkspaceModel(month: date(9), fileURL: url)
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.loadLedger()
+        await workspace.refreshPeriod()
+        workspace.destination = .property(house.id)
+        // The payment lands with a sub-second instant: SwiftData keeps the
+        // fraction, the sidecar keeps only the second.
+        let paymentDate = date(9, 10).addingTimeInterval(0.75)
+        guard case .saved = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
+            account: account, amount: 100, date: paymentDate) else {
+            Issue.record("The collection should save with a sub-second payment date")
+            return
+        }
+        let storedApplication = try #require(try PropertyLedgerStore.read(fileURL: url).paymentApplications.first)
+        #expect(storedApplication.sourcePostedAtSnapshot != paymentDate)
+        // A fresh context and workspace re-read everything from disk, exactly
+        // like a relaunched session.
+        let reopenedContext = ModelContext(container)
+        let reopened = PropertyWorkspaceModel(month: date(9), fileURL: url)
+        reopened.configure(context: reopenedContext, hasAccounts: true)
+        await reopened.loadLedger()
+        await reopened.refreshPeriod()
+        reopened.destination = .property(house.id)
+        let report = try #require(reopened.reports[house.id])
+        let row = try #require(report.residents.first { $0.id == resident.id })
+        // The payment discounts exactly once and no changed-source warning
+        // blames the date.
+        #expect(row.paid == 100)
+        #expect(row.balance == 0)
+        #expect(!report.warnings.contains { $0.contains("cambió") })
+        let settlement = try #require(reopened.memberSettlements(propertyID: house.id, report: report)
+            .first { $0.residentID == resident.id })
+        #expect(settlement.status == .paid)
+        #expect(settlement.monthPaid == 100)
+    }
+
 }

@@ -208,7 +208,8 @@ enum PropertyActivityPresenter {
                 }
                 if let obligation {
                     return abs(source.amount) != obligation.amount || source.description != obligation.title
-                        || (obligation.sourcePostedAt != nil && source.postedAt != obligation.sourcePostedAt)
+                        || (obligation.sourcePostedAt != nil
+                            && !PropertySettlementCalculator.isSameWholeSecond(source.postedAt, obligation.sourcePostedAt!))
                         || (obligation.sourceCurrencyCode != nil && source.currencyCode != obligation.sourceCurrencyCode)
                 }
                 return false

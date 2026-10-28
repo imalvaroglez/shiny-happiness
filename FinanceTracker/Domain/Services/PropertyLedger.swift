@@ -591,13 +591,24 @@ enum PropertySettlementCalculator {
     }
 
     /// True when any captured source snapshot no longer matches the live transaction.
+    /// `postedAt` compares at whole-second precision — the precision the sidecar
+    /// preserves on disk — so a snapshot that only lost sub-second detail in a
+    /// disk round trip never counts as a change, and a real edit confined to the
+    /// same second is not reported by design.
     /// Snapshots the caller does not capture stay `nil` and never count as changed.
     static func hasSourceChanged(amount: Decimal?, postedAt: Date?, currencyCode: String?, description: String?,
                                  versus input: PropertyTransactionInput) -> Bool {
         (amount != nil && amount != input.amount)
-            || (postedAt != nil && postedAt != input.postedAt)
+            || (postedAt != nil && !isSameWholeSecond(postedAt!, input.postedAt))
             || (currencyCode != nil && currencyCode != input.currencyCode)
             || (description != nil && description != input.description)
+    }
+
+    /// Whole-second equality: both instants floor to the same second. The sidecar
+    /// encodes dates as ISO8601 without fractional seconds, so whole seconds are
+    /// the finest precision a snapshot survives on disk.
+    static func isSameWholeSecond(_ a: Date, _ b: Date) -> Bool {
+        a.timeIntervalSince1970.rounded(.down) == b.timeIntervalSince1970.rounded(.down)
     }
 
     /// Shared reconciliation review: receipts used both as reimbursement and collection,
@@ -859,7 +870,7 @@ enum PropertySettlementCalculator {
                 || !amountMatches
                 || (obligation.sourceCurrencyCode != nil && obligation.sourceCurrencyCode != input.currencyCode)
                 || (ledger.householdLink?.propertyID != close.propertyID && Calendar.current.propertyMonthStart(for: input.postedAt) != close.monthStart)
-                || (obligation.sourcePostedAt != nil && obligation.sourcePostedAt != input.postedAt)
+                || (obligation.sourcePostedAt != nil && !isSameWholeSecond(obligation.sourcePostedAt!, input.postedAt))
                 || obligation.title != input.description {
                 discrepancies.append("El movimiento de «\(obligation.title)» cambió después del cierre; revisa un ajuste en un periodo abierto.")
             }
