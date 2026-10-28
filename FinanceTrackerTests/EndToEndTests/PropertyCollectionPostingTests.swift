@@ -935,6 +935,63 @@ struct PropertyCollectionPostingTests {
         #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.isEmpty)
     }
 
+    @Test("Retirement keeps every marker when the saved-payment read fails")
+    @MainActor
+    func retirementKeepsMarkersWhenTheReadFails() async throws {
+        enum FetchFailure: Error { case read }
+        let container = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, isStoredInMemoryOnly: true)])
+        let context = container.mainContext
+        let account = Account(institution: "Banco sintético", type: .checking, currency: "MXN")
+        context.insert(account)
+        try context.save()
+        var (ledger, house, resident, _) = fixture(rent: 100, expense: 0)
+        ledger.rents[0].effectiveMonth = date(9)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("retire-read-fails-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        var writer = PendingLinkFailureWriter()
+        var failFetch = true
+        let lookupContainer = container
+        let workspace = PropertyWorkspaceModel(month: date(9), fileURL: url,
+            writeLedger: { proposed, path in try writer.write(proposed, at: path) },
+            pendingLinkFetchOverride: { ids in
+                guard failFetch else {
+                    let fresh = ModelContext(lookupContainer)
+                    fresh.autosaveEnabled = false
+                    return try fresh.fetch(FetchDescriptor<Transaction>(
+                        predicate: #Predicate<Transaction> { ids.contains($0.id) }))
+                }
+                throw FetchFailure.read
+            })
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.loadLedger()
+        await workspace.refreshPeriod()
+        workspace.destination = .property(house.id)
+        guard case .needsLink(let incomeID) = workspace.registerCollection(propertyID: house.id,
+            residentID: resident.id, account: account, amount: 100, date: date(9, 10)) else {
+            Issue.record("Expected the interrupted link to report the receipt UUID")
+            return
+        }
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.map(\.paymentTransactionID) == [incomeID])
+        // The saved-payment lookup fails: an unreadable store must never read as
+        // "the money vanished", so nothing is retired in memory, on disk, or saved.
+        #expect(!workspace.retirePendingLinks(propertyID: house.id))
+        #expect(workspace.ledger.pendingLinks.map(\.paymentTransactionID) == [incomeID])
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.map(\.paymentTransactionID) == [incomeID])
+        #expect(workspace.error != nil)
+        // Once the lookup works again, a soft-deleted income retires as before.
+        let deleting = ModelContext(container)
+        let deletedIncome = try #require(deleting.fetch(FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.id == incomeID })).first)
+        deletedIncome.deletedAt = date(9, 25)
+        try deleting.save()
+        failFetch = false
+        #expect(workspace.retirePendingLinks(propertyID: house.id))
+        #expect(workspace.ledger.pendingLinks.isEmpty)
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.isEmpty)
+    }
+
     @Test("Pending link clears on completed link")
     @MainActor
     func pendingLinkClearsOnCompletedLink() async throws {

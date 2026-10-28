@@ -74,6 +74,10 @@ final class PropertyWorkspaceModel {
     /// substitute the guard to model another window's write. Production uses
     /// the real disk comparison below.
     @ObservationIgnored private let revisionCheckOverride: (@MainActor () throws -> Void)?
+    /// Test seam over the saved-payment lookup in `retirePendingLinks`: a
+    /// failed fetch must keep every marker instead of retiring them all.
+    /// Production leaves it nil and performs the real fresh-context fetch.
+    @ObservationIgnored private let pendingLinkFetchOverride: (([UUID]) throws -> [Transaction])?
     @ObservationIgnored private var interactionStart: ContinuousClock.Instant?
     @ObservationIgnored private var interactionName = ""
     @ObservationIgnored private var interactionInterval: OSSignpostIntervalState?
@@ -85,7 +89,8 @@ final class PropertyWorkspaceModel {
              try await Task.detached { try PropertyLedgerStore.read(fileURL: url) }.value
          }, fetchTransactions: @escaping (ModelContext, FetchDescriptor<Transaction>) throws -> [Transaction] = { try $0.fetch($1) },
          writeLedger: @escaping (PropertyLedger, URL?) throws -> Void = { try PropertyLedgerStore.replace(with: $0, at: $1) },
-         revisionCheckOverride: (@MainActor () throws -> Void)? = nil) {
+         revisionCheckOverride: (@MainActor () throws -> Void)? = nil,
+         pendingLinkFetchOverride: (([UUID]) throws -> [Transaction])? = nil) {
         self.asOf = asOf
         selectedMonth = Calendar.current.propertyMonthStart(for: month)
         self.fileURL = fileURL
@@ -93,6 +98,7 @@ final class PropertyWorkspaceModel {
         self.writeLedger = writeLedger
         self.fetchTransactions = fetchTransactions
         self.revisionCheckOverride = revisionCheckOverride
+        self.pendingLinkFetchOverride = pendingLinkFetchOverride
     }
 
     var periodReady: Bool { cachedMonth == selectedMonth }
@@ -582,18 +588,30 @@ final class PropertyWorkspaceModel {
     /// vanished or was soft-deleted is workflow state behind money that is no
     /// longer live, so it is removed and the register is saved. The view calls
     /// this from a task when the property or month changes — never from the
-    /// render path. Returns false when nothing needed retirement or the save
-    /// failed.
+    /// render path. A failed lookup retires nothing: an unreadable store must
+    /// never read as "the money vanished", so the markers are kept for the next
+    /// task to retry. Returns false when nothing needed retirement, the lookup
+    /// failed, or the save failed.
     @discardableResult
     func retirePendingLinks(propertyID: UUID) -> Bool {
         guard let context else { return false }
         let markers = ledger.pendingLinks.filter { $0.propertyID == propertyID && $0.deletedAt == nil }
         guard !markers.isEmpty else { return true }
         let ids = Array(Set(markers.map(\.paymentTransactionID)))
-        let freshContext = ModelContext(context.container)
-        freshContext.autosaveEnabled = false
-        let fetched = (try? freshContext.fetch(FetchDescriptor<Transaction>(
-            predicate: #Predicate<Transaction> { ids.contains($0.id) }))) ?? []
+        let fetched: [Transaction]
+        do {
+            if let pendingLinkFetchOverride {
+                fetched = try pendingLinkFetchOverride(ids)
+            } else {
+                let freshContext = ModelContext(context.container)
+                freshContext.autosaveEnabled = false
+                fetched = try freshContext.fetch(FetchDescriptor<Transaction>(
+                    predicate: #Predicate<Transaction> { ids.contains($0.id) }))
+            }
+        } catch {
+            self.error = String(localized: "The saved payment lookup failed; recovery markers were kept.")
+            return false
+        }
         let inputsByID = Dictionary(fetched.map { ($0.id, PropertyTransactionInput(capturing: $0)) },
                                     uniquingKeysWith: { first, _ in first })
         let vanished = Set(markers.filter { marker in
