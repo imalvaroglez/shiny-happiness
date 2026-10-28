@@ -36,7 +36,7 @@ nombre completo en una línea. La variante compacta reutiliza ese mismo menú y 
 los encabezados cuando no caben. Los encabezados permanecen visibles sin resultados
 para permitir retirar los filtros.
 
-Acciones frecuentes visibles mediante `InlineRowAction`, con ayuda y etiqueta accesible.
+Acciones frecuentes visibles mediante `InlineRowAction`, con ayuda y etiqueta accesible. `PropertySectionHeading` acepta contenido `trailing` en la misma fila (p. ej. el selector de alcance); en anchos estrechos ese contenido cae a una segunda fila alineada al borde derecho.
 Menús compactos para asignaciones; confirmaciones destructivas con `confirmationDialog`.
 Cada integrante aparece una vez; ingreso, estado, confirmación y aportación permanecen próximos.
 Las acciones de integrante son botones directos con nombre: Renombrar y Quitar.

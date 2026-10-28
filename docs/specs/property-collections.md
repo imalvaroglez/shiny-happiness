@@ -195,3 +195,52 @@ Logs: `/private/tmp/property-accounts-rounding-focus-final.log`,
   Logs: `/tmp/ft-tg-logs/focus-posting.log`, `/tmp/ft-tg-logs/focus-management.log`,
   `/tmp/ft-tg-logs/full-suite.log`, `/tmp/ft-tg-logs/bisect-d417ad9.log` y
   `/tmp/ft-tg-logs/debug-build.log`.
+
+### Precisión de segundos, cuentas disponibles y Sankey con presupuesto (28 de octubre de 2026)
+
+- **Comparación de snapshots a segundos enteros.** El respaldo local conserva
+  fechas ISO 8601 sin fracciones; SwiftData conserva sub-segundos. La
+  comparación exacta interpretaba esa pérdida como modificación y provocaba un
+  estado «Revisar» falso tras registrar pagos (caso real de $247.65). Ahora
+  `isSameWholeSecond` (piso de segundos en ambos lados) gobierna `hasSourceChanged`,
+  el reporte congelado y la fila de actividad; una edición real confinada al
+  mismo segundo no se señala, por coincidir con la precisión del formato en
+  disco. Importe, moneda y descripción siguen comparándose exactos, y un cambio
+  real a otro segundo se detecta.
+- **Avisos que identifican.** Los avisos de revisión nombran los campos
+  cambiados («…cambió (fecha, importe) desde que se concilió…») y cada cobro
+  afectado expone su movimiento desde la cuenta del integrante; ninguna lista
+  de campos queda sin movimiento asociado.
+- **Cuentas disponibles.** Activa significa no archivada y no cerrada
+  (`Account.isAvailableForCapture`). Los servicios de creación —movimientos,
+  transferencias (ambas partes antes de insertar) y cobros— re-fetchean la
+  cuenta por UUID en un contexto nuevo del mismo contenedor
+  (`AccountCaptureValidation.ensureAvailable`) y rechazan antes de insertar
+  nada; los selectores excluyen archivadas y cerradas, y si la selección muere
+  en caliente se conserva integrante, importe y fecha.
+- **Interfaz.** La cuenta del integrante pierde el subtítulo de casa y mes (la
+  proyección solo se indica cuando aplica), adopta una tabla de tres columnas
+  con anchos compartidos por fila y altura al contenido con desplazamiento
+  solo si excede. El ingreso del mes se edita tocando la propia cifra (aspecto
+  de texto normal, activable con teclado; Enter confirma, Escape cancela, salir
+  del campo guarda como referencia sin confirmar). «Movimientos vinculados»
+  comparte fila con el selector de alcance —en ventanas estrechas el selector
+  cae a una segunda fila alineada a la derecha— y las acciones de selección
+  ocupan fila propia.
+- **Sankey con presupuesto.** El resumen muestra, por moneda, el prefijo de
+  categorías cuya suma acumulada no supera el 80 % del gasto (límite en
+  `Decimal` exacto, empates resueltos por identificador, sin saltar categorías
+  grandes para incluir pequeñas). La primera categoría que excedería el límite
+  se agrupa con todas las siguientes en «Otras categorías», colocada al final
+  con el restante real — que puede superar el 20 % —; si la primera supera el
+  80 % por sí sola, se muestra y se agrupa el resto. La expansión se ofrece
+  solo cuando el desglose cambia, y el total, las aportaciones y las
+  conexiones son idénticos entre ambas presentaciones.
+- **Evidencia.** Suite serial completa: 765 pruebas, 77 suites, exactamente
+  los 2 fallos preexistentes diferidos (latencia del Dashboard, 0.8475 s
+  frente a < 0.75 s con la máquina compartida; migración V5→V6 probada
+  preexistente por bisect en `d417ad9`). Build Debug canónico en verde; sin
+  `Double` ni `Float` en Domain; catálogo es-MX válido y sin duplicados;
+  `git diff --check` limpio. Verificación visual, teclado, VoiceOver y
+  latencia visible pendientes de disponibilidad de pantalla: este binario es
+  para prueba, no «listo para validación».

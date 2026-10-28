@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- El Sankey de gasto muestra, por moneda, el prefijo de categorías dentro del 80 % del total y agrupa el resto en «Otras categorías» al final con el restante real, sin saltar categorías grandes; la expansión solo se ofrece cuando el desglose cambia y las cifras no cambian entre presentaciones.
+
 - La cuenta del integrante muestra la tabla exacta que suma a mano — compartidos, parte, gastos suyos, pagos aplicados y saldo pendiente —, sugiere el pago neto del anticipo disponible y explica cada registro sin respaldo con notas factuales de importe y motivo. «Ver detalle» abre la actividad filtrada por identidad de atribución, también en meses cerrados.
 - Propiedades registra cobros en cuentas activas MXN de cualquier tipo desde una captura común para ambas casas, los distribuye por antigüedad y conserva excedentes como anticipos del integrante. El historial agrupa las aplicaciones por ingreso y permite abrir su movimiento.
 - Accounts can be archived and restored from Settings while their transactions, balances, positions, and installment plans remain intact and included in financial reports.
@@ -19,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Registrar un pago nunca se bloquea por referencias rotas de incidencias antiguas: una fuente sin respaldo no es anticipo disponible, no salda obligaciones y no ocupa capacidad, bajo la misma regla de validez que el saldo y los cierres; aplicar un anticipo explícito sigue exigiendo fuentes sanas.
 - La vinculación de cobros queda garantizada por UUID con marcadores durable en el sidecar: sobreviven reapertura y renombres, se limpian al completar el vínculo y solo anuncian cobros pendientes identificados.
 - El hogar clasifica por responsabilidad real —individual de Fer, individual del usuario, compartido con fusiones custom— conservando totales y cierres; los meses ya cerrados mantienen su clasificación autoconsistente.
+- Las comparaciones de cobros contra su movimiento original usan precisión de segundos enteros —la que conserva el respaldo local— y eliminan el estado «Revisar» falso tras registrar pagos; los avisos reales nombran los campos cambiados y abren el cobro afectado desde la cuenta del integrante.
+- Las cuentas archivadas o cerradas quedan fuera de los selectores de cobros y movimientos manuales, y los servicios de guardado revalidan su estado persistido en un contexto fresco antes de insertar; las transferencias validan ambas partes sin escrituras parciales y la captura conserva integrante, importe y fecha si la cuenta deja de estar disponible.
+- La cuenta del integrante usa una tabla de tres columnas con altura al contenido y sin subtítulo de casa y mes; el ingreso del mes se edita tocando la propia cifra con teclado (Enter confirma, Escape cancela, salir guarda como referencia), y «Movimientos vinculados» comparte fila con el selector de alcance.
 - Los cobros se consultan desde cada integrante, con estado acumulado y acciones directas; la tabla de movimientos vinculados excluye los cobros. Los importes sugeridos se muestran antes de editarse.
 - Detalles de movimientos, configuración de cuentas, posiciones y pendientes de importación muestran valores de consulta y abren la edición mediante una acción explícita. Los borradores de cuenta se guardan de forma aislada.
 - Deuda anterior y anticipos se muestran junto al importe por aportar de cada integrante. La conciliación de ingresos ya existentes queda como acción secundaria, y un fallo al guardar la vinculación ofrece reintento sin duplicar el ingreso bancario.
