@@ -40,13 +40,18 @@ struct PropertyMemberSettlement: Equatable, Sendable {
     var status: Status
     /// Rent + shared + individual + adjustments of the month; nil while the split is not calculable.
     var monthObligation: Decimal?
-    /// The member's month balance (`PropertyResidentReport.balance`); nil while the split is not calculable.
+    /// The month's components minus the month's valid collections — computed
+    /// under the shared validity rule, never inherited from the report's looser
+    /// filter; nil while the split is not calculable.
     var monthBalance: Decimal?
     /// Debt carried from closed months, net of valid collections (the report's figure).
     var priorDebt: Decimal
     /// Valid collections applied to obligations of closed months.
     var priorPaid: Decimal
-    /// Valid collections applied to this month's obligations.
+    /// Valid collections applied to this month's obligations under the shared
+    /// validity rule (`isValidAppliedCollection`), plus any direct
+    /// contribution the report already credits — a changed source never
+    /// discounts here in silence.
     var monthPaid: Decimal
     /// `priorDebt + max(0, monthBalance)` while computable: the outstanding debt.
     var due: Decimal?
@@ -133,14 +138,22 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         // capacity in the posting walk, so balance and capacity cannot disagree.
         let priorDebt = ((data.priorObligationByResident[residentID] ?? 0)
             - (data.priorPaidByResident[residentID] ?? 0)).currencyRounded
+        // The month slice obeys the same shared validity rule as the prior
+        // slice: only applications whose source still exists, is still a valid
+        // receipt, and still matches its snapshots count as collected, so a
+        // changed source never discounts the month in silence while the review
+        // notes say it did not. The member's direct contribution (money paid
+        // when the expense was recorded) is not an application and keeps
+        // counting, exactly as it does inside `PropertyResidentReport.paid`.
+        let monthPaid = ((data.validMonthPaidByResident[residentID] ?? 0)
+            + (member?.directContribution ?? 0)).currencyRounded
         var monthObligation: Decimal?
         var monthBalance: Decimal?
         if let member, computable {
             monthObligation = (member.rent + member.sharedExpenses + member.individualExpenses
                 + member.adjustments).currencyRounded
-            monthBalance = member.balance.currencyRounded
+            monthBalance = (monthObligation! - monthPaid).currencyRounded
         }
-        let monthPaid = (member?.paid ?? 0).currencyRounded
         let priorPaid = (data.priorPaidByResident[residentID] ?? 0).currencyRounded
         let advanceAvailable = (data.advanceByResident[residentID] ?? 0).currencyRounded
         let advanceStale = data.advanceStaleByResident.contains(residentID)
@@ -243,6 +256,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         var activeResidentIDs: Set<UUID> = []
         var knownResidentIDs: Set<UUID> = []
         var monthReceiptIDsByResident: [UUID: Set<UUID>] = [:]
+        var validMonthPaidByResident: [UUID: Decimal] = [:]
         var priorObligationByResident: [UUID: Decimal] = [:]
         var priorPaidByResident: [UUID: Decimal] = [:]
         var priorReceiptIDsByResident: [UUID: Set<UUID>] = [:]
@@ -291,7 +305,9 @@ struct PropertyMemberSettlement: Equatable, Sendable {
             ).mapValues { $0.reduce(Decimal.zero) { $0 + $1.amount } }
 
             // Valid collections of the report month, mirroring the report's own
-            // application filter through the shared validity rule.
+            // application filter through the shared validity rule: receipt IDs
+            // for the payment surfaces and the amounts the settlement counts as
+            // `monthPaid`.
             let monthObligationIDs = Set(report.obligations.map(\.id))
             for application in propertyApplications
             where !PropertyPaymentAdvance.isAdvance(application)
@@ -302,6 +318,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                     doubleUsedReceipts: reconciliation.doubleUsedReceipts, asOf: asOf) {
                 monthReceiptIDsByResident[application.residentID, default: []]
                     .insert(application.paymentTransactionID)
+                validMonthPaidByResident[application.residentID, default: 0] += application.amount
             }
 
             // Prior debt pieces from closes, mirroring `priorBalances`.

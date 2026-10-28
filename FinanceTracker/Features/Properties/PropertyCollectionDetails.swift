@@ -141,7 +141,10 @@ struct PropertyMemberCollectionsSheet: View {
                     Text(propertyMoneyText(rent)).monospacedDigit()
                 }
             }
-            if account.priorDebt > 0 {
+            // Shown whenever it exists, negative included: a negative prior
+            // debt is a data error this row lets you see, and the visible
+            // arithmetic still closes on the balance below.
+            if account.priorDebt != 0 {
                 DetailRow("Prior debt", alignment: .trailing) {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(propertyMoneyText(account.priorDebt)).monospacedDigit()
@@ -156,8 +159,11 @@ struct PropertyMemberCollectionsSheet: View {
                     Text(propertyMoneyText(adjustments)).monospacedDigit()
                 }
             }
+            // Bounded by the month's own charges when computable: collecting
+            // more than the month charged is review work, and the row must
+            // still let the column sum by hand to the balance below.
             DetailRow("Applied payments", alignment: .trailing) {
-                Text(propertyMoneyText(-account.appliedPayments)).monospacedDigit()
+                Text(propertyMoneyText(-account.boundedAppliedPayments)).monospacedDigit()
             }
             DetailRow("Outstanding balance", alignment: .trailing) {
                 if let balance = account.balanceDue {
@@ -192,6 +198,10 @@ struct PropertyMemberCollectionsSheet: View {
             if account.unbackedCollectedChanged > 0 {
                 note(String(format: String(localized: "This balance does not discount a previous record of %@ because its movement changed after registration."),
                     propertyMoneyText(account.unbackedCollectedChanged)))
+            }
+            if account.monthCollectionExcess > 0 {
+                note(String(format: String(localized: "Month collections exceed its charges by %@; review required."),
+                    propertyMoneyText(account.monthCollectionExcess)))
             }
             if account.unbackedAdvances > 0 {
                 note(String(format: String(localized: "An advance of %@ lost its backing; it is not available money."),

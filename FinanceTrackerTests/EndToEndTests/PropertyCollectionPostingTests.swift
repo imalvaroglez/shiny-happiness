@@ -1400,6 +1400,159 @@ struct PropertyCollectionPostingTests {
             ledger: staleLedger, inputs: staleInputs))
     }
 
+    @Test("A current-month receipt with a changed source never discounts silently")
+    func changedMonthReceiptNeverDiscountsSilently() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let septemberRentID = try #require(report.obligations.first(where: \.isRent)?.id)
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(9, 10),
+            description: "Cobro del mes", isCashAccount: true)
+        inputs.append(receipt)
+        ledger.paymentApplications = [PropertyPaymentApplication(propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: septemberRentID, residentID: resident.id,
+            amount: 100, snapshots: PropertySourceSnapshots(capturing: receipt))]
+        // Only the description changed after the collection was applied.
+        var edited = receipt
+        edited.description = "Cobro del mes (corregido)"
+        let changedInputs = inputs.filter { $0.id != receipt.id } + [edited]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: changedInputs, asOf: date(10))
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: report, ledger: ledger, inputs: changedInputs,
+            asOf: date(10), context: context)
+        #expect(settlement.status == .review)
+        // The month slice obeys the shared validity rule: the changed receipt
+        // never discounts, so the note that says so is true.
+        #expect(settlement.monthPaid == 0)
+        #expect(settlement.monthBalance == 100)
+        #expect(settlement.due == 100)
+        #expect(settlement.unbackedCollectedChanged == 100)
+        #expect(settlement.payable == 100)
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: changedInputs, asOf: date(10), context: context)
+        #expect(account.appliedPayments == 0)
+        #expect(account.balanceDue == account.priorDebt
+            + max(0, (account.rent ?? 0) + (account.memberSharedShare ?? 0)
+                + (account.individualCharges ?? 0) + (account.adjustments ?? 0) - account.appliedPayments))
+        #expect(account.balanceDue == 100)
+    }
+
+    @Test("A raised receipt amount never overstates the payable")
+    func raisedReceiptAmountNeverOverstatesPayable() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let septemberRentID = try #require(report.obligations.first(where: \.isRent)?.id)
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(9, 10),
+            description: "Cobro del mes", isCashAccount: true)
+        inputs.append(receipt)
+        ledger.paymentApplications = [PropertyPaymentApplication(propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: septemberRentID, residentID: resident.id,
+            amount: 100, snapshots: PropertySourceSnapshots(capturing: receipt))]
+        // The receipt was raised to 200 after 100 had been applied: the extra
+        // 100 is not collected money, and the payable cannot drop because of it.
+        var edited = receipt
+        edited.amount = 200
+        let changedInputs = inputs.filter { $0.id != receipt.id } + [edited]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: changedInputs, asOf: date(10))
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: report, ledger: ledger, inputs: changedInputs,
+            asOf: date(10), context: context)
+        #expect(settlement.status == .review)
+        #expect(settlement.monthPaid == 0)
+        #expect(settlement.due == 100)
+        #expect(settlement.payable == 100)
+        #expect(settlement.unbackedCollectedChanged == 100)
+    }
+
+    @Test("Overpaid month keeps the column honest")
+    func overpaidMonthKeepsTheColumnHonest() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 50)
+        // The shared charge belongs to September, so the month's components are 150.
+        inputs[0].postedAt = date(9, 4)
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let septemberRentID = try #require(report.obligations.first(where: \.isRent)?.id)
+        let sharedID = try #require(report.obligations.first(where: { !$0.isRent })?.id)
+        // Three healthy 100 receipts manually applied for 300 against the
+        // month's 150 of charges: no single receipt is overallocated, but the
+        // month is — manual over-application, not money.
+        let receipts = (0..<3).map { index in
+            PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(9, 12 + index),
+                description: "Cobro manual \(index + 1)", isCashAccount: true)
+        }
+        inputs += receipts
+        let obligationIDs = [septemberRentID, septemberRentID, sharedID]
+        ledger.paymentApplications = zip(receipts, obligationIDs).map { receipt, obligationID in
+            PropertyPaymentApplication(propertyID: house.id, paymentTransactionID: receipt.id,
+                obligationID: obligationID, residentID: resident.id, amount: 100,
+                snapshots: PropertySourceSnapshots(capturing: receipt))
+        }
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        #expect(account.priorDebt == 100)
+        #expect(account.appliedPayments == 300)
+        // The visible row is bounded by the month's charges and names the excess.
+        #expect(account.monthCharges == 150)
+        #expect(account.boundedAppliedPayments == 150)
+        #expect(account.monthCollectionExcess == 150)
+        #expect(account.balanceDue == account.priorDebt
+            + max(0, (account.rent ?? 0) + (account.memberSharedShare ?? 0)
+                + (account.individualCharges ?? 0) + (account.adjustments ?? 0) - account.boundedAppliedPayments))
+        #expect(account.balanceDue == account.priorDebt)
+        #expect(account.balanceDue == 100)
+    }
+
+    @Test("Negative prior debt stays visible")
+    func negativePriorDebtStaysVisible() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        let august = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let augustRentID = try #require(august.obligations.first(where: \.isRent)?.id)
+        ledger.closes = [try #require(PropertySettlementCalculator.close(august, at: date(8, 31)))]
+        // A 150 collection against the closed 100 debt: prior months were
+        // overpaid by 50 — a data error the rows must let you see, never hide.
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 150, postedAt: date(9, 2),
+            description: "Cobro sobre cierre", isCashAccount: true)
+        inputs.append(receipt)
+        ledger.paymentApplications = [PropertyPaymentApplication(propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: augustRentID, residentID: resident.id,
+            amount: 150, snapshots: PropertySourceSnapshots(capturing: receipt))]
+        let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(10), context: context)
+        #expect(settlement.priorDebt == -50)
+        #expect(settlement.priorPaid == 150)
+        #expect(settlement.monthObligation == 100)
+        #expect(settlement.monthPaid == 0)
+        #expect(settlement.due == 50)
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: inputs, asOf: date(10), context: context)
+        #expect(account.priorDebt == -50)
+        #expect(account.balanceDue == 50)
+        // The visible column sums through the negative row up to the balance.
+        let visibleSum = account.priorDebt + max(0, (account.rent ?? 0) + (account.memberSharedShare ?? 0)
+            + (account.individualCharges ?? 0) + (account.adjustments ?? 0) - account.appliedPayments)
+        #expect(account.balanceDue == visibleSum)
+    }
+
     @Test("An overallocated month receipt forces review and suggests valid data only")
     func overallocatedMonthReceiptNeedsReview() throws {
         var (ledger, house, resident, inputs) = fixture()

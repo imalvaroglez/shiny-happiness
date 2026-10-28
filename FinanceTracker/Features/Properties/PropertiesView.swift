@@ -405,6 +405,10 @@ struct PropertiesView: View {
         for index in rows.indices {
             rows[index].settlement = settlements.first { $0.residentID == rows[index].memberID }
             rows[index].advance = rows[index].settlement?.advanceAvailable ?? 0
+            // One «deuda anterior» only: the table caption carries the same
+            // settlement figure the member sheet and the capture suggestion
+            // already publish, not the report's looser reading.
+            rows[index].priorDebt = rows[index].settlement?.priorDebt ?? rows[index].priorDebt
         }
         let currentIDs = Set(rows.map(\.memberID))
         for settlement in settlements where !currentIDs.contains(settlement.residentID) {

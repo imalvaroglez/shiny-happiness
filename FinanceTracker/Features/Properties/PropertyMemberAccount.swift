@@ -29,6 +29,11 @@ import Foundation
 /// to this month's obligations. The slice that covered closed months travels
 /// separately as `priorPaid`, and that money is already net inside
 /// `priorDebt`, so adding it back into the sum would double-count it.
+/// The visible "Applied payments" row is bounded by the month's own charges
+/// (`boundedAppliedPayments`) so the column keeps summing by hand even when
+/// manual over-application collected more than the month charged; the excess
+/// (`monthCollectionExcess`) surfaces as a factual review note — a data error
+/// to review, never credit.
 struct PropertyMemberAccount: Equatable, Sendable {
     var residentID: UUID
     /// The report month this account summarizes (`report.monthStart`).
@@ -162,5 +167,27 @@ struct PropertyMemberAccount: Equatable, Sendable {
         case .shared, .selected: return true
         case .individual, .owner: return false
         }
+    }
+
+    /// The month's own charges when every component is computable: rent, the
+    /// member's shared share, individual charges, and adjustments. Nil whenever
+    /// any component is still `nil` (the split is not calculable or projected).
+    var monthCharges: Decimal? {
+        guard let rent, let memberSharedShare, let individualCharges, let adjustments else { return nil }
+        return (rent + memberSharedShare + individualCharges + adjustments).currencyRounded
+    }
+
+    /// `appliedPayments` bounded by the month's own charges when computable:
+    /// the visible "Applied payments" row keeps the column summing by hand
+    /// even when manual over-application collected more than the month charged.
+    var boundedAppliedPayments: Decimal {
+        monthCharges.map { min(appliedPayments, $0) } ?? appliedPayments
+    }
+
+    /// Collections applied beyond the month's own charges — a data error the
+    /// review notes name, never credit. Zero when the month is not computable
+    /// or was not over-collected.
+    var monthCollectionExcess: Decimal {
+        monthCharges.map { max(0, appliedPayments - $0) } ?? 0
     }
 }

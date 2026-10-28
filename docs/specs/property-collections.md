@@ -174,6 +174,12 @@ Logs: `/private/tmp/property-accounts-rounding-focus-final.log`,
   - Suite enfocada `Property management`: 23 pruebas, 1 suite, sin fallos
     (`TEST SUCCEEDED`); incluye los alcances por identidad y el invariante con los
     subtotales.
+  - Corrección del conteo enfocado (FIX-§9, 27 de octubre): la doble revisión
+    cuestionó la suma enfocada (afirmó 73). El recuento verificado en `6481f5d`
+    confirma 49 + 23 = 72 pruebas (tres corridas seriales `TEST SUCCEEDED`, más
+    `focus-posting.log` y `focus-management.log` de la propia ronda, que reportan
+    49 y 23); la afirmación de 73 no se reproduce, y el conteo registrado queda
+    en 72.
   - Suite serial completa: 736 pruebas, 77 suites, con exactamente los 2 fallos
     preexistentes diferidos por decisión del dueño — «Dashboard refresh stays
     responsive with larger imported history» (umbral de 0.75 s) y «V5 on-disk store

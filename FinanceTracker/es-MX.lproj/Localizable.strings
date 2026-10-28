@@ -890,3 +890,4 @@
 
 /* Member account review notes (TB) */
 "The collection of %1$@ · %2$@ is applied beyond its amount." = "El cobro de %1$@ · %2$@ está aplicado por más de su importe.";
+"Month collections exceed its charges by %@; review required." = "Los cobros del mes exceden sus cargos por %@; se requiere revisión.";

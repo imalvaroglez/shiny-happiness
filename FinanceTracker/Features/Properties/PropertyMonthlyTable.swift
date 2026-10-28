@@ -281,7 +281,10 @@ private struct PropertyIncomeTableRow: View {
                 Text(propertyMoneyText(max(0, pending))).monospacedDigit()
                 if pending < 0 { Text("In your favor: \(propertyMoneyText(-pending))").font(.caption).foregroundStyle(.secondary) }
             } else { Text("Not yet calculated").foregroundStyle(.secondary) }
-            if row.priorDebt > 0 {
+            // The settlement's figure — the same number the member sheet and
+            // the capture suggestion carry — shown whenever it exists, negative
+            // included: a negative is a data error the caption lets you see.
+            if row.priorDebt != 0 {
                 Text("Prior debt · \(propertyMoneyText(row.priorDebt))").font(.caption).foregroundStyle(.secondary)
             }
             if row.advance > 0 {
