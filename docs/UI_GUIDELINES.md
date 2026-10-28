@@ -67,6 +67,8 @@ sus controles directos. La precisión de cantidades y porcentajes sigue sus prop
 Los cobros se consultan desde la columna Pago de cada integrante. La tabla de movimientos
 vinculados muestra gastos y reembolsos, y su subtotal excluye los cobros.
 
+La cuenta del integrante es una tabla exacta que suma a mano: importes visibles con su operación, nota factual con importe y motivo en lugar de ocultar el saldo, y «Por calcular» o «Proyección» para lo que aún no es hecho. «Ver detalle» de una cifra abre la tabla de actividad filtrada por identidad de atribución —no por etiqueta— para que el subtotal verifique la cifra.
+
 ## Inventario y alcance
 
 | Área | Patrón existente y regla |

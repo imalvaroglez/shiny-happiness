@@ -114,3 +114,78 @@ Logs: `/private/tmp/property-accounts-rounding-focus-final.log`,
 `/private/tmp/property-accounts-rounding-review.log` y
 `/private/tmp/property-accounts-rounding-rereview.log` y
 `/private/tmp/property-accounts-rounding-final-review.log`.
+
+### Cuenta del integrante, pagos desbloqueados y recuperación por UUID (27 de octubre de 2026)
+
+- **Cuenta del integrante.** La hoja «Integrante — Cuenta al fecha» reproduce la tabla
+  exacta: Gastos compartidos de la casa (con Ver detalle), Parte del integrante,
+  Gastos suyos (con Ver detalle), Renta, Deuda anterior (neta de cobros anteriores),
+  Ajustes, Pagos aplicados (−) y Saldo pendiente. Renta, deuda anterior y ajustes solo
+  aparecen cuando existen. Con un anticipo válido se añaden Anticipo disponible (−) e
+  Importe sugerido a pagar = max(0, saldo pendiente − anticipo disponible); la
+  sugerencia nunca es negativa: un anticipo mayor sugiere 0 y conserva su resto.
+- **Suma a mano y notas factuales.** Saldo pendiente = deuda anterior + max(0, renta +
+  parte + gastos suyos + ajustes − pagos aplicados del mes). El dinero que cubrió
+  meses cerrados ya viaja neto dentro de la deuda anterior; sumarlo otra vez
+  duplicaría. El saldo es numérico también en revisión — los registros sin respaldo no
+  se descuentan en silencio, se exhiben aparte — y solo es nil en Por calcular,
+  Por conciliar y Proyección: un mes futuro nunca se presenta como deuda. Las notas de
+  revisión son factuales y separadas, con importe y motivo: un cobro sin descontar
+  porque su movimiento no se encontró o cambió tras el registro; un anticipo que perdió
+  su respaldo y no es dinero disponible (ofrece Abrir movimiento); y un cobro
+  sobreaplicado nombrado con su movimiento.
+- **Pagos nuevos independientes de incidencias antiguas.** Una referencia sin respaldo
+  jamás bloquea registrar un pago nuevo, jamás es anticipo disponible ni salda
+  obligaciones, y jamás ocupa capacidad. La regla de validez es compartida — existencia
+  de la fuente, fecha, tipo de recibo, snapshot sin cambios, no sobreasignación y no
+  doble uso (`isValidAppliedCollection` sobre el contexto `AppliedValidity`) — y la
+  aplican por igual el saldo, la capacidad del walk y los cierres, de modo que las tres
+  cifras nunca discrepan. Aplicar un anticipo explícito sigue exigiendo fuentes sanas.
+- **Recuperación garantizada por UUID.** `pendingLinks` es durable en el sidecar:
+  campo aditivo con decodificación tolerante de archivos viejos
+  (`decodeIfPresent ?? []`), validación al cargar y fusión newest-wins. El marcador se
+  escribe inmediatamente después de crear el ingreso, antes de cualquier escritura de
+  Propiedades; se elimina al completar el vínculo, y los reintentos reutilizan el mismo
+  marcador en lugar de duplicarlo. Sobrevive cierre y reapertura; renombrar al
+  integrante o a la casa, o editar la descripción, no lo afecta porque fija el ingreso
+  por UUID. El aviso contextual («Un ingreso de cobro espera ser vinculado a esta
+  casa» → Vincular ahora) solo aparece con cobros pendientes identificados. Ventana
+  residual documentada: una muerte del proceso entre el ingreso real y el marcador
+  deja el ingreso sin marcador; se recupera manualmente con Conciliar cobro existente.
+- **Clasificación real del adapter.** Las filas solo de Fer son individuales de Fer,
+  las solo del usuario son individuales del usuario, y las compartidas — fusiones
+  custom incluidas — son compartidas. Los totales y cierres quedan intactos.
+  Limitación: los meses de hogar ya cerrados conservan la clasificación vieja, y su
+  desglose y filtros son autoconsistentes con ella (cero consistente).
+- **Ver detalle por identidad.** Los alcances filtran la tabla de actividad por
+  identidad de atribución — compartido o `individual(id)` —, no por etiquetas: cubren
+  meses cerrados, que renderizan el reparto concatenado, y grupos `.selected`, que
+  renderizan nombres pero siguen siendo compartidos. Invariante desglose ↔ filtro ↔
+  subtotal: el subtotal de las filas del alcance reproduce la cifra de la hoja. Nota de
+  borde conocida y aceptada provisionalmente: las filas de Fer con vencimiento
+  diferido reciben identidad individual aunque estén fuera de los `individualCharges`
+  del mes; queda a revisión (§9 de LOOPS).
+- **Evidencia de esta ronda** (3491065…e5f242a sobre c509ab5):
+  - Build Debug canónico: `BUILD SUCCEEDED`.
+  - Suite enfocada `Property collection posting`: 49 pruebas, 1 suite, sin fallos
+    (`TEST SUCCEEDED`); cubre la cuenta que suma a mano, la regla compartida de
+    validez, los marcadores `pendingLinks` (reapertura, renombres, limpieza al
+    completar, decodificación tolerante y fusión) y la clasificación del adapter.
+  - Suite enfocada `Property management`: 23 pruebas, 1 suite, sin fallos
+    (`TEST SUCCEEDED`); incluye los alcances por identidad y el invariante con los
+    subtotales.
+  - Suite serial completa: 736 pruebas, 77 suites, con exactamente los 2 fallos
+    preexistentes diferidos por decisión del dueño — «Dashboard refresh stays
+    responsive with larger imported history» (umbral de 0.75 s) y «V5 on-disk store
+    migrates to V6 and supports a due-date override» (`unknownDataStoreSchema`) —;
+    ningún otro fallo.
+  - Bisect de la migración: en la base exacta `d417ad9` ese mismo test ya falla con la
+    misma firma (RC 65, `unknownDataStoreSchema` en HouseholdSettlementReportTests.swift:898,
+    1 prueba en 1 suite), de modo que el fallo es preexistente del WIP base
+    (28e0b42/d417ad9) y no de este lote.
+  - `plutil -lint` OK y sin claves duplicadas en el catálogo es-MX;
+    `git diff --check` limpio; sin `Double` ni `Float` en Domain.
+
+  Logs: `/tmp/ft-tg-logs/focus-posting.log`, `/tmp/ft-tg-logs/focus-management.log`,
+  `/tmp/ft-tg-logs/full-suite.log`, `/tmp/ft-tg-logs/bisect-d417ad9.log` y
+  `/tmp/ft-tg-logs/debug-build.log`.

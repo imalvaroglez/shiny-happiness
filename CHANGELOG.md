@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- La cuenta del integrante muestra la tabla exacta que suma a mano — compartidos, parte, gastos suyos, pagos aplicados y saldo pendiente —, sugiere el pago neto del anticipo disponible y explica cada registro sin respaldo con notas factuales de importe y motivo. «Ver detalle» abre la actividad filtrada por identidad de atribución, también en meses cerrados.
 - Propiedades registra cobros en cuentas activas MXN de cualquier tipo desde una captura común para ambas casas, los distribuye por antigüedad y conserva excedentes como anticipos del integrante. El historial agrupa las aplicaciones por ingreso y permite abrir su movimiento.
 - Accounts can be archived and restored from Settings while their transactions, balances, positions, and installment plans remain intact and included in financial reports.
 - Backups now use schema 14, preserving account archive state and the versioned property ledger; backups without that ledger clear it on replace and leave it untouched on merge.
@@ -15,6 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Registrar un pago nunca se bloquea por referencias rotas de incidencias antiguas: una fuente sin respaldo no es anticipo disponible, no salda obligaciones y no ocupa capacidad, bajo la misma regla de validez que el saldo y los cierres; aplicar un anticipo explícito sigue exigiendo fuentes sanas.
+- La vinculación de cobros queda garantizada por UUID con marcadores durable en el sidecar: sobreviven reapertura y renombres, se limpian al completar el vínculo y solo anuncian cobros pendientes identificados.
+- El hogar clasifica por responsabilidad real —individual de Fer, individual del usuario, compartido con fusiones custom— conservando totales y cierres; los meses ya cerrados mantienen su clasificación autoconsistente.
 - Los cobros se consultan desde cada integrante, con estado acumulado y acciones directas; la tabla de movimientos vinculados excluye los cobros. Los importes sugeridos se muestran antes de editarse.
 - Detalles de movimientos, configuración de cuentas, posiciones y pendientes de importación muestran valores de consulta y abren la edición mediante una acción explícita. Los borradores de cuenta se guardan de forma aislada.
 - Deuda anterior y anticipos se muestran junto al importe por aportar de cada integrante. La conciliación de ingresos ya existentes queda como acción secundaria, y un fallo al guardar la vinculación ofrece reintento sin duplicar el ingreso bancario.
