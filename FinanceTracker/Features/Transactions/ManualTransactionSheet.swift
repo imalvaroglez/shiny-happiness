@@ -10,7 +10,7 @@ struct ManualTransactionSheet: View {
            sort: \Category.name) private var categories: [Category]
 
     private var activeAccounts: [Account] {
-        accounts.filter { $0.archivedAt == nil }
+        accounts.filter { $0.isAvailableForCapture }
     }
 
     let defaultAccountID: UUID?
@@ -54,9 +54,10 @@ struct ManualTransactionSheet: View {
         activeAccounts.first { $0.id == accountID }
     }
 
-    private var lockedAccountIsArchived: Bool {
+    private var lockedAccountIsUnavailable: Bool {
         guard let lockedAccountID else { return false }
-        return accounts.first(where: { $0.id == lockedAccountID })?.archivedAt != nil
+        guard let locked = accounts.first(where: { $0.id == lockedAccountID }) else { return false }
+        return !locked.isAvailableForCapture
     }
 
     private var selectedCategory: Category? {
@@ -112,8 +113,8 @@ struct ManualTransactionSheet: View {
             promotionsSection
             attributionFailureAlert
 
-            if lockedAccountIsArchived {
-                Text("This account is archived. Restore it in Settings → Accounts before adding a transaction.")
+            if lockedAccountIsUnavailable {
+                Text("This account is archived or closed. Restore or reopen it in Settings → Accounts before adding a transaction.")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -142,14 +143,14 @@ struct ManualTransactionSheet: View {
                     saveIntent = .addAnother
                     save()
                 }
-                .disabled(activeAccounts.isEmpty || lockedAccountIsArchived || attributionFailure != nil)
+                .disabled(activeAccounts.isEmpty || lockedAccountIsUnavailable || attributionFailure != nil)
                 Button(attributionFailure == nil ? "Save" : "Guardada ✓") {
                     saveIntent = .close
                     save()
                 }
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(activeAccounts.isEmpty || lockedAccountIsArchived || attributionFailure != nil)
+                .disabled(activeAccounts.isEmpty || lockedAccountIsUnavailable || attributionFailure != nil)
             }
         }
         .padding(24)
@@ -162,7 +163,9 @@ struct ManualTransactionSheet: View {
             updateCounterparty()
             applyDateSuggestion()
         }
-        .onChange(of: accounts.map { "\($0.id.uuidString):\($0.archivedAt?.timeIntervalSince1970 ?? 0)" }) {
+        .onChange(of: accounts.map { "\($0.id.uuidString):\($0.archivedAt?.timeIntervalSince1970 ?? 0):\($0.closedAt?.timeIntervalSince1970 ?? 0)" }) {
+            // Re-select only while the account is still available for capture;
+            // archived and closed accounts drop out of the active list.
             if selectedAccount == nil {
                 accountID = preferredActiveAccountID
             }

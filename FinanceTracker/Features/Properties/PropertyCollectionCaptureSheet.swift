@@ -28,9 +28,17 @@ struct PropertyCollectionCaptureSheet: View {
     @State private var didSave = false
 
     private var isRecovery: Bool { existingSources != nil }
+    /// The picker offers only accounts available for capture; foreign-currency
+    /// accounts stay visible (disabled, with their reason) as today.
     private var displayedAccounts: [Account] {
         accounts
+            .filter { $0.isAvailableForCapture }
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+    /// Availability fingerprint of the passed-in accounts so the sheet reacts
+    /// when another window archives or closes the selected account.
+    private var accountsAvailabilityKey: [String] {
+        accounts.map { "\($0.id.uuidString):\($0.archivedAt?.timeIntervalSince1970 ?? 0):\($0.closedAt?.timeIntervalSince1970 ?? 0)" }
     }
     private var hasEligibleAccount: Bool {
         accounts.contains { PropertyWorkspaceModel.eligibleCollectionAccount($0, on: date) }
@@ -180,6 +188,16 @@ struct PropertyCollectionCaptureSheet: View {
                 acceptUnknownAmount()
                 if enteringUnknownAmount { unknownAmountFocused = true }
             }
+        }
+        .onChange(of: accountsAvailabilityKey) {
+            // The chosen account became archived or closed while the sheet was
+            // open: drop only the selection and ask for another. Member,
+            // amount, and date stay exactly as entered.
+            guard !isRecovery, let accountID,
+                  let account = accounts.first(where: { $0.id == accountID }),
+                  !account.isAvailableForCapture else { return }
+            self.accountID = nil
+            errorText = String(localized: "The selected account is no longer available. Choose another account.")
         }
     }
 

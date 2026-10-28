@@ -673,10 +673,17 @@ final class PropertyWorkspaceModel {
                 transaction = existing
             } catch { return .rejected(error.localizedDescription) }
         } else {
-            guard let account, Self.eligibleCollectionAccount(account, on: date) else {
+            guard let account else {
                 return .rejected(String(localized: "Choose an active MXN account."))
             }
             do {
+                // Same fresh-state truth as movements and transfers: the
+                // received object may be stale if another window archived or
+                // closed the account after this sheet loaded.
+                try AccountCaptureValidation.ensureAvailable(account, context: context)
+                guard account.currency == "MXN" else {
+                    return .rejected(String(localized: "Choose an active MXN account."))
+                }
                 try checkAssignmentRevision()
                 let name = member(id: residentID)?.name ?? String(localized: "Member")
                 let houseName = ledger.properties.first { $0.id == propertyID }?.name ?? PropertyDestination.householdName
