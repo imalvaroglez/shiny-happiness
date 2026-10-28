@@ -289,7 +289,7 @@ struct PropertyManagementTests {
         let recalculated = PropertySettlementCalculator.report(propertyID: property.id, month: november,
             ledger: ledger, transactions: [changed])
         #expect(recalculated.expenses == 150)
-        #expect(recalculated.warnings.contains { $0.contains("cambió desde que se atribuyó") })
+        #expect(recalculated.warnings.contains { $0.contains("cambió (importe, fecha, descripción) desde que se atribuyó") })
         #expect(!recalculated.canClose)
 
         let movedToDecember = PropertyTransactionInput(id: expenseID, amount: -150, postedAt: date(2026, 12, 2),
@@ -299,9 +299,9 @@ struct PropertyManagementTests {
         let newPeriod = PropertySettlementCalculator.report(propertyID: property.id, month: date(2026, 12),
             ledger: ledger, transactions: [movedToDecember])
         #expect(oldPeriod.expenses == 0)
-        #expect(oldPeriod.warnings.contains { $0.contains("cambió desde que se atribuyó") })
+        #expect(oldPeriod.warnings.contains { $0.contains("cambió (importe, fecha, descripción) desde que se atribuyó") })
         #expect(newPeriod.expenses == 150)
-        #expect(newPeriod.warnings.contains { $0.contains("cambió desde que se atribuyó") })
+        #expect(newPeriod.warnings.contains { $0.contains("cambió (importe, fecha, descripción) desde que se atribuyó") })
 
         let deleted = PropertyTransactionInput(id: expenseID, amount: -100, postedAt: date(2026, 11, 10),
             description: "Recibo original", deletedAt: date(2026, 11, 20))
@@ -360,7 +360,7 @@ struct PropertyManagementTests {
         let discrepancyReport = PropertySettlementCalculator.frozenReport(close, ledger: ledger,
             transactions: [changed])
         #expect(discrepancyReport.rent == 100)
-        #expect(discrepancyReport.warnings.contains { $0.contains("cambió después del cierre") })
+        #expect(discrepancyReport.warnings.contains { $0.contains("Un cobro vinculado cambió (importe) después del cierre") })
     }
 
     @Test("Unapplied cash remains available as an advance and never duplicates the receipt")

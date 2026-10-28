@@ -248,9 +248,8 @@ struct PropertyMemberCollectionsSheet: View {
                 note(String(format: String(localized: "This balance does not discount a previous record of %@ because its movement could not be found."),
                     propertyMoneyText(account.unbackedCollectedMissing)))
             }
-            if account.unbackedCollectedChanged > 0 {
-                note(String(format: String(localized: "This balance does not discount a previous record of %@ because its movement changed after registration."),
-                    propertyMoneyText(account.unbackedCollectedChanged)))
+            ForEach(account.unbackedChangedReceipts, id: \.id) { receipt in
+                changedReceiptNote(receipt)
             }
             if account.monthCollectionExcess > 0 {
                 note(String(format: String(localized: "Month collections exceed its charges by %@; review required."),
@@ -265,6 +264,18 @@ struct PropertyMemberCollectionsSheet: View {
                 overallocatedNote(for: receiptID)
             }
         }
+    }
+
+    /// One changed unbacked collection, named by its amount and the fields
+    /// that no longer match, leading to the movement that changed: the source
+    /// exists, so «Open movement» reopens it. A source that only stopped being
+    /// a valid receipt without changing any captured field keeps the sentence
+    /// without the parenthetical.
+    private func changedReceiptNote(_ receipt: PropertyMemberSettlement.UnbackedReceipt) -> some View {
+        let fields = receipt.fields.map(\.displayName).joined(separator: ", ")
+        let suffix = fields.isEmpty ? "" : " (\(fields))"
+        return note(String(format: String(localized: "This balance does not discount a previous record of %@ because its movement changed after registration%@."),
+            propertyMoneyText(receipt.amount), suffix), movementID: receipt.id)
     }
 
     /// One reconciliation-flagged receipt, named by its amount and

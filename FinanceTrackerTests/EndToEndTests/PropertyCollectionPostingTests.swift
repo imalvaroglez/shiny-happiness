@@ -2347,7 +2347,7 @@ struct PropertyCollectionPostingTests {
         // same instant and the attribution still counts as an obligation.
         let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
             ledger: stored, transactions: inputs, asOf: date(10))
-        #expect(!report.warnings.contains { $0.contains("cambió desde que se atribuyó") })
+        #expect(!report.warnings.contains { $0.contains("desde que se atribuyó") })
         #expect(report.obligations.contains { $0.transactionID == inputs[0].id && $0.amount == 50 })
     }
 
@@ -2361,7 +2361,7 @@ struct PropertyCollectionPostingTests {
         inputs[0].postedAt = subSecond.addingTimeInterval(1)
         let report = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
             ledger: ledger, transactions: inputs, asOf: date(10))
-        #expect(report.warnings.contains { $0.contains("cambió desde que se atribuyó") })
+        #expect(report.warnings.contains { $0.contains("cambió (fecha) desde que se atribuyó") })
     }
 
     @Test("A frozen close keeps a sub-second source date without a discrepancy")
@@ -2384,7 +2384,7 @@ struct PropertyCollectionPostingTests {
         #expect(obligation.sourcePostedAt != nil && obligation.sourcePostedAt! != subSecond)
         let frozen = PropertySettlementCalculator.frozenReport(storedClose, ledger: stored,
             transactions: inputs, asOf: date(10))
-        #expect(!frozen.warnings.contains { $0.contains("cambió después del cierre") })
+        #expect(!frozen.warnings.contains { $0.contains("después del cierre") })
     }
 
     @Test("A registered collection discounts once after the disk round trip")
@@ -2435,6 +2435,62 @@ struct PropertyCollectionPostingTests {
             .first { $0.residentID == resident.id })
         #expect(settlement.status == .paid)
         #expect(settlement.monthPaid == 100)
+    }
+
+    @Test("Review warnings name each changed field")
+    func reviewWarningNamesEachChangedField() throws {
+        var (ledger, house, _, inputs) = fixture(rent: 100, expense: 50)
+        let original = date(8, 4).addingTimeInterval(0.75)
+        inputs[0].postedAt = original
+        ledger.attributions[0].sourceSnapshots = PropertySourceSnapshots(capturing: inputs[0])
+        // Only the date moved to another second: the warning names the date
+        // and nothing else.
+        inputs[0].postedAt = original.addingTimeInterval(1)
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let dateOnly = try #require(report.warnings.first { $0.contains("cambió (fecha) desde que se atribuyó") })
+        #expect(dateOnly.contains("(fecha)"))
+        #expect(!dateOnly.contains("importe"))
+        // Amount and currency changed together: both named, in declared order.
+        inputs[0].postedAt = original
+        inputs[0].amount = -60
+        inputs[0].currencyCode = "USD"
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(8),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        #expect(report.warnings.contains { $0.contains("cambió (importe, moneda) desde que se atribuyó") })
+    }
+
+    @Test("A changed receipt exposes its movement and the fields that changed")
+    func changedReceiptExposesItsMovementAndFields() throws {
+        var (ledger, house, resident, inputs) = fixture(rent: 100, expense: 0)
+        var report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: inputs, asOf: date(10))
+        let septemberRentID = try #require(report.obligations.first(where: \.isRent)?.id)
+        let receipt = PropertyTransactionInput(id: UUID(), amount: 100, postedAt: date(9, 10),
+            description: "Cobro del mes", isCashAccount: true)
+        inputs.append(receipt)
+        ledger.paymentApplications = [PropertyPaymentApplication(propertyID: house.id,
+            paymentTransactionID: receipt.id, obligationID: septemberRentID, residentID: resident.id,
+            amount: 100, snapshots: PropertySourceSnapshots(capturing: receipt))]
+        // The receipt's date moved to another second after the collection was
+        // applied: the exposure names the movement and the field that changed.
+        var edited = receipt
+        edited.postedAt = receipt.postedAt.addingTimeInterval(1)
+        let changedInputs = inputs.filter { $0.id != receipt.id } + [edited]
+        report = PropertySettlementCalculator.report(propertyID: house.id, month: date(9),
+            ledger: ledger, transactions: changedInputs, asOf: date(10))
+        let context = PropertyMemberSettlement.Context(canCalculate: true, isClosed: false,
+            historical: false, includeCurrent: true)
+        let expected = [PropertyMemberSettlement.UnbackedReceipt(id: receipt.id, amount: 100,
+            fields: [.postedAt])]
+        let settlement = PropertyMemberSettlement.summarize(propertyID: house.id,
+            residentID: resident.id, report: report, ledger: ledger, inputs: changedInputs,
+            asOf: date(10), context: context)
+        #expect(settlement.unbackedChangedReceipts == expected)
+        #expect(settlement.unbackedCollectedChanged == 100)
+        let account = PropertyMemberAccount.account(propertyID: house.id, residentID: resident.id,
+            report: report, ledger: ledger, inputs: changedInputs, asOf: date(10), context: context)
+        #expect(account.unbackedChangedReceipts == expected)
     }
 
 }

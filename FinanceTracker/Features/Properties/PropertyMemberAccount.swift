@@ -93,6 +93,10 @@ struct PropertyMemberAccount: Equatable, Sendable {
     /// Source transactions of unbacked advances that still exist, newest
     /// first — the sheet offers "Open movement" on the first one.
     var unbackedAdvanceReceiptIDs: [UUID]
+    /// Per-receipt detail behind `unbackedCollectedChanged`: the movement each
+    /// review note reopens plus the fields that no longer match. The notes own
+    /// this money; it never touches the balance or the suggestion.
+    var unbackedChangedReceipts: [PropertyMemberSettlement.UnbackedReceipt]
 
     /// Account of one member. Pure: computes from the report, the ledger, and
     /// the transaction inputs without writing anywhere.
@@ -159,7 +163,8 @@ struct PropertyMemberAccount: Equatable, Sendable {
                     unbackedCollectedMissing: settlement.unbackedCollectedMissing,
                     unbackedCollectedChanged: settlement.unbackedCollectedChanged,
                     unbackedAdvances: settlement.unbackedAdvances,
-                    unbackedAdvanceReceiptIDs: settlement.unbackedAdvanceReceiptIDs)
+                    unbackedAdvanceReceiptIDs: settlement.unbackedAdvanceReceiptIDs,
+                    unbackedChangedReceipts: settlement.unbackedChangedReceipts)
     }
 
     private static func isSharedResponsibility(_ responsibility: PropertyResponsibility) -> Bool {

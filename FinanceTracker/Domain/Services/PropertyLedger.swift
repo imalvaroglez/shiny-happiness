@@ -575,6 +575,27 @@ struct PropertyMonthlyReport: Equatable, Sendable {
     var afterMaintenanceResult: Decimal { operatingResult - maintenanceExpenses }
 }
 
+/// One captured source field a review warning can name when the live
+/// transaction no longer matches it: the shared vocabulary behind
+/// `PropertySettlementCalculator.changedSourceFields`, so a warning never
+/// says «something changed» without naming what and leading to the movement.
+enum SourceField: CaseIterable, Sendable, Equatable {
+    case amount
+    case postedAt
+    case currencyCode
+    case description
+
+    /// Spanish literal, lowercase like the review warnings that interpolate it.
+    var displayName: String {
+        switch self {
+        case .amount: return "importe"
+        case .postedAt: return "fecha"
+        case .currencyCode: return "moneda"
+        case .description: return "descripción"
+        }
+    }
+}
+
 enum PropertySettlementCalculator {
     /// A reconciliation payment counts only when its backing transaction is still a
     /// live, MXN, non-transfer inflow with a real account as of `asOf`.
@@ -590,18 +611,31 @@ enum PropertySettlementCalculator {
             && input.amount > 0
     }
 
-    /// True when any captured source snapshot no longer matches the live transaction.
-    /// `postedAt` compares at whole-second precision — the precision the sidecar
-    /// preserves on disk — so a snapshot that only lost sub-second detail in a
-    /// disk round trip never counts as a change, and a real edit confined to the
-    /// same second is not reported by design.
-    /// Snapshots the caller does not capture stay `nil` and never count as changed.
+    /// The captured snapshots that no longer match the live transaction, in
+    /// declared order and deduplicated per field — the exact fields a review
+    /// warning names. `postedAt` compares at whole-second precision — the
+    /// precision the sidecar preserves on disk — so a snapshot that only lost
+    /// sub-second detail in a disk round trip never counts as a change, and a
+    /// real edit confined to the same second is not reported by design.
+    /// Snapshots the caller does not capture stay `nil` and never count as
+    /// changed.
+    static func changedSourceFields(amount: Decimal?, postedAt: Date?, currencyCode: String?, description: String?,
+                                    versus input: PropertyTransactionInput) -> [SourceField] {
+        var fields: [SourceField] = []
+        if amount != nil && amount != input.amount { fields.append(.amount) }
+        if postedAt != nil && !isSameWholeSecond(postedAt!, input.postedAt) { fields.append(.postedAt) }
+        if currencyCode != nil && currencyCode != input.currencyCode { fields.append(.currencyCode) }
+        if description != nil && description != input.description { fields.append(.description) }
+        return fields
+    }
+
+    /// True when any captured source snapshot no longer matches the live
+    /// transaction — one point of truth over `changedSourceFields`, with the
+    /// same semantics it has always had.
     static func hasSourceChanged(amount: Decimal?, postedAt: Date?, currencyCode: String?, description: String?,
                                  versus input: PropertyTransactionInput) -> Bool {
-        (amount != nil && amount != input.amount)
-            || (postedAt != nil && !isSameWholeSecond(postedAt!, input.postedAt))
-            || (currencyCode != nil && currencyCode != input.currencyCode)
-            || (description != nil && description != input.description)
+        !changedSourceFields(amount: amount, postedAt: postedAt, currencyCode: currencyCode,
+                             description: description, versus: input).isEmpty
     }
 
     /// Whole-second equality: both instants floor to the same second. The sidecar
@@ -671,11 +705,11 @@ enum PropertySettlementCalculator {
                 warnings.append("Un movimiento atribuido a esta propiedad ya no está disponible; revisa el periodo antes de cerrarlo.")
                 continue
             }
-            let sourceChanged = hasSourceChanged(amount: attribution.sourceAmountSnapshot,
+            let changedFields = changedSourceFields(amount: attribution.sourceAmountSnapshot,
                 postedAt: attribution.sourcePostedAtSnapshot, currencyCode: attribution.sourceCurrencySnapshot,
                 description: attribution.sourceDescriptionSnapshot, versus: input)
-            if sourceChanged {
-                warnings.append("El movimiento «\(input.description)» cambió desde que se atribuyó; revisa la nueva liquidación.")
+            if !changedFields.isEmpty {
+                warnings.append("El movimiento «\(input.description)» cambió (\(changedFields.map(\.displayName).joined(separator: ", "))) desde que se atribuyó; revisa la nueva liquidación.")
             }
             guard currentMonth == monthStart, input.postedAt <= asOf else { continue }
             guard !input.isHouseholdAssigned else {
@@ -771,10 +805,11 @@ enum PropertySettlementCalculator {
                 warnings.append("Un cobro vinculado a este periodo cambió, se eliminó o no está en MXN; revisa la conciliación.")
                 continue
             }
-            if hasSourceChanged(amount: application.sourceAmountSnapshot, postedAt: application.sourcePostedAtSnapshot,
-                                currencyCode: application.sourceCurrencySnapshot, description: application.sourceDescriptionSnapshot,
-                                versus: payment) {
-                warnings.append("El movimiento de cobro «\(payment.description)» cambió desde que se concilió.")
+            let changedFields = changedSourceFields(amount: application.sourceAmountSnapshot,
+                postedAt: application.sourcePostedAtSnapshot, currencyCode: application.sourceCurrencySnapshot,
+                description: application.sourceDescriptionSnapshot, versus: payment)
+            if !changedFields.isEmpty {
+                warnings.append("El movimiento de cobro «\(payment.description)» cambió (\(changedFields.map(\.displayName).joined(separator: ", "))) desde que se concilió.")
             }
         }
         let applications = ledger.paymentApplications.filter {
@@ -891,10 +926,11 @@ enum PropertySettlementCalculator {
                 discrepancies.append("Un movimiento aplicado a este cierre ya no es un cobro válido; revisa la conciliación.")
                 continue
             }
-            if hasSourceChanged(amount: application.sourceAmountSnapshot, postedAt: application.sourcePostedAtSnapshot,
-                                currencyCode: application.sourceCurrencySnapshot, description: application.sourceDescriptionSnapshot,
-                                versus: input) {
-                discrepancies.append("Un cobro vinculado cambió después del cierre; revisa la conciliación.")
+            let changedFields = changedSourceFields(amount: application.sourceAmountSnapshot,
+                postedAt: application.sourcePostedAtSnapshot, currencyCode: application.sourceCurrencySnapshot,
+                description: application.sourceDescriptionSnapshot, versus: input)
+            if !changedFields.isEmpty {
+                discrepancies.append("Un cobro vinculado cambió (\(changedFields.map(\.displayName).joined(separator: ", "))) después del cierre; revisa la conciliación.")
             }
         }
         let applications = ledger.paymentApplications.filter {
@@ -1069,11 +1105,13 @@ enum PropertyMaintenanceCalculator {
                 warnings.append("El movimiento «\(transaction.description)» también está asignado al hogar; no se suma al programa.")
                 continue
             }
-            if PropertySettlementCalculator.hasSourceChanged(amount: attribution.sourceAmountSnapshot,
-                                postedAt: attribution.sourcePostedAtSnapshot,
-                                currencyCode: nil, description: attribution.sourceDescriptionSnapshot,
-                                versus: transaction) {
-                warnings.append("El movimiento «\(transaction.description)» cambió desde que se vinculó al programa.")
+            let changedFields = PropertySettlementCalculator.changedSourceFields(
+                amount: attribution.sourceAmountSnapshot,
+                postedAt: attribution.sourcePostedAtSnapshot,
+                currencyCode: nil, description: attribution.sourceDescriptionSnapshot,
+                versus: transaction)
+            if !changedFields.isEmpty {
+                warnings.append("El movimiento «\(transaction.description)» cambió (\(changedFields.map(\.displayName).joined(separator: ", "))) desde que se vinculó al programa.")
             }
             guard transaction.amount < 0, transaction.deletedAt == nil, !transaction.isDuplicate,
                   !transaction.isTransfer, !transaction.isHouseholdAssigned,

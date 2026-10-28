@@ -34,6 +34,17 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         var includeCurrent: Bool
     }
 
+    /// One unbacked applied collection whose source still exists but changed:
+    /// the receipt's movement (the «Open movement» target), the amount applied
+    /// against it, and the captured fields that no longer match. Receipts whose
+    /// source vanished have no movement to reopen and stay only in
+    /// `unbackedCollectedMissing`.
+    struct UnbackedReceipt: Equatable, Sendable {
+        var id: UUID
+        var amount: Decimal
+        var fields: [SourceField]
+    }
+
     var residentID: UUID
     var month: Date
     var asOf: Date
@@ -77,6 +88,10 @@ struct PropertyMemberSettlement: Equatable, Sendable {
     /// stopped being a valid collection receipt. Exposure only, like
     /// `unbackedCollectedMissing`.
     var unbackedCollectedChanged: Decimal
+    /// Per-receipt detail behind `unbackedCollectedChanged`: the movement each
+    /// review note reopens plus the fields that no longer match, newest first
+    /// like `paymentTransactionIDs`. Exposure only — never spendable money.
+    var unbackedChangedReceipts: [UnbackedReceipt]
     /// Advances whose source is missing, changed, or invalid — repair work,
     /// never spendable money. Exposure only.
     var unbackedAdvances: Decimal
@@ -217,6 +232,8 @@ struct PropertyMemberSettlement: Equatable, Sendable {
             data.overallocatedReceiptIDsByResident[residentID] ?? [], inputsByID: data.inputsByID)
         let unbackedCollectedMissing = (data.unbackedCollectedMissingByResident[residentID] ?? 0).currencyRounded
         let unbackedCollectedChanged = (data.unbackedCollectedChangedByResident[residentID] ?? 0).currencyRounded
+        let unbackedChangedReceipts = Self.newestFirst(
+            data.unbackedChangedReceiptsByResident[residentID] ?? [:], inputsByID: data.inputsByID)
         let unbackedAdvances = (data.unbackedAdvancesByResident[residentID] ?? 0).currencyRounded
         let unbackedAdvanceReceiptIDs = Self.newestFirst(
             data.unbackedAdvanceReceiptIDsByResident[residentID] ?? [], inputsByID: data.inputsByID)
@@ -228,6 +245,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                     sourcesMissing: sourcesMissing, receiptsNeedReview: receiptsNeedReview,
                     unbackedCollectedMissing: unbackedCollectedMissing,
                     unbackedCollectedChanged: unbackedCollectedChanged,
+                    unbackedChangedReceipts: unbackedChangedReceipts,
                     unbackedAdvances: unbackedAdvances,
                     unbackedAdvanceReceiptIDs: unbackedAdvanceReceiptIDs,
                     overallocatedReceiptIDs: overallocatedReceiptIDs,
@@ -245,6 +263,18 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                 return $0.0.uuidString < $1.0.uuidString
             }
             .map(\.0)
+    }
+
+    /// Changed receipts newest first by their source's posted date, then stable
+    /// by UUID — the same order `newestFirst` gives the plain receipt IDs.
+    private static func newestFirst(_ receipts: [UUID: UnbackedReceipt],
+                                    inputsByID: [UUID: PropertyTransactionInput]) -> [UnbackedReceipt] {
+        receipts.values.map { (receipt: $0, postedAt: inputsByID[$0.id]?.postedAt ?? .distantPast) }
+            .sorted {
+                if $0.postedAt != $1.postedAt { return $0.postedAt > $1.postedAt }
+                return $0.receipt.id.uuidString < $1.receipt.id.uuidString
+            }
+            .map(\.receipt)
     }
 
     /// One pass over the ledger shared by every member of a report. Replicates
@@ -266,6 +296,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         var receiptsNeedReviewByResident: Set<UUID> = []
         var unbackedCollectedMissingByResident: [UUID: Decimal] = [:]
         var unbackedCollectedChangedByResident: [UUID: Decimal] = [:]
+        var unbackedChangedReceiptsByResident: [UUID: [UUID: UnbackedReceipt]] = [:]
         var unbackedAdvancesByResident: [UUID: Decimal] = [:]
         var unbackedAdvanceReceiptIDsByResident: [UUID: Set<UUID>] = [:]
         var overallocatedReceiptIDsByResident: [UUID: Set<UUID>] = [:]
@@ -359,14 +390,29 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                 // review notes: a source that vanished entirely versus one that
                 // still exists but changed or stopped being a valid collection
                 // receipt. Exposure only — these amounts never enter any
-                // balance or availability figure.
+                // balance or availability figure. The changed ones carry their
+                // receipt (the movement to reopen) and the fields that no
+                // longer match; a vanished source has no movement to reopen.
                 if !PropertyPaymentAdvance.isAdvance(application) {
-                    if inputsByID[application.paymentTransactionID] == nil {
-                        unbackedCollectedMissingByResident[application.residentID, default: 0]
-                            += application.amount
-                    } else if !Self.countsAsCollected(application, inputsByID: inputsByID,
-                                                      asOf: .distantFuture) {
+                    if let source = inputsByID[application.paymentTransactionID],
+                       !Self.countsAsCollected(application, inputsByID: inputsByID, asOf: .distantFuture) {
                         unbackedCollectedChangedByResident[application.residentID, default: 0]
+                            += application.amount
+                        var receipt = unbackedChangedReceiptsByResident[application.residentID]?[source.id]
+                            ?? UnbackedReceipt(id: source.id, amount: 0, fields: [])
+                        receipt.amount += application.amount
+                        let changedFields = PropertySettlementCalculator.changedSourceFields(
+                            amount: application.sourceAmountSnapshot,
+                            postedAt: application.sourcePostedAtSnapshot,
+                            currencyCode: application.sourceCurrencySnapshot,
+                            description: application.sourceDescriptionSnapshot, versus: source)
+                        let known = Set(receipt.fields)
+                        receipt.fields = SourceField.allCases.filter {
+                            known.contains($0) || changedFields.contains($0)
+                        }
+                        unbackedChangedReceiptsByResident[application.residentID, default: [:]][source.id] = receipt
+                    } else if inputsByID[application.paymentTransactionID] == nil {
+                        unbackedCollectedMissingByResident[application.residentID, default: 0]
                             += application.amount
                     }
                 }
