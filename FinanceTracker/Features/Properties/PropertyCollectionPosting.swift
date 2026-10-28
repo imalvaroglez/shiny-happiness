@@ -64,12 +64,10 @@ enum PropertyCollectionPosting {
     /// source still exists, is still a valid collection receipt as of `asOf`,
     /// still matches the snapshots captured at reconciliation time, and its
     /// receipt is neither overallocated nor used as reimbursement and collection
-    /// at once. `appliedByPayment` belongs to the shared context every caller
-    /// already computes for advance availability; the reconciliation sets encode
-    /// over-allocation for every live MXN source.
+    /// at once. Over-allocation lives in the reconciliation sets every caller
+    /// already computes alongside this rule.
     static func isValidAppliedCollection(_ application: PropertyPaymentApplication,
                                          inputsByID: [UUID: PropertyTransactionInput],
-                                         appliedByPayment: [UUID: Decimal],
                                          overallocatedPaymentIDs: Set<UUID>,
                                          doubleUsedReceipts: Set<UUID>,
                                          asOf: Date) -> Bool {
@@ -113,7 +111,6 @@ enum PropertyCollectionPosting {
 
         func includes(_ application: PropertyPaymentApplication, asOf: Date) -> Bool {
             isValidAppliedCollection(application, inputsByID: inputsByID,
-                appliedByPayment: appliedByPayment,
                 overallocatedPaymentIDs: overallocatedPaymentIDs,
                 doubleUsedReceipts: doubleUsedReceipts, asOf: asOf)
         }

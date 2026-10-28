@@ -427,7 +427,7 @@ struct PropertiesView: View {
         let legacyNeedsReview = PropertyCollectionPosting.hasChangedAdvanceSource(propertyID: property.id,
             residentID: legacyID, ledger: ledger, inputs: transactionInputs)
         let linkedActivity = PropertyActivitySummary.linkedExpensesAndReimbursements(workspace.activityRows(filter: .linked))
-        let pendingLinks = workspace.pendingLinkCollections(propertyID: property.id)
+        let pendingLinks = workspace.pendingLinks(propertyID: property.id)
         return VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
             PropertyMetricGrid(values: historical
                 ? Array(PropertyPresentationAdapter.property(report).metrics.prefix(2)) + [
@@ -478,6 +478,12 @@ struct PropertiesView: View {
             ForEach(issues, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
             if closed { Label("Calculation closed. Later collections update the balance.", systemImage: "lock").font(.caption) }
             else { Button("Close month") { close(report) }.disabled(!report.canClose || !ledgerAvailable || !canCalculate || historical) }
+        }
+        // Orphan pending-link markers (their movement vanished or was deleted)
+        // retire when the property or month changes — a write, so it lives in a
+        // task, never in the render path above.
+        .task(id: "\(property.id.uuidString)-\(report.monthStart.timeIntervalSince1970)") {
+            workspace.retirePendingLinks(propertyID: property.id)
         }
     }
 

@@ -687,6 +687,60 @@ struct PropertyManagementTests {
         #expect(sharedScope.compactMap(\.amount).reduce(Decimal.zero, +) == account.houseSharedTotal)
     }
 
+    @Test("Deferred Fer rows stay visible outside every account scope")
+    @MainActor
+    func deferredFerRowsStayVisibleOutsideEveryScope() throws {
+        let roles = PropertyHouseholdAdapter.link
+        let november = date(2026, 11)
+        let account = Account(institution: "Banco sintético", type: .checking)
+        let ferNow = Transaction(account: account, postedAt: date(2026, 11, 3), amount: -300,
+            descriptionRaw: "Gasto solo Fer")
+        ferNow.setHouseholdScope(.included)
+        ferNow.setExpenseAssignment(.partner)
+        let deferred = Transaction(account: account, postedAt: date(2026, 11, 5), amount: -100,
+            descriptionRaw: "Fer a diciembre")
+        deferred.setHouseholdScope(.included)
+        deferred.setExpenseAssignment(.partner)
+        let household = HouseholdSettlementReportService.build(monthStart: november,
+            transactions: [ferNow, deferred], dueDates: [deferred.id: date(2026, 12, 15)],
+            setup: HouseholdSettlementSetup(partnerIncomeEstimate: 1_000,
+                useUserIncomeManualOverride: true, userIncomeManualOverride: 1_000))
+        #expect(household.deferredFerRows.map(\.id) == [deferred.id])
+        var ledger = PropertyLedger()
+        ledger.householdLink = roles
+        ledger.properties = [PropertyRecord(id: roles.propertyID, name: "Casa sintética")]
+        ledger.residents = [PropertyResident(id: roles.userID, propertyID: roles.propertyID,
+            name: "Tú", activeFrom: .distantPast),
+            PropertyResident(id: roles.partnerID, propertyID: roles.propertyID,
+                name: "Fer", activeFrom: .distantPast)]
+        let inputs = [PropertyTransactionInput(capturing: ferNow),
+                      PropertyTransactionInput(capturing: deferred)]
+        let report = PropertyHouseholdAdapter.report(household, ledger: ledger,
+            transactions: inputs, asOf: date(2026, 11, 28))
+        let allocations: [UUID: HouseholdExpenseAllocation] = [ferNow.id: .partner, deferred.id: .partner]
+        let rows = PropertyActivityPresenter.rows(propertyID: roles.propertyID, month: november,
+            asOf: date(2026, 11, 28), filter: .linked, ledger: ledger, report: report,
+            inputs: inputs, household: allocations,
+            deferredHouseholdIDs: Set(household.deferredFerRows.map(\.id)))
+        // The deferred row stays visible among the linked movements of the
+        // month it was paid…
+        #expect(Set(rows.map(\.id)) == Set([ferNow.id, deferred.id]))
+        let deferredRow = try #require(rows.first { $0.id == deferred.id })
+        #expect(deferredRow.kind == .expense)
+        #expect(deferredRow.identity == nil)
+        // …but no scope can claim it: Fer's scope sums exactly the month's
+        // individual charges, without the deferred amount.
+        let ferAccount = PropertyMemberAccount.account(propertyID: roles.propertyID,
+            residentID: roles.partnerID, report: report, ledger: ledger, inputs: inputs,
+            asOf: date(2026, 11, 28),
+            context: .init(canCalculate: household.splitAvailable, isClosed: false,
+                historical: false, includeCurrent: true))
+        #expect(ferAccount.individualCharges == 300)
+        let scope = PropertyActivityColumnFilters(identities: [.individual(roles.partnerID)]).apply(to: rows)
+        #expect(scope.map(\.id) == [ferNow.id])
+        #expect(scope.compactMap(\.amount).reduce(Decimal.zero, +) == ferAccount.individualCharges)
+    }
+
     // MARK: - Workspace model (moved from the former PropertyWorkspaceTests and
     // PropertyMonthlyRefactorTests suites). Pure ledger/workspace tests live here;
     // container-backed ones live in HouseholdSettlementReportTests.

@@ -313,7 +313,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
             where !PropertyPaymentAdvance.isAdvance(application)
                 && monthObligationIDs.contains(application.obligationID)
                 && PropertyCollectionPosting.isValidAppliedCollection(application,
-                    inputsByID: inputsByID, appliedByPayment: appliedByPayment,
+                    inputsByID: inputsByID,
                     overallocatedPaymentIDs: reconciliation.overallocatedPaymentIDs,
                     doubleUsedReceipts: reconciliation.doubleUsedReceipts, asOf: asOf) {
                 monthReceiptIDsByResident[application.residentID, default: []]
@@ -336,7 +336,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                 where obligationIDs.contains(application.obligationID)
                     && !reimbursementTransactionIDs.contains(application.paymentTransactionID)
                     && PropertyCollectionPosting.isValidAppliedCollection(application,
-                        inputsByID: inputsByID, appliedByPayment: appliedByPayment,
+                        inputsByID: inputsByID,
                         overallocatedPaymentIDs: reconciliation.overallocatedPaymentIDs,
                         doubleUsedReceipts: reconciliation.doubleUsedReceipts, asOf: asOf) {
                     priorPaidByResident[application.residentID, default: 0] += application.amount

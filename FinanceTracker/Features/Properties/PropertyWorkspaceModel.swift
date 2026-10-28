@@ -69,6 +69,11 @@ final class PropertyWorkspaceModel {
     @ObservationIgnored private let readLedger: @Sendable (URL?) async throws -> PropertyLedger
     @ObservationIgnored private let writeLedger: (PropertyLedger, URL?) throws -> Void
     @ObservationIgnored private let fetchTransactions: (ModelContext, FetchDescriptor<Transaction>) throws -> [Transaction]
+    /// Test seam over the assignment-revision guard: the register between the
+    /// income creation and the marker pin cannot race synchronously, so tests
+    /// substitute the guard to model another window's write. Production uses
+    /// the real disk comparison below.
+    @ObservationIgnored private let revisionCheckOverride: (@MainActor () throws -> Void)?
     @ObservationIgnored private var interactionStart: ContinuousClock.Instant?
     @ObservationIgnored private var interactionName = ""
     @ObservationIgnored private var interactionInterval: OSSignpostIntervalState?
@@ -79,13 +84,15 @@ final class PropertyWorkspaceModel {
          readLedger: @escaping @Sendable (URL?) async throws -> PropertyLedger = { url in
              try await Task.detached { try PropertyLedgerStore.read(fileURL: url) }.value
          }, fetchTransactions: @escaping (ModelContext, FetchDescriptor<Transaction>) throws -> [Transaction] = { try $0.fetch($1) },
-         writeLedger: @escaping (PropertyLedger, URL?) throws -> Void = { try PropertyLedgerStore.replace(with: $0, at: $1) }) {
+         writeLedger: @escaping (PropertyLedger, URL?) throws -> Void = { try PropertyLedgerStore.replace(with: $0, at: $1) },
+         revisionCheckOverride: (@MainActor () throws -> Void)? = nil) {
         self.asOf = asOf
         selectedMonth = Calendar.current.propertyMonthStart(for: month)
         self.fileURL = fileURL
         self.readLedger = readLedger
         self.writeLedger = writeLedger
         self.fetchTransactions = fetchTransactions
+        self.revisionCheckOverride = revisionCheckOverride
     }
 
     var periodReady: Bool { cachedMonth == selectedMonth }
@@ -548,9 +555,10 @@ final class PropertyWorkspaceModel {
 
     /// Captures whose income is real but whose property link has not completed.
     /// The marker is workflow state keyed by UUID, so renames, description edits,
-    /// and look-alike incomes never confuse it. Markers whose movement no longer
-    /// exists are retired here — they are not financial data — and never surface.
-    func pendingLinkCollections(propertyID: UUID) -> [(link: PropertyPaymentPendingLink, input: PropertyTransactionInput?)] {
+    /// and look-alike incomes never confuse it. Pure read for the render path:
+    /// markers whose movement vanished or was soft-deleted are not live money,
+    /// never surface, and are retired by `retirePendingLinks` — never here.
+    func pendingLinks(propertyID: UUID) -> [(link: PropertyPaymentPendingLink, input: PropertyTransactionInput?)] {
         guard let context else { return [] }
         let markers = ledger.pendingLinks.filter { $0.propertyID == propertyID && $0.deletedAt == nil }
         guard !markers.isEmpty else { return [] }
@@ -562,20 +570,39 @@ final class PropertyWorkspaceModel {
         let inputsByID = Dictionary(fetched.map { ($0.id, PropertyTransactionInput(capturing: $0)) },
                                     uniquingKeysWith: { first, _ in first })
         var result: [(link: PropertyPaymentPendingLink, input: PropertyTransactionInput?)] = []
-        var vanished = Set<UUID>()
         for marker in markers {
-            guard let input = inputsByID[marker.paymentTransactionID] else {
-                vanished.insert(marker.paymentTransactionID)
-                continue
-            }
+            guard let input = inputsByID[marker.paymentTransactionID], input.deletedAt == nil else { continue }
             if result.contains(where: { $0.link.paymentTransactionID == marker.paymentTransactionID }) { continue }
             result.append((marker, input))
         }
-        if !vanished.isEmpty {
-            ledger.pendingLinks.removeAll { vanished.contains($0.paymentTransactionID) }
-            save()
-        }
         return result
+    }
+
+    /// Orphan cleanup for the pending-link markers: a marker whose movement
+    /// vanished or was soft-deleted is workflow state behind money that is no
+    /// longer live, so it is removed and the register is saved. The view calls
+    /// this from a task when the property or month changes — never from the
+    /// render path. Returns false when nothing needed retirement or the save
+    /// failed.
+    @discardableResult
+    func retirePendingLinks(propertyID: UUID) -> Bool {
+        guard let context else { return false }
+        let markers = ledger.pendingLinks.filter { $0.propertyID == propertyID && $0.deletedAt == nil }
+        guard !markers.isEmpty else { return true }
+        let ids = Array(Set(markers.map(\.paymentTransactionID)))
+        let freshContext = ModelContext(context.container)
+        freshContext.autosaveEnabled = false
+        let fetched = (try? freshContext.fetch(FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { ids.contains($0.id) }))) ?? []
+        let inputsByID = Dictionary(fetched.map { ($0.id, PropertyTransactionInput(capturing: $0)) },
+                                    uniquingKeysWith: { first, _ in first })
+        let vanished = Set(markers.filter { marker in
+            guard let input = inputsByID[marker.paymentTransactionID] else { return true }
+            return input.deletedAt != nil
+        }.map(\.paymentTransactionID))
+        guard !vanished.isEmpty else { return true }
+        ledger.pendingLinks.removeAll { vanished.contains($0.paymentTransactionID) }
+        return save()
     }
 
     enum CollectionOutcome {
@@ -688,7 +715,16 @@ final class PropertyWorkspaceModel {
             }
             ledger = withMarker
             guard save() else { return .needsLink(transaction.id) }
-        } catch { return .rejected(error.localizedDescription) }
+        } catch {
+            // A revision race after the income exists must not strand it behind
+            // a rejection: this call already created real money, so the sheet
+            // pins its UUID and the retry reuses it — never a second income.
+            // The marker may not have been written; the retry recreates or
+            // updates it by paymentTransactionID.
+            guard pendingTransactionID == nil else { return .rejected(error.localizedDescription) }
+            self.error = error.localizedDescription
+            return .needsLink(transaction.id)
+        }
         let source = PropertyTransactionInput(capturing: transaction)
         guard source.amount == amount,
               PropertySettlementCalculator.isValidCollectionPayment(source, asOf: max(asOf, .now)) else {
@@ -879,8 +915,13 @@ final class PropertyWorkspaceModel {
         guard let report else { return [] }
         let assignments = destination == .household
             ? Dictionary(periodTransactions.map { ($0.id, $0.resolvedHouseholdAllocation) }, uniquingKeysWith: { first, _ in first }) : nil
+        // Fer rows whose due date falls in a future month are visible here but
+        // belong to that month's charges: no account scope can claim them.
+        let deferredHouseholdIDs = destination == .household
+            ? Set(householdReport?.deferredFerRows.map(\.id) ?? []) : []
         return PropertyActivityPresenter.rows(propertyID: report.propertyID, month: selectedMonth, asOf: asOf,
-            filter: filter, ledger: ledger, report: report, inputs: transactionInputs, household: assignments)
+            filter: filter, ledger: ledger, report: report, inputs: transactionInputs, household: assignments,
+            deferredHouseholdIDs: deferredHouseholdIDs)
     }
 
     @discardableResult
@@ -902,6 +943,7 @@ final class PropertyWorkspaceModel {
     }
 
     private func checkAssignmentRevision() throws {
+        if let revisionCheckOverride { try revisionCheckOverride(); return }
         var disk = try PropertyLedgerStore.read(fileURL: fileURL)
         var expected = savedLedger
         disk.updatedAt = .distantPast; expected.updatedAt = .distantPast

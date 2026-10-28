@@ -763,6 +763,60 @@ struct PropertyCollectionPostingTests {
         }
     }
 
+    @Test("A revision race after income creation returns needsLink without a second income")
+    @MainActor
+    func revisionRaceAfterIncomeCreationNeedsLinkWithoutDuplication() async throws {
+        let container = try ModelContainer(for: AppSchema.schema,
+            configurations: [ModelConfiguration(schema: AppSchema.schema, isStoredInMemoryOnly: true)])
+        let context = container.mainContext
+        let account = Account(institution: "Banco sintético", type: .checking, currency: "MXN")
+        context.insert(account)
+        try context.save()
+        var (ledger, house, resident, _) = fixture(rent: 100, expense: 0)
+        ledger.rents[0].effectiveMonth = date(9)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("revision-race-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try PropertyLedgerStore.replace(with: ledger, at: url, notify: false)
+        // The guard passes before the income is created, then fails while the
+        // marker should be pinned — the exact window where another window
+        // wrote the property register between both steps.
+        var guardCalls = 0
+        let workspace = PropertyWorkspaceModel(month: date(9), fileURL: url,
+            revisionCheckOverride: {
+                guardCalls += 1
+                if guardCalls == 2 {
+                    throw PropertyAssignmentService.AssignmentError.invalid("The property register changed. Reload before assigning transactions.")
+                }
+            })
+        workspace.configure(context: context, hasAccounts: true)
+        await workspace.loadLedger()
+        await workspace.refreshPeriod()
+        workspace.destination = .property(house.id)
+        let first = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
+            account: account, amount: 100, date: date(9, 10))
+        guard case .needsLink(let incomeID) = first else {
+            Issue.record("A revision race after income creation must report the receipt UUID")
+            return
+        }
+        // Exactly one real income exists, and the marker write was skipped by
+        // the race — the retry recreates it by paymentTransactionID.
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).count == 1)
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).first?.id == incomeID)
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.isEmpty)
+        let second = workspace.registerCollection(propertyID: house.id, residentID: resident.id,
+            account: nil, amount: 100, date: date(9, 10), pendingTransactionID: incomeID)
+        guard case .saved = second else {
+            Issue.record("Retry after the race should complete the link with the same receipt")
+            return
+        }
+        #expect(try context.fetch(FetchDescriptor<Transaction>()).count == 1)
+        let stored = try PropertyLedgerStore.read(fileURL: url)
+        #expect(stored.paymentApplications.count == 1)
+        #expect(stored.pendingLinks.isEmpty)
+        await workspace.refreshPeriod(force: true)
+        #expect(workspace.reports[house.id]?.residents.first?.balance == 0)
+    }
+
     @Test("Pending link recovery survives reopen from disk")
     @MainActor
     func pendingLinkRecoverySurvivesReopenFromDisk() async throws {
@@ -810,7 +864,7 @@ struct PropertyCollectionPostingTests {
         await reopened.loadLedger()
         await reopened.refreshPeriod()
         reopened.destination = .property(house.id)
-        let recovered = reopened.pendingLinkCollections(propertyID: house.id)
+        let recovered = reopened.pendingLinks(propertyID: house.id)
         #expect(recovered.count == 1)
         #expect(recovered.first?.link.paymentTransactionID == incomeID)
         #expect(recovered.first?.link.amount == 100)
@@ -860,13 +914,25 @@ struct PropertyCollectionPostingTests {
             description: originalDescription, signedAmount: 5_000, category: nil,
             flowKindRaw: TransactionFlowKind.income.rawValue,
             treatmentKindRaw: TransactionTreatmentKind.regular.rawValue, context: context)
-        let links = workspace.pendingLinkCollections(propertyID: house.id)
+        let links = workspace.pendingLinks(propertyID: house.id)
         #expect(links.count == 1)
         #expect(links.first?.link.paymentTransactionID == incomeID)
         #expect(links.first?.link.residentID == resident.id)
         #expect(links.first?.input?.id == incomeID)
         #expect(links.first?.input?.description == "Otro concepto del mismo cobro")
         #expect(links.allSatisfy { $0.input?.id != salary.id })
+        // A soft-deleted income is no longer live money: the banner stops
+        // showing it and the orphan marker retires instead of lingering.
+        let deleting = ModelContext(container)
+        let deletingID = incomeID
+        let deletedIncome = try #require(deleting.fetch(FetchDescriptor<Transaction>(
+            predicate: #Predicate<Transaction> { $0.id == deletingID })).first)
+        deletedIncome.deletedAt = date(9, 25)
+        try deleting.save()
+        #expect(workspace.pendingLinks(propertyID: house.id).isEmpty)
+        #expect(workspace.retirePendingLinks(propertyID: house.id))
+        #expect(workspace.ledger.pendingLinks.isEmpty)
+        #expect(try PropertyLedgerStore.read(fileURL: url).pendingLinks.isEmpty)
     }
 
     @Test("Pending link clears on completed link")

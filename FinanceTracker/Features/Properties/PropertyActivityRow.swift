@@ -144,7 +144,8 @@ enum PropertyAssignmentChoice {
 enum PropertyActivityPresenter {
     static func rows(propertyID: UUID, month: Date, asOf: Date, filter: PropertyActivityFilter,
                      ledger: PropertyLedger, report: PropertyMonthlyReport, inputs: [PropertyTransactionInput],
-                     household: [UUID: HouseholdExpenseAllocation]? = nil) -> [PropertyActivityRow] {
+                     household: [UUID: HouseholdExpenseAllocation]? = nil,
+                     deferredHouseholdIDs: Set<UUID> = []) -> [PropertyActivityRow] {
         let availability = PropertyAssignmentService.availability(propertyID: household == nil ? propertyID : nil, ledger: ledger)
         let sources = Dictionary(inputs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let obligations = Dictionary(report.obligations.compactMap { obligation in
@@ -238,9 +239,13 @@ enum PropertyActivityPresenter {
             // attribution otherwise. Collections, reimbursements, and owner
             // rows never match a scope, mirroring what
             // `PropertyMemberAccount.houseSharedTotal` and `individualCharges`
-            // exclude.
+            // exclude. A deferred household row is visible in the month it was
+            // paid but belongs to a later month's charges, so it also stays
+            // outside every scope — its subtotal must never claim it.
             let identity: PropertyActivityIdentity?
             if kind == .collection || kind == .reimbursement {
+                identity = nil
+            } else if deferredHouseholdIDs.contains(id) {
                 identity = nil
             } else if let allocation = household?[id] {
                 let roles = ledger.householdLink ?? PropertyHouseholdAdapter.link
