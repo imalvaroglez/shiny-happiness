@@ -78,6 +78,16 @@ struct PropertyMemberAccount: Equatable, Sendable {
     /// negative: an advance larger than the balance suggests `0` and keeps its
     /// remainder — the surplus is not lost and not an error.
     var suggestedPayment: Decimal?
+    /// Unbacked applied collections whose source vanished (`missing`) or
+    /// changed (`changed`): the amounts the review notes name. They never
+    /// touch the balance or the suggestion.
+    var unbackedCollectedMissing: Decimal
+    var unbackedCollectedChanged: Decimal
+    /// Unbacked advance amounts: repair work, not spendable money.
+    var unbackedAdvances: Decimal
+    /// Source transactions of unbacked advances that still exist, newest
+    /// first — the sheet offers "Open movement" on the first one.
+    var unbackedAdvanceReceiptIDs: [UUID]
 
     /// Account of one member. Pure: computes from the report, the ledger, and
     /// the transaction inputs without writing anywhere.
@@ -140,7 +150,11 @@ struct PropertyMemberAccount: Equatable, Sendable {
                     receiptsNeedReview: settlement.receiptsNeedReview,
                     overallocatedReceiptIDs: settlement.overallocatedReceiptIDs,
                     balanceDue: balanceDue,
-                    suggestedPayment: suggestedPayment)
+                    suggestedPayment: suggestedPayment,
+                    unbackedCollectedMissing: settlement.unbackedCollectedMissing,
+                    unbackedCollectedChanged: settlement.unbackedCollectedChanged,
+                    unbackedAdvances: settlement.unbackedAdvances,
+                    unbackedAdvanceReceiptIDs: settlement.unbackedAdvanceReceiptIDs)
     }
 
     private static func isSharedResponsibility(_ responsibility: PropertyResponsibility) -> Bool {

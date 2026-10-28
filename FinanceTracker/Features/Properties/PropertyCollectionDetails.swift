@@ -39,56 +39,6 @@ enum PropertyCollectionHistory {
 /// walk over the same ledger and inputs: non-advance collections whose source
 /// vanished or changed, and advances that lost their backing. Exposure only —
 /// none of this money enters a balance or an availability figure.
-private struct PropertyUnbackedExposure {
-    var collectedMissing: Decimal = 0
-    var collectedChanged: Decimal = 0
-    var advances: Decimal = 0
-    /// The first unbacked advance whose movement still exists, to reopen it.
-    var advanceMovementID: UUID?
-
-    static func summarize(propertyID: UUID, residentID: UUID, ledger: PropertyLedger,
-                          inputs: [PropertyTransactionInput]) -> Self {
-        var inputsByID: [UUID: PropertyTransactionInput] = [:]
-        for input in inputs { inputsByID[input.id] = input }
-        let applications = ledger.paymentApplications.filter {
-            $0.propertyID == propertyID && $0.residentID == residentID && $0.deletedAt == nil
-        }
-        // Applied totals per receipt across every property: the same totals the
-        // settlement compares an advance's backing against.
-        let appliedByPayment = Dictionary(
-            grouping: ledger.paymentApplications.filter { $0.deletedAt == nil },
-            by: \.paymentTransactionID
-        ).mapValues { $0.reduce(Decimal.zero) { $0 + $1.amount } }
-        var exposure = Self()
-        for application in applications where !PropertyPaymentAdvance.isAdvance(application) {
-            guard let source = inputsByID[application.paymentTransactionID] else {
-                exposure.collectedMissing += application.amount
-                continue
-            }
-            if PropertyCollectionHistory.needsReview(application, source: source) {
-                exposure.collectedChanged += application.amount
-            }
-        }
-        for advance in applications where PropertyPaymentAdvance.isAdvance(advance) {
-            guard let source = inputsByID[advance.paymentTransactionID] else {
-                exposure.advances += advance.amount
-                continue
-            }
-            let backed = !PropertySettlementCalculator.hasSourceChanged(
-                amount: advance.sourceAmountSnapshot, postedAt: advance.sourcePostedAtSnapshot,
-                currencyCode: advance.sourceCurrencySnapshot,
-                description: advance.sourceDescriptionSnapshot, versus: source)
-                && (appliedByPayment[source.id] ?? 0) <= source.amount
-                && PropertySettlementCalculator.isValidCollectionPayment(source, asOf: .distantFuture)
-            if !backed {
-                exposure.advances += advance.amount
-                if exposure.advanceMovementID == nil { exposure.advanceMovementID = source.id }
-            }
-        }
-        return exposure
-    }
-}
-
 struct PropertyMemberCollectionsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -112,14 +62,8 @@ struct PropertyMemberCollectionsSheet: View {
             ? String(localized: "Unassigned older advances")
             : workspace.member(id: residentID)?.name ?? String(localized: "Former member")
     }
-    private var unbacked: PropertyUnbackedExposure {
-        PropertyUnbackedExposure.summarize(propertyID: propertyID, residentID: residentID,
-            ledger: workspace.ledger, inputs: workspace.transactionInputs)
-    }
-
     var body: some View {
         let account = self.account
-        let unbacked = self.unbacked
         return VStack(alignment: .leading, spacing: 16) {
             Text(String(format: String(localized: "%1$@ — Account as of %2$@"), displayName,
                 workspace.asOf.formatted(date: .abbreviated, time: .omitted)))
@@ -138,7 +82,7 @@ struct PropertyMemberCollectionsSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if let account {
                         breakdown(of: account)
-                        reviewNotes(for: account, unbacked: unbacked)
+                        reviewNotes(for: account)
                     }
                 }
             }
@@ -239,19 +183,20 @@ struct PropertyMemberCollectionsSheet: View {
     /// Independent review notes after the table: every unbacked or
     /// over-applied record the account exposes, named and with the movement to
     /// reopen when it still exists. No silent warnings.
-    private func reviewNotes(for account: PropertyMemberAccount, unbacked: PropertyUnbackedExposure) -> some View {
+    private func reviewNotes(for account: PropertyMemberAccount) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            if unbacked.collectedMissing > 0 {
+            if account.unbackedCollectedMissing > 0 {
                 note(String(format: String(localized: "This balance does not discount a previous record of %@ because its movement could not be found."),
-                    propertyMoneyText(unbacked.collectedMissing)))
+                    propertyMoneyText(account.unbackedCollectedMissing)))
             }
-            if unbacked.collectedChanged > 0 {
+            if account.unbackedCollectedChanged > 0 {
                 note(String(format: String(localized: "This balance does not discount a previous record of %@ because its movement changed after registration."),
-                    propertyMoneyText(unbacked.collectedChanged)))
+                    propertyMoneyText(account.unbackedCollectedChanged)))
             }
-            if unbacked.advances > 0 {
+            if account.unbackedAdvances > 0 {
                 note(String(format: String(localized: "An advance of %@ lost its backing; it is not available money."),
-                    propertyMoneyText(unbacked.advances)), movementID: unbacked.advanceMovementID)
+                    propertyMoneyText(account.unbackedAdvances)),
+                    movementID: account.unbackedAdvanceReceiptIDs.first)
             }
             ForEach(account.overallocatedReceiptIDs, id: \.self) { receiptID in
                 overallocatedNote(for: receiptID)

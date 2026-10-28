@@ -75,6 +75,9 @@ struct PropertyMemberSettlement: Equatable, Sendable {
     /// Advances whose source is missing, changed, or invalid — repair work,
     /// never spendable money. Exposure only.
     var unbackedAdvances: Decimal
+    /// Source transactions of this member's unbacked advances that still
+    /// exist (a vanished source has no movement to reopen), newest first.
+    var unbackedAdvanceReceiptIDs: [UUID]
     /// This member's receipts flagged by reconciliation (overallocated or
     /// used as reimbursement and collection), newest first like
     /// `paymentTransactionIDs`.
@@ -202,6 +205,8 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         let unbackedCollectedMissing = (data.unbackedCollectedMissingByResident[residentID] ?? 0).currencyRounded
         let unbackedCollectedChanged = (data.unbackedCollectedChangedByResident[residentID] ?? 0).currencyRounded
         let unbackedAdvances = (data.unbackedAdvancesByResident[residentID] ?? 0).currencyRounded
+        let unbackedAdvanceReceiptIDs = Self.newestFirst(
+            data.unbackedAdvanceReceiptIDsByResident[residentID] ?? [], inputsByID: data.inputsByID)
 
         return Self(residentID: residentID, month: report.monthStart, asOf: asOf, status: status,
                     monthObligation: monthObligation, monthBalance: monthBalance, priorDebt: priorDebt,
@@ -211,6 +216,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                     unbackedCollectedMissing: unbackedCollectedMissing,
                     unbackedCollectedChanged: unbackedCollectedChanged,
                     unbackedAdvances: unbackedAdvances,
+                    unbackedAdvanceReceiptIDs: unbackedAdvanceReceiptIDs,
                     overallocatedReceiptIDs: overallocatedReceiptIDs,
                     paymentTransactionIDs: paymentTransactionIDs,
                     participationEnded: participationEnded)
@@ -247,6 +253,7 @@ struct PropertyMemberSettlement: Equatable, Sendable {
         var unbackedCollectedMissingByResident: [UUID: Decimal] = [:]
         var unbackedCollectedChangedByResident: [UUID: Decimal] = [:]
         var unbackedAdvancesByResident: [UUID: Decimal] = [:]
+        var unbackedAdvanceReceiptIDsByResident: [UUID: Set<UUID>] = [:]
         var overallocatedReceiptIDsByResident: [UUID: Set<UUID>] = [:]
 
         /// The receipt gate `report()` warns about, applied to the money math:
@@ -374,6 +381,8 @@ struct PropertyMemberSettlement: Equatable, Sendable {
                 else {
                     advanceStaleByResident.insert(advance.residentID)
                     unbackedAdvancesByResident[advance.residentID, default: 0] += advance.amount
+                    unbackedAdvanceReceiptIDsByResident[advance.residentID, default: []]
+                        .insert(source.id)
                     continue
                 }
                 if PropertySettlementCalculator.isValidCollectionPayment(source, asOf: asOf) {
