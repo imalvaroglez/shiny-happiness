@@ -638,7 +638,6 @@
 "Resident since" = "Residente desde";
 "Responsibility" = "Responsabilidad";
 "Collected operating result" = "Resultado operativo cobrado";
-"Withdraw application" = "Retirar aplicación";
 "Review this month's income" = "Revisa los ingresos del mes";
 "Review transactions…" = "Revisar movimientos…";
 "Credit balance" = "Saldo a favor";
@@ -669,7 +668,6 @@
 /* Property workspace continuation: shared tables and responsibility */
 "Members and monthly contributions" = "Integrantes y aportaciones del mes";
 "Monthly income for %@, Mexican pesos" = "Ingreso del mes de %@, pesos mexicanos";
-"Remove this collection application" = "Retirar esta aplicación de cobro";
 "Add member" = "Agregar integrante";
 "Monthly obligations" = "Obligaciones del mes";
 "Projection · MXN" = "Proyección · MXN";
@@ -688,7 +686,6 @@
 "Former member" = "Integrante anterior";
 "Transaction unavailable" = "Movimiento no disponible";
 "Date unavailable" = "Fecha no disponible";
-"Obligation" = "Obligación";
 "Could not read the monthly setup: %@" = "No se pudo leer la configuración del mes: %@";
 "Could not read transactions: %@" = "No se pudieron leer los movimientos: %@";
 "Changes were not saved because the property register could not be read. Retry loading." = "No se guardaron los cambios porque el registro no se pudo leer. Reintenta la lectura.";
@@ -841,8 +838,6 @@
 "Nothing due" = "Sin pendiente";
 "Review required" = "Revisar";
 "Apply advance" = "Aplicar anticipo";
-"Member collections" = "Cobros del integrante";
-"No collections recorded for this member." = "No hay cobros registrados para este integrante.";
 "Could not save the income. Try again." = "No se pudo guardar el ingreso. Inténtalo de nuevo.";
 "Property" = "Propiedad";
 "Property unavailable" = "Propiedad no disponible";
@@ -861,10 +856,6 @@
 "Review" = "Revisar";
 "Close" = "Cerrar";
 "Fer’s portion" = "Parte de Fer";
-"Applied to member · %@" = "Aplicado al integrante · %@";
-"Remove application: %@" = "Quitar aplicación: %@";
-"Remove application: %@. The original financial transaction is preserved; the amount remains available to reconcile." = "Quitar aplicación: %@. El movimiento original se conserva y el importe queda disponible para conciliar.";
-"Covered by directly paid expenses · %@" = "Cubierto mediante gastos pagados directamente · %@";
 "Retry saving" = "Reintentar guardado";
 "This movement changed. Reopen it before saving." = "El movimiento cambió. Vuelve a abrirlo antes de guardar.";
 "The movement was saved, but its due date could not be cleared: %@" = "El movimiento se guardó, pero no se pudo quitar su fecha de liquidación: %@";
@@ -898,3 +889,6 @@
 "This balance does not discount a previous record of %@ because its movement changed after registration." = "Este saldo no descuenta un registro anterior de %@ porque su movimiento cambió después del registro.";
 "An advance of %@ lost its backing; it is not available money." = "Un anticipo de %@ perdió su respaldo; no cuenta como dinero disponible.";
 "Suggested payment" = "Importe sugerido a pagar";
+
+/* Member account review notes (TB) */
+"The collection of %1$@ · %2$@ is applied beyond its amount." = "El cobro de %1$@ · %2$@ está aplicado por más de su importe.";
