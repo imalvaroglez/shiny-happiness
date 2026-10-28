@@ -1361,8 +1361,11 @@ enum CategoryPalette {
     }
 }
 
-/// Assigns evenly spaced hues within each spending chart so its visible
-/// categories remain distinguishable. Colors may shift when that set changes.
+/// Assigns colors within each spending chart so its visible categories stay
+/// distinguishable. The palette alternates warm and cool hues with distinct
+/// luminance steps — unlike evenly spaced hues at a fixed brightness, adjacent
+/// categories differ in both hue and lightness. Colors may shift when the
+/// visible set changes; within a set they stay deterministic by slot.
 enum CategoryChartPalette {
     static func slots(for categoryIDs: [UUID]) -> [UUID: Int] {
         let sortedIDs = Array(Set(categoryIDs)).sorted { $0.uuidString < $1.uuidString }
@@ -1374,9 +1377,23 @@ enum CategoryChartPalette {
         return slots.mapValues { color(slot: $0, count: slots.count) }
     }
 
+    /// High-contrast categorical set (Tableau-style): warm/cool alternation,
+    /// readable in light and dark appearance, cycled deterministically.
+    private static let highContrast: [Color] = [
+        Color(red: 0.888, green: 0.341, blue: 0.341), // rojo suave
+        Color(red: 0.306, green: 0.475, blue: 0.655), // azul acero
+        Color(red: 0.463, green: 0.718, blue: 0.698), // verde azulado
+        Color(red: 0.949, green: 0.557, blue: 0.169), // naranja
+        Color(red: 0.349, green: 0.631, blue: 0.310), // verde
+        Color(red: 0.929, green: 0.788, blue: 0.282), // amarillo
+        Color(red: 0.694, green: 0.477, blue: 0.631), // morado
+        Color(red: 0.941, green: 0.564, blue: 0.596), // rosa
+        Color(red: 0.612, green: 0.459, blue: 0.373), // café
+        Color(red: 0.545, green: 0.537, blue: 0.529), // gris
+    ]
+
     private static func color(slot: Int, count: Int) -> Color {
-        let hue = Double(slot) / Double(max(count, 1))
-        return Color(hue: hue, saturation: 0.82, brightness: 0.42)
+        highContrast[abs(slot) % highContrast.count]
     }
 }
 
