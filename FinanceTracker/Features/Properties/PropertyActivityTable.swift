@@ -50,8 +50,14 @@ struct PropertyActivityTable: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DashboardCardTokens.sectionSpacing) {
-            PropertySectionHeading(title: "Linked transactions")
-            activityControls
+            ViewThatFits(in: .horizontal) {
+                PropertySectionHeading(title: "Linked transactions", trailing: activityFilterPicker)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("Linked transactions").font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                    activityFilterPicker
+                }
+            }
+            selectionActions
             PropertyTableCard {
                 // One choice for header and all rows prevents mixed column/compact layouts.
                 ViewThatFits(in: .horizontal) {
@@ -66,20 +72,6 @@ struct PropertyActivityTable: View {
         .onChange(of: accountFilters) { updateSelectionForVisibleRows() }
         .onChange(of: responsibilityFilters) { updateSelectionForVisibleRows() }
         .onChange(of: identityFilters) { updateSelectionForVisibleRows() }
-    }
-
-    private var activityControls: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack {
-                activityFilterPicker
-                Spacer(minLength: 8)
-                selectionActions
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                activityFilterPicker
-                selectionActions
-            }
-        }
     }
 
     private var activityFilterPicker: some View {

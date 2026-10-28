@@ -163,6 +163,7 @@ struct PropertySectionHeading: View {
     var title: String
     var actionTitle: String?
     var action: (() -> Void)?
+    var trailing: (any View)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -170,6 +171,9 @@ struct PropertySectionHeading: View {
             Spacer(minLength: 12)
             if let actionTitle, let action {
                 Button(LocalizedStringKey(actionTitle), action: action).buttonStyle(.link).font(.caption)
+            }
+            if let trailing {
+                AnyView(trailing)
             }
         }
     }
