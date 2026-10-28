@@ -170,7 +170,17 @@ struct PropertiesView: View {
             .sheet(item: $memberCollection) { selection in
                 if let property = selectedProperty {
                     PropertyMemberCollectionsSheet(workspace: workspace, propertyID: property.id,
-                        residentID: selection.id)
+                        residentID: selection.id,
+                        onShowDetail: { scope in
+                            openAccountDetail(scope, residentID: selection.id, propertyID: property.id, proxy: proxy)
+                        },
+                        registerPayment: {
+                            // The sheet dismisses itself first; presenting the capture
+                            // immediately would race the dismissal animation.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                activeSheet = .payment(selection.id)
+                            }
+                        })
                 }
             }
             .sheet(item: $assignmentDraft) { draft in
@@ -195,12 +205,6 @@ struct PropertiesView: View {
                         PropertyResidentSheet(property: property, defaultMonth: nextMonth) { resident in
                             ledger.residents.append(resident)
                             return persist()
-                        }
-                    }
-                case .residentEdit(let residentID):
-                    if let member = workspace.member(id: residentID) {
-                        PropertyResidentRenameSheet(name: member.name, errorMessage: { workspace.error }) { name in
-                            workspace.renameMember(id: residentID, name: name)
                         }
                     }
                 case .attribution:
@@ -427,16 +431,17 @@ struct PropertiesView: View {
                 legacyAdvancePresent: legacyPresent, legacyAdvanceNeedsReview: legacyNeedsReview,
                 save: { id, amount, confirmed in workspace.saveMonthlyIncome(residentID: id, amount: amount, confirmed: confirmed,
                     month: editingMonth, editedDestination: editingDestination) },
-                edit: { id in
-                    activeSheet = .residentEdit(id)
-                }, end: { id in participationEndID = id },
+                end: { id in participationEndID = id },
                 openPayments: { memberCollection = .init(id: $0) },
                 collect: { activeSheet = .payment($0) },
                 applyAdvance: { id in
                     if case .rejected(let message) = workspace.applyMemberAdvance(propertyID: property.id, residentID: id) {
                         loadError = message
                     }
-                }, openLegacyAdvance: { memberCollection = .init(id: legacyID) })
+                }, openLegacyAdvance: { memberCollection = .init(id: legacyID) },
+                rename: { id, name in
+                    workspace.renameMember(id: id, name: name)
+                })
             if historical { Text("Historical split pending reconciliation. It is not automatically added to prior debt.").font(.caption).foregroundStyle(.secondary) }
             if !recoveryCandidates.isEmpty {
                 Button("Reconcile existing receipt…") {
@@ -453,11 +458,43 @@ struct PropertiesView: View {
                 assign: applyActivityAssignment, adjustment: { activeSheet = .adjustment },
                 allowsUserAssignment: workspace.householdActiveMemberIDs.contains((ledger.householdLink ?? PropertyHouseholdAdapter.link).userID),
                 allowsPartnerAssignment: workspace.householdActiveMemberIDs.contains((ledger.householdLink ?? PropertyHouseholdAdapter.link).partnerID))
+                .id("property-activity-table")
             maintenanceSection(property)
             let issues = report.warnings.filter { !$0.hasPrefix("Confirma el ingreso de ") && $0 != "Hay ingresos por confirmar en la tabla." }
             ForEach(issues, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
             if closed { Label("Calculation closed. Later collections update the balance.", systemImage: "lock").font(.caption) }
             else { Button("Close month") { close(report) }.disabled(!report.canClose || !ledgerAvailable || !canCalculate || historical) }
+        }
+    }
+
+    /// Deep link from the member account sheet: swaps the activity filters for the
+    /// exact responsibility labels behind one breakdown row and scrolls to the
+    /// table, so its subtotal can verify the sheet's figure.
+    private func openAccountDetail(_ scope: PropertyAccountDetailScope, residentID: UUID,
+                                   propertyID: UUID, proxy: ScrollViewProxy) {
+        activityFilter = .linked
+        activitySelection = []
+        activityAccountFilters = []
+        let residents = ledger.residents(for: propertyID, month: selectedMonth)
+        switch scope {
+        case .sharedCharges:
+            // Every shared-scope label present in the ledger, not just "Shared":
+            // `.selected` groups display as their member names joined by ", ".
+            var labels: Set<String> = [String(localized: "Shared")]
+            for attribution in ledger.attributions where attribution.deletedAt == nil {
+                if case .selected(let members) = attribution.responsibility {
+                    labels.insert(PropertyActivityPresenter.label(.selected(residentIDs: members), residents: residents))
+                }
+            }
+            activityResponsibilityFilters = labels
+        case .memberCharges:
+            let name = residents.first { $0.id == residentID }?.name
+                ?? workspace.member(id: residentID)?.name
+                ?? String(localized: "Former member")
+            activityResponsibilityFilters = [name]
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            proxy.scrollTo("property-activity-table", anchor: .top)
         }
     }
 
@@ -755,10 +792,8 @@ struct PropertiesView: View {
 private enum PropertySheet: Identifiable {
     case property, resident, attribution, existingPayment, adjustment, reserve
     case payment(UUID?)
-    case residentEdit(UUID)
     var id: String {
         switch self {
-        case .residentEdit(let id): "resident-edit-\(id.uuidString)"
         case .property: "property"
         case .resident: "resident"
         case .attribution: "attribution"

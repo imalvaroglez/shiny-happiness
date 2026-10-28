@@ -287,6 +287,9 @@ final class PropertyWorkspaceModel {
 
     var sections: [PropertyWorkspaceSection] {
         if destination == .allHomes { return [] }
+        // Household has nothing to configure: rent never enters its settlement
+        // and it owns no maintenance program.
+        if destination == .household { return [.month] }
         return PropertyWorkspaceSection.allCases
     }
 

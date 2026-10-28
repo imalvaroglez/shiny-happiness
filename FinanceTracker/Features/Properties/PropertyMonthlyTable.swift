@@ -78,9 +78,6 @@ struct PropertyMonthlyTable: View {
     var legacyAdvancePresent = false
     var legacyAdvanceNeedsReview = false
     var save: (UUID, Decimal, Bool) -> Bool
-    /// Legacy rename hook kept so existing call sites compile; the row's
-    /// Rename button now edits the name inline through `rename`.
-    var edit: (UUID) -> Void = { _ in }
     var end: (UUID) -> Void
     var openPayments: (UUID) -> Void
     var collect: (UUID) -> Void

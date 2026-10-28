@@ -38,39 +38,6 @@ struct PropertyResidentSheet: View {
     }
 }
 
-struct PropertyResidentRenameSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var name: String
-    @State private var saveError: String?
-    @FocusState private var nameFocused: Bool
-    var errorMessage: () -> String?
-    var onSave: (String) -> Bool
-
-    init(name: String, errorMessage: @escaping () -> String? = { nil }, onSave: @escaping (String) -> Bool) {
-        _name = State(initialValue: name)
-        self.errorMessage = errorMessage
-        self.onSave = onSave
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Rename member").font(.title2.bold())
-            TextField("Name", text: $name).textFieldStyle(.roundedBorder).focused($nameFocused)
-            if let saveError { Text(saveError).font(.callout).foregroundStyle(.red) }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    if onSave(name.trimmingCharacters(in: .whitespacesAndNewlines)) { dismiss() }
-                    else { saveError = errorMessage() ?? String(localized: "Could not save the member. Try again.") }
-                }.keyboardShortcut(.defaultAction)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }.padding(24).frame(width: 420)
-            .onAppear { nameFocused = true }
-    }
-}
-
 struct PropertyAttributionSheet: View {
     @Environment(\.dismiss) private var dismiss
     let property: PropertyRecord
