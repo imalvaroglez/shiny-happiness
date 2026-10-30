@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Combine
 import Charts
 import os
 
@@ -170,6 +171,25 @@ struct DashboardView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             if scenePhase == .active { viewModel.refreshForCalendarChange() }
+        }
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: ModelContext.didSave)
+                // Side contexts of the same container must refresh too —
+                // backup restores and the settings editor save on private
+                // contexts, and an object-filtered subscription would leave
+                // the dashboard stale after exactly those flows.
+                // Filter BEFORE throttling: throttle only delivers the first
+                // and latest event of each window, so a relevant save buried
+                // under later irrelevant ones in the same window would be lost
+                // if the filter ran downstream.
+                .filter { DashboardDataChangePolicy.isBalanceRelevant($0, container: modelContext.container) }
+                .throttle(for: .milliseconds(500), scheduler: RunLoop.main, latest: true)
+        ) { _ in
+            // A save from anywhere — Movimientos manual capture, edits, ingest,
+            // pending-import resolutions — must be visible immediately: rebuild
+            // the balance samplers and advance the period clock in one pass.
+            viewModel.refreshAfterDataChange()
         }
         .popover(isPresented: $showingCustomRange) {
             customDatePopover
@@ -554,10 +574,15 @@ private struct AccountSidebarRow: View {
                 Text(account.displayName)
                     .font(.body)
                     .lineLimit(1)
-                Text(account.institution)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                if let institution = AccountDisplay.institutionLabel(
+                    displayName: account.displayName,
+                    institution: account.institution
+                ) {
+                    Text(institution)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.vertical, 4)

@@ -285,7 +285,9 @@ struct BreakdownSheet: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(s.displayName)
-                                    Text(s.institution).font(.caption).foregroundStyle(.secondary)
+                                    if let institution = AccountDisplay.institutionLabel(displayName: s.displayName, institution: s.institution) {
+                                        Text(institution).font(.caption).foregroundStyle(.secondary)
+                                    }
                                     Text(NetWorthBreakdownCopy.sourceText(s))
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)

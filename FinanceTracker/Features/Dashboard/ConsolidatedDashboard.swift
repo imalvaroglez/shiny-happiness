@@ -533,10 +533,15 @@ struct ConsolidatedDashboard: View {
                 Text(summary.displayName)
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
-                Text(summary.institution)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let institution = AccountDisplay.institutionLabel(
+                    displayName: summary.displayName,
+                    institution: summary.institution
+                ) {
+                    Text(institution)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Text(NetWorthBreakdownCopy.sourceText(summary))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
