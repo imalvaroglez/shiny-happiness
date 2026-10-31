@@ -25,6 +25,7 @@ struct DashboardView: View {
     @State private var transactionSession = TransactionSessionState()
     @State private var propertyWorkspace = PropertyWorkspaceModel()
     @AppStorage("sidebarPropertiesExpanded") private var sidebarPropertiesExpanded = true
+    @AppStorage("sidebarManageExpanded") private var sidebarManageExpanded = true
 
     @Query private var accounts: [Account]
     @AppStorage("sidebarAccountSort") private var sidebarAccountSort = "nickname"
@@ -266,7 +267,9 @@ struct DashboardView: View {
                     }
             }
             .accessibilityIdentifier("properties.sidebar.item")
-            Section {
+            // Mismo patrón de grupo que Cuentas/Propiedades: sin él, tres botones
+            // sueltos flotan tras los desplegables y rompen el ritmo del sidebar.
+            SidebarDestinationGroup(title: "Manage", isExpanded: $sidebarManageExpanded) {
                 Label("Transactions", systemImage: "list.bullet")
                     .tag(SidebarSelection.transactions)
                 Label("Import Statements", systemImage: "doc.badge.plus")
