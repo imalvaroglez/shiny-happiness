@@ -28,4 +28,10 @@ struct AccountDisplayTests {
         #expect(AccountDisplay.institutionLabel(displayName: "The Gold Card", institution: "American Express") == "American Express")
         #expect(AccountDisplay.institutionLabel(displayName: "Cuenta Nominativa", institution: "BBVA") == "BBVA")
     }
+
+    @Test("A tiny nickname inside the institution does not hide it")
+    func tinyNicknameInsideInstitutionIsKept() {
+        #expect(AccountDisplay.institutionLabel(displayName: "N", institution: "Banorte") == "Banorte")
+        #expect(AccountDisplay.institutionLabel(displayName: "Nu", institution: "Banorte") == "Banorte")
+    }
 }

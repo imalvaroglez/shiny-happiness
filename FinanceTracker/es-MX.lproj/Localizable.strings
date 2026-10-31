@@ -158,6 +158,7 @@
 "Optional account/card number" = "Número de cuenta o tarjeta (opcional)";
 "Overview" = "Resumen";
 "Manage" = "Gestión";
+"Account name" = "Nombre de cuenta";
 "Paste Text" = "Pegar texto";
 "Paste import currently supports HSBC 2Now. For a complete import, copy from the “TU PAGO REQUERIDO” heading through the transaction rows." = "La importación por texto admite HSBC 2Now. Para importar el estado completo, copia desde el encabezado “TU PAGO REQUERIDO” hasta el último movimiento.";
 "Paste statement text" = "Pega el texto del estado de cuenta";

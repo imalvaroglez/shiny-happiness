@@ -19,7 +19,12 @@ enum AccountDisplay {
         guard !foldedName.isEmpty else { return trimmed }
 
         if foldedName == foldedInstitution { return nil }
-        if foldedName.contains(foldedInstitution) || foldedInstitution.contains(foldedName) {
+        // Containment only counts when the contained side carries real
+        // information: a 1–2 character nickname inside "Banorte" hides the
+        // institution without the name actually conveying it.
+        let shorter = min(foldedName.count, foldedInstitution.count)
+        if shorter >= 3,
+           foldedName.contains(foldedInstitution) || foldedInstitution.contains(foldedName) {
             return nil
         }
         return trimmed

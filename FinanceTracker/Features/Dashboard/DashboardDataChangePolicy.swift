@@ -7,13 +7,15 @@ import SwiftData
 enum DashboardDataChangePolicy {
     /// Model types whose persistence changes what the dashboard computes.
     /// `PendingImport` resolution, for example, inserts a `Transaction`, so it
-    /// is covered transitively; seeds and rules alone never move balances.
+    /// is covered transitively; `Category` matters because renames change the
+    /// labels the donut and category cards render.
     private static let relevantTypes: [AnyClass] = [
         Transaction.self,
         Account.self,
         Statement.self,
         AccountBalanceSnapshot.self,
         InstallmentPlan.self,
+        FinanceTracker.Category.self,
     ]
 
     /// Pure decision over explicitly changed objects: relevant only when one
