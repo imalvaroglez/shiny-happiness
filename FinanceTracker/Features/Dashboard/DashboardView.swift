@@ -236,7 +236,7 @@ struct DashboardView: View {
             Label("Overview", systemImage: "chart.pie")
                 .tag(SidebarSelection.overview)
 
-            SidebarDestinationGroup(title: "Accounts", isExpanded: $sidebarAccountsExpanded) {
+            SidebarDestinationGroup(title: "Accounts", isExpanded: $sidebarAccountsExpanded, trailing: AnyView(sortAccountsMenu)) {
                 if activeAccounts.isEmpty {
                     Text("No accounts yet").font(.caption).foregroundStyle(.secondary)
                 }
@@ -276,6 +276,31 @@ struct DashboardView: View {
             }
         }
         .listStyle(.sidebar)
+    }
+
+    /// Visible sort control next to the "Accounts" header — the right-click
+    /// menu stays as a secondary path, but the affordance must be discoverable.
+    private var sortAccountsMenu: some View {
+        Menu {
+            ForEach([("nickname", "Account name"), ("institution", "Institution"), ("type", "Type")], id: \.0) { key, label in
+                Button {
+                    sidebarAccountSort = key
+                } label: {
+                    if sidebarAccountSort == key {
+                        Label(label, systemImage: "checkmark")
+                    } else {
+                        Text(label)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 18)
+        .fixedSize()
+        .help("Sort accounts")
     }
 
     // MARK: - Detail pane dispatch
