@@ -252,6 +252,19 @@ enum BackupArchive {
         try manifestData.write(to: bundleURL.appendingPathComponent("manifest.json"))
     }
 
+    /// Filesystem-safe, sortable timestamp token for backup filenames,
+    /// expressed in the user's local time — this app has a single user and a
+    /// UTC name reads six hours wrong to them. The trailing numeric offset
+    /// keeps the instant unambiguous and still sorts identically within one
+    /// timezone.
+    nonisolated static func filenameTimestamp(for date: Date = .now, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ssXXXX"
+        return formatter.string(from: date)
+    }
+
     enum RestoreCheckpoint: String, CaseIterable {
         case modelsStaged, ledgerPublished, customizationPublished, spendPublished, propertyLedgerPublished, statementsPrepared, beforeSave
     }

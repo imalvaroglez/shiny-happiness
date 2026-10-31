@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-10-30
+
+### Fixed
+
+- Los saldos del dashboard reaccionan a cualquier guardado — capturas y ediciones desde Movimientos, ingesta de estados, resoluciones de pendientes y restauraciones de respaldo, incluso desde contextos laterales — reconstruyendo los muestreadores de saldo y avanzando el reloj del periodo en una sola pasada. Ya no hace falta cambiar de periodo para ver reflejado un cargo de hoy; los rangos personalizados siguen siendo punto-fijo por diseño.
+- El botón de ordenar cuentas vuelve a ser visible junto al encabezado «Cuentas»; el clic derecho queda como atajo secundario, no como único camino.
+
+### Changed
+
+- Los nombres de los respaldos usan la hora local con desfase explícito (p. ej. `FinanceTracker-2026-10-30T14-54-40-0600.ftbackup`); antes iban en UTC y leían seis horas adelantadas para el usuario.
+- Las filas de cuentas ya no apilan una institución que solo repite el nombre («BBVA» sobre «BBVA») en la barra lateral, la tabla de cuentas y los desgloses de patrimonio.
+- «Movimientos», «Importar estados» y «Ajustes» viven ahora en el grupo «Gestión», con el mismo estilo que «Cuentas» y «Propiedades», dejando a «Resumen» como único destino principal de la barra lateral.
+
 ## [0.18.0] - 2026-10-28
 
 ### Added

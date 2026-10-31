@@ -516,7 +516,7 @@ struct SettingsView: View {
             var partialSafetyCopy: URL?
             do {
                 try FileManager.default.createDirectory(at: backupsDirectory, withIntermediateDirectories: true)
-                let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
+                let stamp = BackupArchive.filenameTimestamp()
                 let safetyCopy = backupsDirectory.appendingPathComponent("FinanceTracker-before-category-recovery-\(stamp)-\(UUID().uuidString.prefix(8)).ftbackup")
                 partialSafetyCopy = safetyCopy
                 try await BackupArchive.export(to: safetyCopy, from: modelContext)
@@ -950,7 +950,7 @@ struct SettingsView: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = []
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "FinanceTracker-\(ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")).ftbackup"
+        panel.nameFieldStringValue = "FinanceTracker-\(BackupArchive.filenameTimestamp()).ftbackup"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         isExporting = true
         Task {

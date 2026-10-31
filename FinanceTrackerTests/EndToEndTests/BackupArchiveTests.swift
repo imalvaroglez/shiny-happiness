@@ -151,6 +151,18 @@ struct BackupArchiveTests {
         try encoder.encode(manifest).write(to: manifestURL)
     }
 
+    @Test("Backup filename timestamps use the user's local time, not UTC")
+    func backupFilenameTimestampsUseLocalTime() throws {
+        let instant = Date(timeIntervalSince1970: 1_793_393_680) // 2026-10-30T20:54:40Z
+        let mexicoCity = try #require(TimeZone(identifier: "America/Mexico_City"))
+        let tokyo = try #require(TimeZone(identifier: "Asia/Tokyo"))
+
+        // Local wall time + explicit numeric offset: readable for the single
+        // user and unambiguous about the instant.
+        #expect(BackupArchive.filenameTimestamp(for: instant, timeZone: mexicoCity) == "2026-10-30T14-54-40-0600")
+        #expect(BackupArchive.filenameTimestamp(for: instant, timeZone: tokyo) == "2026-10-31T05-54-40+0900")
+    }
+
     @Test("Backup catalog uses manifest dates and selects the latest valid bundle")
     func backupCatalogSelectsLatestManifestDate() throws {
         let root = FileManager.default.temporaryDirectory
