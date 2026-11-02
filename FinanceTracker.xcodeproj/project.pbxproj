@@ -116,6 +116,7 @@
 		6C2466F189D75B6D915712E6 /* CategoryChartPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8034482DD34FC902C348F89 /* CategoryChartPaletteTests.swift */; };
 		6C536F153D2CE8B50657000A /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8573C4DA0BD52C0E219ABFF9 /* Logger.swift */; };
 		6DFE2DB85B4920EF6E018B70 /* CategoryManagementViewStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6CF100B0E88A7CD064C9C1 /* CategoryManagementViewStateTests.swift */; };
+		6F2ED7DA8FB6264F68F34C17 /* CaptureDateSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 884055E937E927B43AFDE9FD /* CaptureDateSanitizer.swift */; };
 		6FD36B55DDA353AF7F137279 /* DateRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED26F454D1983B2A8414793D /* DateRange.swift */; };
 		700344262340C795EC412A1E /* SeedDataLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32D2CADB3F7DBA60D048605 /* SeedDataLoader.swift */; };
 		71F615C11AC008A48311B679 /* PositionsEditSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B532AAEC94387E3E129ED22 /* PositionsEditSheet.swift */; };
@@ -390,6 +391,7 @@
 		8573C4DA0BD52C0E219ABFF9 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		85D83A877FD5CA99C442F448 /* KnowledgeLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeLoader.swift; sourceTree = "<group>"; };
 		882AEA5E14971263B64BCEDF /* ManualAccountSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualAccountSheet.swift; sourceTree = "<group>"; };
+		884055E937E927B43AFDE9FD /* CaptureDateSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureDateSanitizer.swift; sourceTree = "<group>"; };
 		8C7D22FF552A54C707D08AA2 /* FinanceTrackerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceTrackerApp.swift; sourceTree = "<group>"; };
 		8CFAB91AA3DC62010150FA18 /* ManualTransactionKindTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualTransactionKindTests.swift; sourceTree = "<group>"; };
 		8D0F8EAA9E3499170618A1C7 /* DashboardChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardChrome.swift; sourceTree = "<group>"; };
@@ -662,6 +664,7 @@
 			isa = PBXGroup;
 			children = (
 				1AE3A402ECAC8EDC5B7D22E7 /* AppDataResetService.swift */,
+				884055E937E927B43AFDE9FD /* CaptureDateSanitizer.swift */,
 				8DD59B22E4D0D8F119D3DFD8 /* CategoryBadgeColor.swift */,
 				C9E50E2730A222AAB7A85809 /* CategoryCustomizationState.swift */,
 				C365A42008157D3C59E87ED2 /* CategoryCustomizationStore.swift */,
@@ -1223,6 +1226,7 @@
 				506056A6B4535F878567078D /* BackupStatusPresentation.swift in Sources */,
 				38155FEDD54751ED6C365C87 /* BalanceSnapshotSheet.swift in Sources */,
 				B9EABF2891A45A74F37B3BA0 /* BreakdownSheet.swift in Sources */,
+				6F2ED7DA8FB6264F68F34C17 /* CaptureDateSanitizer.swift in Sources */,
 				5A66C861137A24400C347A29 /* Categorizer.swift in Sources */,
 				67C2E17E0F840DEB49B58867 /* Category.swift in Sources */,
 				7C109427A17BB355869F89ED /* CategoryBadgeColor.swift in Sources */,
@@ -1554,7 +1558,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20261030.1;
+				CURRENT_PROJECT_VERSION = 20261102.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1564,7 +1568,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.18.1;
+				MARKETING_VERSION = 0.18.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app.dev;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = "FinanceTracker Dev";
@@ -1598,7 +1602,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = FinanceTracker/FinanceTracker.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20261030.1;
+				CURRENT_PROJECT_VERSION = 20261102.1;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HARDENED_RUNTIME = YES;
@@ -1608,7 +1612,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.18.1;
+				MARKETING_VERSION = 0.18.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.financeTracker.app;
 				PRODUCT_MODULE_NAME = FinanceTracker;
 				PRODUCT_NAME = FinanceTracker;

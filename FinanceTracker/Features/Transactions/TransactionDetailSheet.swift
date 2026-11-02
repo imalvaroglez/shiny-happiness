@@ -798,7 +798,9 @@ struct TransactionDetailSheet: View {
             amountToStore = draftSignedAmount
         }
 
-        transaction.postedAt = draftDate
+        // Same poisoned-hour guard as the capture sheet: editing a movement to
+        // "today" with a date-only picker must not land it in the future.
+        transaction.postedAt = CaptureDateSanitizer.sanitize(draftDate)
         transaction.descriptionRaw = draftDescription
         transaction.merchantNormalized = draftDescription
         transaction.amount = amountToStore

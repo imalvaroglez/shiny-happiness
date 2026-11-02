@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-11-02
+
+### Fixed
+
+- Las capturas con fecha de hoy ya nunca aterrizan en el futuro: el selector de día conserva la hora de la última captura sugerida y una hora vespertina heredada dejaba el movimiento «esta noche» — silenciosamente excluido de cada saldo a la fecha. La hora futura del día de hoy se ajusta al momento de la captura (la sugerencia y la edición aplican la misma regla); posfechar a un día futuro explícito sigue permitido.
+
 ## [0.18.1] - 2026-10-30
 
 ### Fixed
