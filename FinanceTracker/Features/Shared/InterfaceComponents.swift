@@ -1,13 +1,22 @@
 import SwiftUI
 
 /// Accounts and houses share the exact sidebar hierarchy and native disclosure behavior.
+/// `trailing` puts always-visible controls (e.g. the account sort menu) next to
+/// the title; right-click remains as a secondary path, not the only one.
 struct SidebarDestinationGroup<Content: View>: View {
     let title: String
     @Binding var isExpanded: Bool
+    var trailing: AnyView? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded, content: content) { Text(LocalizedStringKey(title)) }
+        DisclosureGroup(isExpanded: $isExpanded, content: content) {
+            HStack(spacing: 4) {
+                Text(LocalizedStringKey(title))
+                Spacer(minLength: 8)
+                if let trailing { trailing }
+            }
+        }
     }
 }
 

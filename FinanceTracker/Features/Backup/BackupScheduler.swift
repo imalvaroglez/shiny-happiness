@@ -24,11 +24,6 @@ enum BackupScheduler {
             return
         }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ss'Z'"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-
         let existingBundles = backupURLs(in: backupsDir)
         if let mostRecent = existingBundles.last {
             let attrs: Date
@@ -44,7 +39,9 @@ enum BackupScheduler {
             Logger.app.info("BackupScheduler: último backup \(mostRecent.lastPathComponent) tiene >24h; generando uno nuevo.")
         }
 
-        let timestamp = formatter.string(from: Date.now)
+        // Nombre del bundle en hora local del usuario (offset explícito);
+        // la poda ordena por mtime, no por nombre.
+        let timestamp = BackupArchive.filenameTimestamp()
         let bundleURL = backupsDir.appendingPathComponent("\(timestamp).ftbackup")
 
         do {

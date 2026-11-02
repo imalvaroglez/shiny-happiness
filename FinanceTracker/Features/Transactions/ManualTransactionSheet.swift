@@ -290,7 +290,10 @@ struct ManualTransactionSheet: View {
     /// el usuario no ha editado la fecha en esta sesión de captura.
     private func applyDateSuggestion() {
         guard !didEditDate, let accountID else { return }
-        date = ManualCaptureDateStore.suggestedDate(accountID: accountID) ?? .now
+        // The suggestion carries the last capture's time-of-day; if that hour
+        // is in the future for today, clamp instead of re-seeding the loop.
+        date = ManualCaptureDateStore.suggestedDate(accountID: accountID)
+            .map { CaptureDateSanitizer.sanitize($0) } ?? .now
     }
 
     /// PA-05: al cambiar de cuenta (o a transfer/pago) la selección no puede
@@ -655,6 +658,10 @@ struct ManualTransactionSheet: View {
     }
 
     private func save() {
+        // A "today" capture can never be in the future: the date-only picker
+        // keeps the suggestion's time-of-day, and a poisoned evening hour
+        // would silently exclude the movement from every as-of-now balance.
+        date = CaptureDateSanitizer.sanitize(date)
         if let pendingPropertyTransaction {
             do {
                 try persistPropertyAttribution(for: pendingPropertyTransaction)

@@ -2155,6 +2155,135 @@ struct DashboardPeriodFilteringTests {
         )
     }
 
+    @Test("Manual transaction saved after configure refreshes balances via refreshAfterDataChange")
+    func refreshAfterDataChangeReflectsLateManualTransaction() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Test Bank", type: .checking, openedAt: date(year: 2026, month: 1, day: 1))
+        context.insert(account)
+        context.insert(AccountBalanceSnapshot(account: account, date: date(year: 2026, month: 5, day: 1), amount: 3_490, kind: .manualAdjustment))
+        try context.save()
+
+        let launch = date(year: 2026, month: 7, day: 2)
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(.month, now: launch)
+        viewModel.configure(context: context)
+
+        // The user captures an expense later the same day, strictly after the
+        // `now` the dashboard was built with (the reported staleness bug).
+        let capture = launch.addingTimeInterval(2 * 60 * 60)
+        _ = try ManualTransactionService.create(
+            account: account,
+            date: capture,
+            description: "Jueza de Brenda",
+            signedAmount: -3_000,
+            category: nil,
+            context: context
+        )
+
+        viewModel.refreshAfterDataChange(now: capture.addingTimeInterval(60))
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+        #expect(snap.overviewAccountSummaries.first?.latestBalance == 490)
+        #expect(snap.latestNetWorth == 490)
+
+        viewModel.scope = .account(account.id)
+        viewModel.refreshAfterDataChange(now: capture.addingTimeInterval(60))
+        guard case .asset(let asset) = viewModel.snapshot else {
+            Issue.record("Expected asset snapshot"); return
+        }
+        #expect(asset.currentBalance == 490)
+    }
+
+    @Test("refreshAfterDataChange pins custom ranges to their own end while keeping latest metrics fresh")
+    func refreshAfterDataChangeKeepsCustomRangePinned() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Test Bank", type: .checking, openedAt: date(year: 2026, month: 1, day: 1))
+        context.insert(account)
+        context.insert(AccountBalanceSnapshot(account: account, date: date(year: 2026, month: 5, day: 1), amount: 1_000, kind: .manualAdjustment))
+        context.insert(Transaction(account: account, postedAt: date(year: 2026, month: 6, day: 5), amount: 500, descriptionRaw: "June income", source: .manual))
+        try context.save()
+
+        let mayRange = DateRange(start: date(year: 2026, month: 5, day: 1), end: date(year: 2026, month: 5, day: 31))
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(.custom, customRange: mayRange, now: date(year: 2026, month: 6, day: 10))
+        viewModel.configure(context: context)
+        // `setPeriod` normalizes a custom end to end-of-day; the invariant to
+        // protect is that a data-change refresh never moves it.
+        let pinnedEnd = viewModel.dateRange.end
+
+        // One movement inside the pinned range and one after it, both captured
+        // after the dashboard snapshot was built.
+        _ = try ManualTransactionService.create(
+            account: account,
+            date: date(year: 2026, month: 5, day: 15),
+            description: "Dentista",
+            signedAmount: -200,
+            category: nil,
+            context: context
+        )
+        _ = try ManualTransactionService.create(
+            account: account,
+            date: date(year: 2026, month: 6, day: 18),
+            description: "June dinner",
+            signedAmount: -50,
+            category: nil,
+            context: context
+        )
+
+        viewModel.refreshAfterDataChange(now: date(year: 2026, month: 6, day: 20))
+
+        // A custom range is point-in-time by design: its end never moves.
+        #expect(viewModel.dateRange.end == pinnedEnd)
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+        // As-of May 31: anchor 1_000 − 200 (May 15). June movements don't count.
+        #expect(snap.netWorth == 800)
+        // Latest metrics track the newest data regardless of the pinned range.
+        #expect(snap.latestNetWorth == 1_250)
+    }
+
+    @Test("Period switch after a data-change refresh keeps serving fresh balances")
+    func periodSwitchAfterDataChangeServesFreshBalances() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = Account(institution: "Test Bank", type: .checking, openedAt: date(year: 2026, month: 1, day: 1))
+        context.insert(account)
+        context.insert(AccountBalanceSnapshot(account: account, date: date(year: 2026, month: 5, day: 1), amount: 3_490, kind: .manualAdjustment))
+        try context.save()
+
+        let launch = date(year: 2026, month: 7, day: 2)
+        let viewModel = DashboardViewModel()
+        viewModel.setPeriod(.month, now: launch)
+        viewModel.configure(context: context)
+
+        let capture = launch.addingTimeInterval(2 * 60 * 60)
+        _ = try ManualTransactionService.create(
+            account: account,
+            date: capture,
+            description: "Jueza de Brenda",
+            signedAmount: -3_000,
+            category: nil,
+            context: context
+        )
+        viewModel.refreshAfterDataChange(now: capture.addingTimeInterval(60))
+
+        // The reuse-cached period switch (the user's Mes → Trimestre flow) must
+        // reuse the *fresh* sampler, never a pre-save one.
+        viewModel.setPeriod(.quarter, now: capture.addingTimeInterval(120))
+        viewModel.refresh()
+
+        guard case .consolidated(let snap) = viewModel.snapshot else {
+            Issue.record("Expected consolidated snapshot"); return
+        }
+        #expect(snap.overviewAccountSummaries.first?.latestBalance == 490)
+    }
+
     private func date(year: Int, month: Int, day: Int) -> Date {
         var components = DateComponents()
         components.year = year

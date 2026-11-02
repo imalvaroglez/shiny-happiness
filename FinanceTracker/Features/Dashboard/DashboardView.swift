@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Combine
 import Charts
 import os
 
@@ -24,6 +25,7 @@ struct DashboardView: View {
     @State private var transactionSession = TransactionSessionState()
     @State private var propertyWorkspace = PropertyWorkspaceModel()
     @AppStorage("sidebarPropertiesExpanded") private var sidebarPropertiesExpanded = true
+    @AppStorage("sidebarManageExpanded") private var sidebarManageExpanded = true
 
     @Query private var accounts: [Account]
     @AppStorage("sidebarAccountSort") private var sidebarAccountSort = "nickname"
@@ -171,6 +173,25 @@ struct DashboardView: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             if scenePhase == .active { viewModel.refreshForCalendarChange() }
         }
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: ModelContext.didSave)
+                // Side contexts of the same container must refresh too —
+                // backup restores and the settings editor save on private
+                // contexts, and an object-filtered subscription would leave
+                // the dashboard stale after exactly those flows.
+                // Filter BEFORE throttling: throttle only delivers the first
+                // and latest event of each window, so a relevant save buried
+                // under later irrelevant ones in the same window would be lost
+                // if the filter ran downstream.
+                .filter { DashboardDataChangePolicy.isBalanceRelevant($0, container: modelContext.container) }
+                .throttle(for: .milliseconds(500), scheduler: RunLoop.main, latest: true)
+        ) { _ in
+            // A save from anywhere — Movimientos manual capture, edits, ingest,
+            // pending-import resolutions — must be visible immediately: rebuild
+            // the balance samplers and advance the period clock in one pass.
+            viewModel.refreshAfterDataChange()
+        }
         .popover(isPresented: $showingCustomRange) {
             customDatePopover
         }
@@ -216,7 +237,7 @@ struct DashboardView: View {
             Label("Overview", systemImage: "chart.pie")
                 .tag(SidebarSelection.overview)
 
-            SidebarDestinationGroup(title: "Accounts", isExpanded: $sidebarAccountsExpanded) {
+            SidebarDestinationGroup(title: "Accounts", isExpanded: $sidebarAccountsExpanded, trailing: AnyView(sortAccountsMenu)) {
                 if activeAccounts.isEmpty {
                     Text("No accounts yet").font(.caption).foregroundStyle(.secondary)
                 }
@@ -246,7 +267,9 @@ struct DashboardView: View {
                     }
             }
             .accessibilityIdentifier("properties.sidebar.item")
-            Section {
+            // Mismo patrón de grupo que Cuentas/Propiedades: sin él, tres botones
+            // sueltos flotan tras los desplegables y rompen el ritmo del sidebar.
+            SidebarDestinationGroup(title: "Manage", isExpanded: $sidebarManageExpanded) {
                 Label("Transactions", systemImage: "list.bullet")
                     .tag(SidebarSelection.transactions)
                 Label("Import Statements", systemImage: "doc.badge.plus")
@@ -256,6 +279,31 @@ struct DashboardView: View {
             }
         }
         .listStyle(.sidebar)
+    }
+
+    /// Visible sort control next to the "Accounts" header — the right-click
+    /// menu stays as a secondary path, but the affordance must be discoverable.
+    private var sortAccountsMenu: some View {
+        Menu {
+            ForEach([("nickname", "Account name"), ("institution", "Institution"), ("type", "Type")], id: \.0) { key, label in
+                Button {
+                    sidebarAccountSort = key
+                } label: {
+                    if sidebarAccountSort == key {
+                        Label(label, systemImage: "checkmark")
+                    } else {
+                        Text(label)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 18)
+        .fixedSize()
+        .help("Sort accounts")
     }
 
     // MARK: - Detail pane dispatch
@@ -554,10 +602,15 @@ private struct AccountSidebarRow: View {
                 Text(account.displayName)
                     .font(.body)
                     .lineLimit(1)
-                Text(account.institution)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                if let institution = AccountDisplay.institutionLabel(
+                    displayName: account.displayName,
+                    institution: account.institution
+                ) {
+                    Text(institution)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.vertical, 4)

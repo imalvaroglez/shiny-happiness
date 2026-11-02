@@ -122,6 +122,26 @@ final class DashboardViewModel {
         refresh()
     }
 
+    /// Rebuilds the snapshot after underlying data changed (a `Transaction`,
+    /// `Statement`, `AccountBalanceSnapshot`, … was saved from anywhere).
+    ///
+    /// Unlike a plain `refresh()`, this also drops the balance-sampler reuse
+    /// flags — a save that happened after the last refresh must never be served
+    /// from a frozen sampler — and advances the clock, because
+    /// `effectiveNetWorthDate` pins to `dateRange.end` and the resolver cuts
+    /// transactions posted after it. The clock (`periodNow`) always advances so
+    /// "latest" metrics see brand-new data; the window (`dateRange`) stays
+    /// pinned for custom ranges, which are point-in-time by design.
+    func refreshAfterDataChange(now: Date = .now) {
+        reuseBalanceSamplerCacheOnNextRefresh = false
+        reuseSpendRequirementCacheOnNextRefresh = false
+        periodNow = now
+        if periodKind != .custom {
+            dateRange = periodKind.resolvedRange(now: now)
+        }
+        refresh()
+    }
+
     func refresh() {
         guard let context else {
             snapshot = .empty(EmptySnapshot(reason: "No model context"))

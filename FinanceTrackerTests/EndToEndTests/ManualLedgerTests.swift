@@ -927,6 +927,32 @@ struct ManualLedgerTests {
         #expect(try context.fetch(FetchDescriptor<Transaction>()).isEmpty)
     }
 
+    @Test("Capture dates on today clamp a future time-of-day to now")
+    func captureDateTodayWithFutureTimeClampsToNow() throws {
+        var components = Calendar.current.dateComponents([.year, .month, .day], from: Date.now)
+        components.hour = 20
+        components.minute = 4
+        let tonight = try #require(Calendar.current.date(from: components))
+        let noon = try #require(Calendar.current.date(byAdding: .hour, value: -8, to: tonight))
+
+        // The poisoned loop: picker keeps the last capture's 20:04 while the
+        // user picks "today" at noon — the capture must land at now, not tonight.
+        #expect(CaptureDateSanitizer.sanitize(tonight, now: noon) == noon)
+    }
+
+    @Test("Capture dates keep past moments, past days and explicit postdating")
+    func captureDateSanitizerLeavesLegitimateDatesAlone() throws {
+        let now = Date.now
+        let calendar = Calendar.current
+        let thisMorning = try #require(calendar.date(byAdding: .hour, value: -3, to: now))
+        let yesterday = try #require(calendar.date(byAdding: .day, value: -1, to: now))
+        let tomorrow = try #require(calendar.date(byAdding: .day, value: 1, to: now))
+
+        #expect(CaptureDateSanitizer.sanitize(thisMorning, now: now) == thisMorning)
+        #expect(CaptureDateSanitizer.sanitize(yesterday, now: now) == yesterday)
+        #expect(CaptureDateSanitizer.sanitize(tomorrow, now: now) == tomorrow)
+    }
+
     @Test("Valuation adjustment rejects a stale archived account object")
     func valuationAdjustmentRejectsStaleArchivedAccountObject() throws {
         let container = try makeContainer()
