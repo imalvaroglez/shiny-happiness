@@ -922,7 +922,9 @@ struct TransactionDetailSheet: View {
         let original = ledger.attributions.first { $0.transactionID == transaction.id && $0.deletedAt == nil }
         let draftResponsibility = draftPropertyID != nil ? try propertyDraftResponsibility() : nil
         if PropertyAssignmentService.isLocked(transaction.id, ledger: ledger) {
-            let associationChanged = draftPropertyID != original?.propertyID
+            // An unloaded draft cannot carry a property-change intention; an
+            // empty selector from a failed load must not read as a change.
+            let associationChanged = propertyDraftStateLoaded && draftPropertyID != original?.propertyID
                 || (draftPropertyID != nil && draftResponsibility != original?.responsibility)
                 || (draftPropertyID != nil && draftPropertyKind != original?.kind)
             let householdChanged = draftIncluded != transaction.isIncludedInHouseholdSettlement

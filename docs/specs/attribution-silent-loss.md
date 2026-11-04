@@ -32,8 +32,22 @@ de que la carga termine. En ese estado, guardar cualquier edición menor
   propiedad y hogar son excluyentes).
 - Si el estado del draft **no cargó** (lectura fallida o prematura), el
   selector vacío significa "desconocido", nunca "quitar": guardar NO toca la
-  atribución. La edición del resto de campos del movimiento se guarda con
-  normalidad.
+  atribución y nunca bloquea la edición con el error de "cálculo cerrado"
+  (una intención de cambio de propiedad no puede existir sin draft cargado).
+- Falla visible, nunca silenciosa: si la lectura del ledger **sigue fallando
+  al guardar**, `validatePropertyDraft` aborta el guardado completo con el
+  error visible (comportamiento preexistente conservado) — la edición no se
+  aplica, pero tampoco se pierde la atribución en silencio.
+
+## Limitación conocida (hallazgo de revisión, decisión pendiente del dueño)
+
+El guard no compara el ledger contra la lectura de apertura: si una segunda
+ventana o un restore atribuye esta transacción a una propiedad **después** de
+abrir la hoja (con el selector legítimamente vacío al abrir), guardar una
+edición des-activa esa atribución nueva. El flujo de promociones de esta misma
+hoja sí protege ese caso (`PromotionLedgerStore.setAttributions` lanza
+`attributionChanged`); añadir el equivalente a propiedad queda como trabajo
+futuro si el dueño lo decide.
 
 ## No-goals
 
