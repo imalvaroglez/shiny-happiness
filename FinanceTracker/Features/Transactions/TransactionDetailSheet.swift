@@ -924,7 +924,7 @@ struct TransactionDetailSheet: View {
         if PropertyAssignmentService.isLocked(transaction.id, ledger: ledger) {
             // An unloaded draft cannot carry a property-change intention; an
             // empty selector from a failed load must not read as a change.
-            let associationChanged = propertyDraftStateLoaded && draftPropertyID != original?.propertyID
+            let associationChanged = (propertyDraftStateLoaded && draftPropertyID != original?.propertyID)
                 || (draftPropertyID != nil && draftResponsibility != original?.responsibility)
                 || (draftPropertyID != nil && draftPropertyKind != original?.kind)
             let householdChanged = draftIncluded != transaction.isIncludedInHouseholdSettlement
@@ -957,11 +957,10 @@ struct TransactionDetailSheet: View {
             // An empty selector only removes the attribution when the draft
             // state actually loaded — an unloaded draft (failed/early ledger
             // read) is "unknown", never "remove".
-            guard PropertyAssignmentService.shouldDeactivateAttribution(
-                draftPropertyID: nil,
-                draftStateLoaded: propertyDraftStateLoaded,
-                hasActiveAttribution: existingIndex != nil) else { return }
-            guard let index = existingIndex else { return }
+            guard let index = existingIndex,
+                  PropertyAssignmentService.shouldDeactivateAttribution(
+                    draftStateLoaded: propertyDraftStateLoaded,
+                    hasActiveAttribution: true) else { return }
             ledger.attributions[index].deletedAt = .now; ledger.attributions[index].updatedAt = .now
             try PropertyLedgerStore.replace(with: ledger)
             return

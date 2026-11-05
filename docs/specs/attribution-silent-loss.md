@@ -62,8 +62,8 @@ futuro si el dueño lo decide.
 ## Implementación
 
 1. Función pura `PropertyAssignmentService.shouldDeactivateAttribution(
-   draftPropertyID:draftStateLoaded:hasActiveAttribution:)` — decisión
-   testeable sin UI.
+   draftStateLoaded:hasActiveAttribution:)` — decisión testeable sin UI (el
+   caller ya está dentro de la rama de selector vacío).
 2. `TransactionDetailSheet`: bandera `propertyDraftStateLoaded` (false al
    iniciar `loadPropertyDraft()`, true tras una lectura exitosa con o sin
    atribución activa); la rama de borrado en `savePropertyAssociation` exige
