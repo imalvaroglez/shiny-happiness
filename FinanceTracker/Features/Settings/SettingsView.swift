@@ -931,10 +931,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
+        "Editar un movimiento ya no le quita en silencio la propiedad atribuida: quitarla exige elegir «Ninguna» con el estado cargado.",
+        "Una edición inocente de una transacción con cálculo cerrado ya no se bloquea cuando la propiedad no alcanzó a cargar.",
         "Consulta la cuenta de cada integrante: un desglose que suma a mano hasta el saldo y sugiere el pago neto.",
         "Registra pagos sin bloqueos: una referencia dañada nunca detiene un cobro nuevo ni cuenta como dinero.",
-        "Recupera cobros a medio vincular aunque cierres la app: la recuperación viaja con el movimiento.",
-        "Clasifica gastos suyos y compartidos por integrante, con Sankey al 80 % y colores de alto contraste.",
         "Cuentas archivadas o cerradas fuera de la captura, con validación fresca al guardar en todas las rutas.",
     ]
 

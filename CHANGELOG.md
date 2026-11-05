@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-11-04
+
 ### Fixed
 
 - Editar y guardar un movimiento desde su hoja de detalle ya no le quita en silencio la propiedad atribuida: la des-activación exige ahora una decisión conocida (selector en «Ninguna» con el estado cargado); si la lectura del ledger falló al abrir la hoja, el selector vacío significa «desconocido» y la atribución se conserva. En ese mismo estado, una edición inocente de una transacción con cálculo cerrado ya no se bloquea con «pertenece a un cálculo cerrado».
