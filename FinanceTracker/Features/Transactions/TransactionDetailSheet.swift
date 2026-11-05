@@ -39,6 +39,11 @@ struct TransactionDetailSheet: View {
     @State private var propertyLedger = PropertyLedger()
     @State private var propertySourceAtOpen: PropertyTransactionInput?
     @State private var draftPropertyID: UUID?
+    /// True once the property selector reflects the ledger read at sheet-open
+    /// (with or without an active attribution). While false, an empty selector
+    /// means "unknown", never "remove from property" — see
+    /// docs/specs/attribution-silent-loss.md.
+    @State private var propertyDraftStateLoaded = false
     @State private var draftPropertyKind: PropertyExpenseKind = .operation
     @State private var draftPropertyResponsibility: PropertyCaptureResponsibility = .shared
     @State private var draftPropertyResidentID: UUID?
@@ -454,21 +459,26 @@ struct TransactionDetailSheet: View {
 
     private func loadPropertyDraft() {
         propertySourceAtOpen = propertyInput(transaction)
+        propertyDraftStateLoaded = false
         do {
             propertyLedger = try PropertyLedgerStore.read()
-            guard let attribution = propertyLedger.attributions.filter({
+            if let attribution = propertyLedger.attributions.filter({
                 $0.transactionID == transaction.id && $0.deletedAt == nil
-            }).max(by: { $0.updatedAt < $1.updatedAt }) else { return }
-            draftPropertyID = attribution.propertyID
-            draftPropertyKind = transaction.amount > 0 && attribution.kind != .reimbursement
-                ? .operation : attribution.kind
-            draftMaintenanceProgramID = attribution.maintenanceProgramID
-            switch attribution.responsibility {
-            case .shared: draftPropertyResponsibility = .shared
-            case .owner: draftPropertyResponsibility = .owner
-            case .individual(let id): draftPropertyResponsibility = .individual; draftPropertyResidentID = id
-            case .selected(let ids): draftPropertyResponsibility = .selected; draftSelectedPropertyResidents = Set(ids)
+            }).max(by: { $0.updatedAt < $1.updatedAt }) {
+                draftPropertyID = attribution.propertyID
+                draftPropertyKind = transaction.amount > 0 && attribution.kind != .reimbursement
+                    ? .operation : attribution.kind
+                draftMaintenanceProgramID = attribution.maintenanceProgramID
+                switch attribution.responsibility {
+                case .shared: draftPropertyResponsibility = .shared
+                case .owner: draftPropertyResponsibility = .owner
+                case .individual(let id): draftPropertyResponsibility = .individual; draftPropertyResidentID = id
+                case .selected(let ids): draftPropertyResponsibility = .selected; draftSelectedPropertyResidents = Set(ids)
+                }
             }
+            // Both branches are a known state (attribution loaded, or confirmed
+            // none); only a failed read leaves the flag false.
+            propertyDraftStateLoaded = true
         } catch { propertySaveError = error.localizedDescription }
     }
 
@@ -912,7 +922,9 @@ struct TransactionDetailSheet: View {
         let original = ledger.attributions.first { $0.transactionID == transaction.id && $0.deletedAt == nil }
         let draftResponsibility = draftPropertyID != nil ? try propertyDraftResponsibility() : nil
         if PropertyAssignmentService.isLocked(transaction.id, ledger: ledger) {
-            let associationChanged = draftPropertyID != original?.propertyID
+            // An unloaded draft cannot carry a property-change intention; an
+            // empty selector from a failed load must not read as a change.
+            let associationChanged = (propertyDraftStateLoaded && draftPropertyID != original?.propertyID)
                 || (draftPropertyID != nil && draftResponsibility != original?.responsibility)
                 || (draftPropertyID != nil && draftPropertyKind != original?.kind)
             let householdChanged = draftIncluded != transaction.isIncludedInHouseholdSettlement
@@ -942,7 +954,13 @@ struct TransactionDetailSheet: View {
         // A financial-source correction may surface a discrepancy, but never rewrites a closed split.
         if PropertyAssignmentService.isLocked(transaction.id, ledger: ledger) { return }
         guard let draftPropertyID else {
-            guard let index = existingIndex else { return }
+            // An empty selector only removes the attribution when the draft
+            // state actually loaded — an unloaded draft (failed/early ledger
+            // read) is "unknown", never "remove".
+            guard let index = existingIndex,
+                  PropertyAssignmentService.shouldDeactivateAttribution(
+                    draftStateLoaded: propertyDraftStateLoaded,
+                    hasActiveAttribution: true) else { return }
             ledger.attributions[index].deletedAt = .now; ledger.attributions[index].updatedAt = .now
             try PropertyLedgerStore.replace(with: ledger)
             return

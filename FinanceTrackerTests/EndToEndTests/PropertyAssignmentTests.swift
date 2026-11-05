@@ -650,4 +650,23 @@ struct PropertyAssignmentTests {
         #expect(tx.amount == -12.50)
     }
 
+    // MARK: - Atribución perdida en silencio (docs/specs/attribution-silent-loss.md)
+
+    @Test("La des-activación exige draft cargado y atribución activa (tabla de verdad completa)")
+    func attributionDeactivationTruthTable() {
+        // La lectura del ledger falló al abrir la hoja: el selector vacío es
+        // "desconocido", nunca una decisión de quitar la propiedad.
+        #expect(!PropertyAssignmentService.shouldDeactivateAttribution(
+            draftStateLoaded: false, hasActiveAttribution: true))
+        #expect(!PropertyAssignmentService.shouldDeactivateAttribution(
+            draftStateLoaded: false, hasActiveAttribution: false))
+        // Elección explícita de "Ninguna" (o exclusión al mover al hogar):
+        // la única combinación que des-activa.
+        #expect(PropertyAssignmentService.shouldDeactivateAttribution(
+            draftStateLoaded: true, hasActiveAttribution: true))
+        // Sin atribución activa no hay nada que des-activar.
+        #expect(!PropertyAssignmentService.shouldDeactivateAttribution(
+            draftStateLoaded: true, hasActiveAttribution: false))
+    }
+
 }

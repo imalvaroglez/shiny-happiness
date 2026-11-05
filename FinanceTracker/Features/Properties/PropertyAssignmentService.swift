@@ -35,6 +35,19 @@ enum PropertyAssignmentService {
         availability(propertyID: propertyID, ledger: ledger).allows(input)
     }
 
+    /// Whether saving the transaction editor may deactivate the transaction's
+    /// active property attribution when the property selector is empty (the
+    /// caller is already inside the empty-selector branch). An empty selector
+    /// is only a removal decision when the draft state actually loaded (the
+    /// ledger read at sheet-open succeeded): an unloaded draft is "unknown",
+    /// never "remove" — an unrelated edit must not drop an attributed charge
+    /// from its property in silence.
+    /// Spec: docs/specs/attribution-silent-loss.md
+    static func shouldDeactivateAttribution(draftStateLoaded: Bool,
+                                             hasActiveAttribution: Bool) -> Bool {
+        draftStateLoaded && hasActiveAttribution
+    }
+
     static func validate(_ responsibility: PropertyResponsibility, propertyID: UUID, month: Date, ledger: PropertyLedger) throws {
         let active = Set(ledger.residents(for: propertyID, month: month).map(\.id))
         switch responsibility {
