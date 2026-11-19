@@ -119,6 +119,16 @@ struct TransactionSnapshot: Codable {
     var deletedAt: Date?
 }
 
+struct TransactionLinkSnapshot: Codable {
+    var id: UUID
+    var identityKey: String
+    var kindRaw: String
+    var sourceTransactionID: UUID
+    var targetTransactionID: UUID
+    var lastModifiedAt: Date
+    var deletedAt: Date?
+}
+
 struct StatementSnapshot: Codable {
     var id: UUID
     var accountId: UUID?

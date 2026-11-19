@@ -96,6 +96,8 @@ struct ConsolidatedSnapshot {
     var interestSourceTransactions: [Transaction] = []
     var hasUnmatchedCardPayment: Bool = false
     var matchedCardPaymentTransactionIDs: Set<UUID> = []
+    var refundsByPurchaseID: [UUID: [Transaction]] = [:]
+    var linkedRefundIDs: Set<UUID> = []
 
     var cashFlowIncome: Decimal {
         monthlyCashFlow.reduce(Decimal.zero) { $0 + $1.income }
@@ -146,6 +148,8 @@ struct AssetAccountSnapshot {
     /// Card-payment receipt with no matching bank withdrawal, computed over
     /// this account's own transactions only. See `DashboardViewModel.buildAsset`.
     var hasUnmatchedCardPayment: Bool = false
+    var refundsByPurchaseID: [UUID: [Transaction]] = [:]
+    var linkedRefundIDs: Set<UUID> = []
 
     var currencyCode: String { account.currency }
 
@@ -192,6 +196,7 @@ struct LiabilityAccountSnapshot {
     /// Progreso de promociones de la cuenta (evaluado sobre el historial completo, no el
     /// periodo visible — spec G: conciliación hasta la fecha de evaluación).
     var spendRequirementCard: SpendRequirementCardData? = nil
+    var refundsByPurchaseID: [UUID: [Transaction]] = [:]
 
     var amountOwed: Decimal { abs(currentBalance) }
     var daysUntilDue: Int? {

@@ -95,13 +95,15 @@ struct DashboardView: View {
         }
         .environment(\.scopedTint, scopedTint)
         .safeAreaInset(edge: .top) {
-            if let startupWarning {
+            if let warning = startupWarning ?? viewModel.refundProjectionError {
                 HStack {
-                    Text(startupWarning).font(.caption).foregroundStyle(.orange)
+                    Text(warning).font(.caption).foregroundStyle(.orange)
                     Button("Reintentar") {
                         do {
-                            try SeedDataLoader.bootstrapIfNeeded(context: modelContext)
-                            self.startupWarning = nil
+                            if self.startupWarning != nil {
+                                try SeedDataLoader.bootstrapIfNeeded(context: modelContext)
+                                self.startupWarning = nil
+                            }
                             viewModel.refresh()
                         } catch { self.startupWarning = error.localizedDescription }
                     }
@@ -122,6 +124,9 @@ struct DashboardView: View {
             }
             HouseholdAllocationRepairService.repairIfNeeded(context: modelContext)
             viewModel.setPeriod(selectedRange)
+            // Let the loading state reach the screen before the first
+            // synchronous dashboard projection runs against imported history.
+            await Task.yield()
             viewModel.configure(context: modelContext)
             propertyWorkspace.configure(context: modelContext, hasAccounts: !accounts.isEmpty)
             await propertyWorkspace.loadLedger()
@@ -184,13 +189,16 @@ struct DashboardView: View {
                 // and latest event of each window, so a relevant save buried
                 // under later irrelevant ones in the same window would be lost
                 // if the filter ran downstream.
-                .filter { DashboardDataChangePolicy.isBalanceRelevant($0, container: modelContext.container) }
+                .filter { DashboardDataChangePolicy.isDashboardRelevant($0, container: modelContext.container) }
                 .throttle(for: .milliseconds(500), scheduler: RunLoop.main, latest: true)
-        ) { _ in
-            // A save from anywhere — Movimientos manual capture, edits, ingest,
-            // pending-import resolutions — must be visible immediately: rebuild
-            // the balance samplers and advance the period clock in one pass.
-            viewModel.refreshAfterDataChange()
+        ) { notification in
+            // Link-only saves retain transaction and balance caches; edits,
+            // imports, and restores invalidate the full dashboard projection.
+            if DashboardDataChangePolicy.containsOnlyTransactionLinks(notification, container: modelContext.container) {
+                viewModel.refreshAfterTransactionLinksChanged()
+            } else {
+                viewModel.refreshAfterDataChange()
+            }
         }
         .popover(isPresented: $showingCustomRange) {
             customDatePopover
@@ -211,7 +219,7 @@ struct DashboardView: View {
             TransactionDetailSheet(
                 transaction: tx,
                 onCategoryAssigned: { _ in },
-                onSaved: { viewModel.refresh() }
+                onSaved: { viewModel.refreshAfterDataChange() }
             )
         }
         .sheet(isPresented: $showingPaymentDetails) {
@@ -436,7 +444,7 @@ struct DashboardView: View {
             ManualTransactionSheet(
                 defaultAccountID: selectedAccount?.id,
                 lockedAccountID: selectedAccount?.id,
-                onSaved: { viewModel.refresh() }
+                onSaved: { viewModel.refreshAfterDataChange() }
             )
         }
     }

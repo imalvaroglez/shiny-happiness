@@ -11,7 +11,7 @@ struct DashboardDataChangePolicyTests {
         Account(institution: "Test Bank", type: .checking, openedAt: Date(timeIntervalSince1970: 0))
     }
 
-    @Test("Balance-relevant entities trigger a refresh")
+    @Test("Dashboard-relevant entities trigger a refresh")
     func relevantEntitiesTriggerRefresh() {
         let account = bareAccount()
         let transaction = Transaction(
@@ -32,23 +32,36 @@ struct DashboardDataChangePolicyTests {
             periodEnd: Date(timeIntervalSince1970: 1),
             sourceFileHash: "hash"
         )
+        let sourceID = UUID()
+        let targetID = UUID()
+        let link = TransactionLink(
+            id: UUID(),
+            identityKey: "refund:\(sourceID.uuidString.lowercased())",
+            kind: .refund,
+            sourceTransactionID: sourceID,
+            targetTransactionID: targetID,
+            lastModifiedAt: Date(timeIntervalSince1970: 0)
+        )
 
-        #expect(DashboardDataChangePolicy.isBalanceRelevant(changedObjects: [transaction]))
-        #expect(DashboardDataChangePolicy.isBalanceRelevant(changedObjects: [account]))
-        #expect(DashboardDataChangePolicy.isBalanceRelevant(changedObjects: [snapshot]))
-        #expect(DashboardDataChangePolicy.isBalanceRelevant(changedObjects: [statement]))
+        #expect(DashboardDataChangePolicy.isDashboardRelevant(changedObjects: [transaction]))
+        #expect(DashboardDataChangePolicy.isDashboardRelevant(changedObjects: [account]))
+        #expect(DashboardDataChangePolicy.isDashboardRelevant(changedObjects: [snapshot]))
+        #expect(DashboardDataChangePolicy.isDashboardRelevant(changedObjects: [statement]))
+        #expect(DashboardDataChangePolicy.isDashboardRelevant(changedObjects: [link]))
+        #expect(DashboardDataChangePolicy.containsOnlyTransactionLinks(changedObjects: [link]))
+        #expect(!DashboardDataChangePolicy.containsOnlyTransactionLinks(changedObjects: [link, transaction]))
     }
 
-    @Test("Objects that never move balances are ignored")
+    @Test("Objects unrelated to dashboard data are ignored")
     func irrelevantObjectsAreIgnored() {
-        #expect(!DashboardDataChangePolicy.isBalanceRelevant(changedObjects: []))
-        #expect(!DashboardDataChangePolicy.isBalanceRelevant(changedObjects: ["string", 42]))
+        #expect(!DashboardDataChangePolicy.isDashboardRelevant(changedObjects: []))
+        #expect(!DashboardDataChangePolicy.isDashboardRelevant(changedObjects: ["string", 42]))
     }
 
     @Test("Notifications without readable userInfo fail open")
     func notificationWithoutUserInfoFailsOpen() {
         let notification = Notification(name: ModelContext.didSave, object: nil)
-        #expect(DashboardDataChangePolicy.isBalanceRelevant(notification))
+        #expect(DashboardDataChangePolicy.isDashboardRelevant(notification))
     }
 
     @Test("Saves from side contexts of the same container are relevant — the restore path")
@@ -74,7 +87,7 @@ struct DashboardDataChangePolicyTests {
         try sideContext.save()
 
         let notification = Notification(name: ModelContext.didSave, object: sideContext)
-        #expect(DashboardDataChangePolicy.isBalanceRelevant(notification, container: container))
+        #expect(DashboardDataChangePolicy.isDashboardRelevant(notification, container: container))
     }
 
     @Test("Saves from a different container are ignored")
@@ -94,7 +107,7 @@ struct DashboardDataChangePolicyTests {
         try foreignContext.save()
 
         let notification = Notification(name: ModelContext.didSave, object: foreignContext)
-        #expect(!DashboardDataChangePolicy.isBalanceRelevant(notification, container: own))
+        #expect(!DashboardDataChangePolicy.isDashboardRelevant(notification, container: own))
     }
 
     @Test("Notification userInfo is inspected when present")
@@ -111,7 +124,20 @@ struct DashboardDataChangePolicyTests {
             object: nil,
             userInfo: ["insertedObjects": [transaction]]
         )
-        #expect(DashboardDataChangePolicy.isBalanceRelevant(relevant))
+        #expect(DashboardDataChangePolicy.isDashboardRelevant(relevant))
+
+        let link = TransactionLink(
+            id: UUID(), identityKey: "refund:test", kind: .refund,
+            sourceTransactionID: UUID(), targetTransactionID: UUID(),
+            lastModifiedAt: Date(timeIntervalSince1970: 0)
+        )
+        let linkOnly = Notification(
+            name: ModelContext.didSave,
+            object: nil,
+            userInfo: ["insertedObjects": [link]]
+        )
+        #expect(DashboardDataChangePolicy.containsOnlyTransactionLinks(linkOnly))
+        #expect(!DashboardDataChangePolicy.containsOnlyTransactionLinks(relevant))
 
         // Concrete irrelevant models prove irrelevance at the notification
         // layer too. Opaque payloads (strings, IDs) fail open by design.
@@ -120,6 +146,6 @@ struct DashboardDataChangePolicyTests {
             object: nil,
             userInfo: ["changedObjects": ["seed"]]
         )
-        #expect(DashboardDataChangePolicy.isBalanceRelevant(irrelevant))
+        #expect(DashboardDataChangePolicy.isDashboardRelevant(irrelevant))
     }
 }

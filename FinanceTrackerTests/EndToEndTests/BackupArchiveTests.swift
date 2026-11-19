@@ -538,7 +538,7 @@ struct BackupArchiveTests {
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: manifestData)
 
-        #expect(manifest.schemaVersion == 14)
+        #expect(manifest.schemaVersion == 15)
         #expect(!manifest.contentHashes.isEmpty, "Manifest should have content hashes")
 
         for (name, _) in manifest.contentHashes {
@@ -548,6 +548,97 @@ struct BackupArchiveTests {
         }
 
         try? FileManager.default.removeItem(at: tmp)
+    }
+
+    @Test("Backup v15 restores refund links and merge preserves newer unlink tombstones")
+    func transactionLinkBackupMergeAndLegacyRestore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transaction-link-backup-\(UUID())", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("snapshot.ftbackup", isDirectory: true)
+        let legacyBundle = root.appendingPathComponent("legacy-v14.ftbackup", isDirectory: true)
+
+        let source = try makeContainer()
+        let sourceContext = source.mainContext
+        let card = Account(institution: "American Express", type: .creditCard, currency: "MXN", nickname: "Platinum")
+        let bank = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Checking")
+        let category = Category(name: "Purchases", kind: .expense)
+        let purchaseDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let purchase = Transaction(account: card, postedAt: purchaseDate, amount: -1_200,
+                                   descriptionRaw: "Mercado Libre", category: category,
+                                   flowKindRaw: TransactionFlowKind.charge.rawValue,
+                                   movementKindRaw: TransactionMovementKind.expense.rawValue)
+        let refund = Transaction(account: bank, postedAt: purchaseDate.addingTimeInterval(86_400), amount: 340,
+                                descriptionRaw: "Mercado Libre refund",
+                                flowKindRaw: TransactionFlowKind.income.rawValue,
+                                movementKindRaw: TransactionMovementKind.income.rawValue)
+        [card, bank].forEach(sourceContext.insert)
+        sourceContext.insert(category)
+        [purchase, refund].forEach(sourceContext.insert)
+        try sourceContext.save()
+        try TransactionLinkService.linkRefund(
+            refund: refund,
+            purchase: purchase,
+            context: sourceContext,
+            at: purchaseDate.addingTimeInterval(172_800)
+        )
+        try await exportBackup(to: bundle, from: sourceContext)
+
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 15)
+        let target = try makeContainer()
+        try await restoreBackup(from: bundle, into: target.mainContext, strategy: .replaceAll)
+        var restoredLink = try #require(try target.mainContext.fetch(FetchDescriptor<TransactionLink>()).first)
+        #expect(restoredLink.deletedAt == nil)
+        #expect(restoredLink.identityKey == TransactionLinkService.refundIdentityKey(refundID: refund.id))
+
+        let restoredRefund = try #require(try target.mainContext.fetch(FetchDescriptor<Transaction>())
+            .first { $0.id == refund.id })
+        try TransactionLinkService.removeRefund(
+            refund: restoredRefund,
+            context: target.mainContext,
+            at: purchaseDate.addingTimeInterval(10 * 86_400)
+        )
+        try await restoreBackup(from: bundle, into: target.mainContext, strategy: .mergeKeepingNewer)
+        restoredLink = try #require(try target.mainContext.fetch(FetchDescriptor<TransactionLink>()).first)
+        #expect(restoredLink.deletedAt != nil, "An older active backup must not resurrect a newer unlink")
+
+        try await restoreBackup(from: bundle, into: target.mainContext, strategy: .replaceAll)
+        restoredLink = try #require(try target.mainContext.fetch(FetchDescriptor<TransactionLink>()).first)
+        #expect(restoredLink.deletedAt == nil, "replaceAll restores the backup's active relationship")
+
+        let tombstoneBundle = root.appendingPathComponent("unlinked-snapshot.ftbackup", isDirectory: true)
+        let unlinkDate = purchaseDate.addingTimeInterval(20 * 86_400)
+        try TransactionLinkService.removeRefund(refund: restoredRefund, context: target.mainContext, at: unlinkDate)
+        try await exportBackup(to: tombstoneBundle, from: target.mainContext)
+        restoredLink.deletedAt = nil
+        restoredLink.lastModifiedAt = unlinkDate
+        try target.mainContext.save()
+        try await restoreBackup(from: tombstoneBundle, into: target.mainContext, strategy: .mergeKeepingNewer)
+        restoredLink = try #require(try target.mainContext.fetch(FetchDescriptor<TransactionLink>()).first)
+        #expect(restoredLink.deletedAt != nil,
+                "A tombstone wins a same-time merge tie so an unlink cannot reappear")
+        try await restoreBackup(from: bundle, into: target.mainContext, strategy: .replaceAll)
+
+        try FileManager.default.copyItem(at: bundle, to: legacyBundle)
+        try FileManager.default.removeItem(at: legacyBundle.appendingPathComponent("models/TransactionLink.json"))
+        let manifestURL = legacyBundle.appendingPathComponent("manifest.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
+        manifest.schemaVersion = 14
+        manifest.modelCounts.removeValue(forKey: "TransactionLink")
+        manifest.contentHashes.removeValue(forKey: "TransactionLink")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: manifestURL)
+        #expect(BackupArchive.summary(at: legacyBundle)?.schemaVersion == 14)
+
+        try await restoreBackup(from: legacyBundle, into: target.mainContext, strategy: .mergeKeepingNewer)
+        #expect(try target.mainContext.fetchCount(FetchDescriptor<TransactionLink>()) == 1,
+                "A pre-v15 merge retains local links")
+        try await restoreBackup(from: legacyBundle, into: target.mainContext, strategy: .replaceAll)
+        #expect(try target.mainContext.fetchCount(FetchDescriptor<TransactionLink>()) == 0,
+                "A pre-v15 replaceAll restores without links")
     }
 
     @Test("El ledger de promociones round-tripea en replaceAll y preserva lo más nuevo en merge")
@@ -581,7 +672,7 @@ struct BackupArchiveTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let manifest = try decoder.decode(BackupManifest.self, from: Data(contentsOf: manifestURL))
-        #expect(manifest.schemaVersion == 14)
+        #expect(manifest.schemaVersion == 15)
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("models/PromotionLedger.json").path))
         #expect(!FileManager.default.fileExists(atPath: bundle.appendingPathComponent("models/PromotionOverrides.json").path),
                 "El manifest 10 ya no exporta el store retirado del V1")
@@ -720,7 +811,7 @@ struct BackupArchiveTests {
         try await BackupArchive.export(to: bundle, from: source.mainContext,
                                        promotionLedgerURL: root.appendingPathComponent("source/PromotionLedger.json"),
                                        spendRequirementsURL: sourceStore)
-        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 14)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 15)
 
         let target = try makeContainer()
         var newer = requirement
@@ -1259,7 +1350,7 @@ struct BackupArchiveTests {
                 "el rollback del ledger restaura el contenido previo")
     }
 
-    @Test("La personalización de categorías round-tripea en v14 y respeta estrategia en ≤10")
+    @Test("La personalización de categorías round-tripea en v15 y respeta estrategia en ≤10")
     func categoryCustomizationRoundTrip() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cat-custom-backup-\(UUID())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1280,7 +1371,7 @@ struct BackupArchiveTests {
         let source = try makeContainer()
         try await BackupArchive.export(to: bundle, from: source.mainContext,
                                        categoryCustomizationURL: sourceStore)
-        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 14)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 15)
 
         // replaceAll: aplica el catálogo del backup.
         let target = try makeContainer()
@@ -1344,7 +1435,7 @@ extension BackupArchiveTests {
         }
     }
 
-    @Test("Property ledger uses schema 14 and legacy backups clear only on replaceAll")
+    @Test("Property ledger uses schema 15 and legacy backups clear only on replaceAll")
     func propertyLedgerBackupRoundTrip() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("property-backup-\(UUID())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1358,7 +1449,7 @@ extension BackupArchiveTests {
         try PropertyLedgerStore.replace(with: sourceLedger, at: sourceURL)
         try await BackupArchive.export(to: bundle, from: source.mainContext, propertyLedgerURL: sourceURL)
 
-        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 14)
+        #expect(BackupArchive.summary(at: bundle)?.schemaVersion == 15)
         #expect(BackupArchive.summary(at: bundle)?.url == bundle)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

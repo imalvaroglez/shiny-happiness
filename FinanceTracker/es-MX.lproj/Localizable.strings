@@ -890,6 +890,40 @@
 "An advance of %@ lost its backing; it is not available money." = "Un anticipo de %@ perdió su respaldo; no cuenta como dinero disponible.";
 "Suggested payment" = "Importe sugerido a pagar";
 
+/* Linked transaction refunds */
+"Accept" = "Aceptar";
+"Choose an eligible purchase and a matching refund in the same currency." = "Elige una compra válida y un reembolso que coincida en la misma moneda.";
+"Clear linked purchase" = "Quitar compra vinculada";
+"Concept A-Z" = "Concepto A-Z";
+"The refund is greater than the remaining purchase amount." = "El reembolso supera el importe restante de la compra.";
+"The movement was saved, but the refund link failed: %@" = "El movimiento se guardó, pero no se pudo vincular el reembolso: %@";
+"A linked refund is unavailable." = "No se encuentra uno de los reembolsos vinculados.";
+"Linked refunds exceed the current purchase amount." = "Los reembolsos vinculados superan el importe actual de la compra.";
+"A linked movement no longer qualifies as a purchase or refund." = "Uno de los movimientos vinculados ya no cumple los requisitos de compra o reembolso.";
+"Link purchase" = "Vincular compra";
+"Link refund" = "Vincular reembolso";
+"All accounts" = "Todas las cuentas";
+"Search description or account" = "Buscar concepto o cuenta";
+"No matching movements" = "No hay movimientos coincidentes";
+"Could not load movements: %@" = "No se pudieron cargar los movimientos: %@";
+"Could not load linked movements: %@" = "No se pudieron cargar los movimientos vinculados: %@";
+"Could not remove link: %@" = "No se pudo quitar el vínculo: %@";
+"Linked movements" = "Movimientos vinculados";
+"Original amount" = "Importe original";
+"Original purchase · %@" = "Compra original · %@";
+"Refund · %@ · %@" = "Reembolso · %@ · %@";
+"Refunds" = "Reembolsos";
+"Net spending" = "Gasto neto";
+"Net spend · %@" = "Gasto neto · %@";
+"No linked movements" = "No hay movimientos vinculados";
+"Movement unavailable" = "Movimiento no disponible";
+"Unknown account" = "Cuenta desconocida";
+"Refund received" = "Reembolso recibido";
+"Refund of" = "Reembolso de";
+"Remove link" = "Quitar vínculo";
+"This link is inactive because one of its movements no longer qualifies." = "Este vínculo está inactivo porque uno de sus movimientos ya no cumple los requisitos.";
+"Refund adjustments could not be loaded. Dashboard spending and income may be incomplete." = "No se pudieron cargar los ajustes de reembolsos; el gasto y los ingresos del tablero podrían estar incompletos.";
+
 /* Member account review notes (TB) */
 "The collection of %1$@ · %2$@ is applied beyond its amount." = "El cobro de %1$@ · %2$@ está aplicado por más de su importe.";
 "Month collections exceed its charges by %@; review required." = "Los cobros del mes exceden sus cargos por %@; se requiere revisión.";

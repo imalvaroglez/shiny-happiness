@@ -11,7 +11,7 @@ enum RestoreStrategy {
 
 @MainActor
 enum BackupArchive {
-    nonisolated private static let schemaVersion = 14
+    nonisolated private static let schemaVersion = 15
     nonisolated private static let modelsSubdirectory = "models"
     private static let statementsSubdirectory = "statements"
 
@@ -102,6 +102,21 @@ enum BackupArchive {
                   manifest.modelCounts["PropertyLedger"] == 1,
                   manifest.contentHashes["PropertyLedger"] != nil else { return false }
         }
+        if manifest.schemaVersion >= 15 {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            guard let transactionData = arrayData(for: "Transaction", in: modelsDir),
+                  (try? decoder.decode([TransactionSnapshot].self, from: transactionData)) != nil,
+                  let linkData = arrayData(for: "TransactionLink", in: modelsDir),
+                  let links = try? decoder.decode([TransactionLinkSnapshot].self, from: linkData),
+                  manifest.modelCounts["TransactionLink"] == links.count,
+                  manifest.contentHashes["TransactionLink"] != nil else { return false }
+            guard links.allSatisfy({
+                isValidTransactionLinkSnapshot($0)
+            }),
+            Set(links.map(\.identityKey)).count == links.count,
+            Set(links.map(\.id)).count == links.count else { return false }
+        }
         return true
     }
 
@@ -133,6 +148,7 @@ enum BackupArchive {
         if schemaVersion >= 10 { names.append("PromotionLedger") }
         if schemaVersion >= 11 { names.append("CategoryCustomization") }
         if schemaVersion >= 13 { names.append("PropertyLedger") }
+        if schemaVersion >= 15 { names.append("TransactionLink") }
         return names
     }
 
@@ -182,6 +198,9 @@ enum BackupArchive {
         let transactions = try context.fetch(FetchDescriptor<Transaction>())
         try writeJSON("Transaction", transactions.map { TransactionSnapshot($0) })
 
+        let transactionLinks = try context.fetch(FetchDescriptor<TransactionLink>())
+        try writeJSON("TransactionLink", transactionLinks.map { TransactionLinkSnapshot($0) })
+
         let categories = try context.fetch(FetchDescriptor<Category>())
         try writeJSON("Category", categories.map { CategorySnapshot($0) })
 
@@ -218,6 +237,7 @@ enum BackupArchive {
                 newestByTx[row.transactionID] = row
             }
         }
+
         try writeJSON("SettlementDueDateOverride", newestByTx.values.map { SettlementDueDateOverrideSnapshot($0) })
 
         // Schema 10: el ledger de adjudicación manual reemplaza al store del V1,
@@ -365,6 +385,12 @@ enum BackupArchive {
         let categoryRulesSnap = try loadJSON(CategoryRuleSnapshot.self, "CategoryRule")
         let installmentPlansSnap = try loadJSON(InstallmentPlanSnapshot.self, "InstallmentPlan")
         let transactionsSnap = try loadJSON(TransactionSnapshot.self, "Transaction")
+        let transactionLinksSnap: [TransactionLinkSnapshot]
+        if manifest.schemaVersion >= 15 {
+            transactionLinksSnap = try loadJSON(TransactionLinkSnapshot.self, "TransactionLink")
+        } else {
+            transactionLinksSnap = []
+        }
         let pendingImportsSnap = try loadJSON(PendingImportSnapshot.self, "PendingImport")
         let signRecoveryHintsSnap = try loadJSON(SignRecoveryHintSnapshot.self, "SignRecoveryHint")
         let stockPositionsSnap: [StockPositionSnapshot]
@@ -438,6 +464,7 @@ enum BackupArchive {
         let existingCategoryRules = try context.fetch(FetchDescriptor<CategoryRule>())
         let existingInstallmentPlans = try context.fetch(FetchDescriptor<InstallmentPlan>())
         let existingTransactions = try context.fetch(FetchDescriptor<Transaction>())
+        let existingTransactionLinks = try context.fetch(FetchDescriptor<TransactionLink>())
         let existingPendingImports = try context.fetch(FetchDescriptor<PendingImport>())
         let existingSignRecoveryHints = try context.fetch(FetchDescriptor<SignRecoveryHint>())
         let existingStockPositions = try context.fetch(FetchDescriptor<StockPosition>())
@@ -454,6 +481,11 @@ enum BackupArchive {
         var signRecoveryHintMap = indexByID(existingSignRecoveryHints, keyPath: \SignRecoveryHint.id)
         var stockPositionMap = indexByID(existingStockPositions, keyPath: \StockPosition.id)
         var partnerEstimateMap = indexByID(existingPartnerEstimates, keyPath: \HouseholdPartnerIncomeEstimate.id)
+
+        var transactionLinkMap = Dictionary(existingTransactionLinks.map { ($0.identityKey, $0) }, uniquingKeysWith: {
+            if $0.lastModifiedAt != $1.lastModifiedAt { return $0.lastModifiedAt > $1.lastModifiedAt ? $0 : $1 }
+            return $0.deletedAt != nil ? $0 : $1
+        })
 
         func winningIDs<S, M>(
             _ snapshots: [S],
@@ -671,6 +703,42 @@ enum BackupArchive {
         for snap in stockPositionsSnap { _ = resolveOrInsertStockPosition(snap.id, snap) }
         for snap in partnerEstimatesSnap { _ = resolveOrInsertPartnerEstimate(snap.id, snap) }
 
+        for snap in transactionLinksSnap {
+            // Preserve links whose movement was permanently removed. They remain
+            // visible as inactive references and must not make a backup unusable.
+            guard Self.isValidTransactionLinkSnapshot(snap) else { continue }
+            if let existing = transactionLinkMap[snap.identityKey] {
+                let shouldApply: Bool
+                switch strategy {
+                case .replaceAll: shouldApply = true
+                case .mergeKeepingNewer:
+                    shouldApply = snap.lastModifiedAt > existing.lastModifiedAt
+                        || (snap.lastModifiedAt == existing.lastModifiedAt
+                            && snap.deletedAt != nil
+                            && existing.deletedAt == nil)
+                }
+                guard shouldApply else { continue }
+                existing.kindRaw = snap.kindRaw
+                existing.sourceTransactionID = snap.sourceTransactionID
+                existing.targetTransactionID = snap.targetTransactionID
+                existing.deletedAt = snap.deletedAt
+                existing.lastModifiedAt = snap.lastModifiedAt
+            } else {
+                guard let kind = TransactionLinkKind(rawValue: snap.kindRaw) else { continue }
+                let link = TransactionLink(
+                    id: snap.id,
+                    identityKey: snap.identityKey,
+                    kind: kind,
+                    sourceTransactionID: snap.sourceTransactionID,
+                    targetTransactionID: snap.targetTransactionID,
+                    lastModifiedAt: snap.lastModifiedAt,
+                    deletedAt: snap.deletedAt
+                )
+                context.insert(link)
+                transactionLinkMap[snap.identityKey] = link
+            }
+        }
+
         for snap in accountsSnap {
             guard let obj = accountMap[snap.id] else { continue }
             if case .replaceAll = strategy { obj.lastModifiedAt = snap.lastModifiedAt }
@@ -865,6 +933,19 @@ enum BackupArchive {
 
     private static func deleteAll(from context: ModelContext) throws {
         try AppDataResetService.deletePersistentModels(from: context)
+    }
+
+    private nonisolated static func isValidTransactionLinkSnapshot(_ snapshot: TransactionLinkSnapshot) -> Bool {
+        guard snapshot.sourceTransactionID != snapshot.targetTransactionID,
+              let kind = TransactionLinkKind(rawValue: snapshot.kindRaw) else { return false }
+        let sourceID = snapshot.sourceTransactionID.uuidString.lowercased()
+        let expectedKey: String
+        switch kind {
+        case .refund:
+            expectedKey = "refund:\(sourceID)"
+        }
+        return snapshot.identityKey == expectedKey
+            && snapshot.id == TransactionLink.stableID(for: expectedKey)
     }
 
     private static func indexByID<T>(_ items: [T], keyPath: KeyPath<T, UUID>) -> [UUID: T] {
@@ -1306,6 +1387,20 @@ extension TransactionSnapshot {
             settlementNotes: transaction.settlementNotes,
             lastModifiedAt: transaction.lastModifiedAt,
             deletedAt: transaction.deletedAt
+        )
+    }
+}
+
+extension TransactionLinkSnapshot {
+    init(_ link: TransactionLink) {
+        self.init(
+            id: link.id,
+            identityKey: link.identityKey,
+            kindRaw: link.kindRaw,
+            sourceTransactionID: link.sourceTransactionID,
+            targetTransactionID: link.targetTransactionID,
+            lastModifiedAt: link.lastModifiedAt,
+            deletedAt: link.deletedAt
         )
     }
 }

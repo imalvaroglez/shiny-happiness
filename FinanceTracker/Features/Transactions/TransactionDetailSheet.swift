@@ -10,6 +10,7 @@ struct CategoryChange {
 struct TransactionDetailSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Query private var transactionLinks: [TransactionLink]
 
     let transaction: Transaction
     let onCategoryAssigned: (CategoryChange) -> Void
@@ -50,6 +51,12 @@ struct TransactionDetailSheet: View {
     @State private var draftSelectedPropertyResidents: Set<UUID> = []
     @State private var draftMaintenanceProgramID: UUID?
     @State private var propertySaveError: String?
+    @State private var linkError: String?
+    @State private var linkPickerMode: TransactionLinkPickerMode?
+    @State private var selectedLinkedMovement: Transaction?
+    @State private var linkedMovements: [UUID: Transaction] = [:]
+    @State private var refundProjection: TransactionRefundProjection?
+    @State private var refundValidityByPurchaseID: [UUID: Bool] = [:]
 
     @State private var pendingKeyword: String?
     @State private var categoryDidChange = false
@@ -92,6 +99,14 @@ struct TransactionDetailSheet: View {
         self.transaction = transaction
         self.onCategoryAssigned = onCategoryAssigned
         self.onSaved = onSaved
+        let transactionID = transaction.id
+        _transactionLinks = Query(
+            filter: #Predicate {
+                $0.sourceTransactionID == transactionID || $0.targetTransactionID == transactionID
+            },
+            sort: \TransactionLink.lastModifiedAt,
+            order: .reverse
+        )
         _displayMode = State(initialValue: initialMode)
         _originalRevision = State(initialValue: transaction.lastModifiedAt)
         _originalAccountID = State(initialValue: transaction.account?.id)
@@ -113,6 +128,7 @@ struct TransactionDetailSheet: View {
             header
             summaryHeader
             if displayMode == .consult { consultationPanel } else { editPanel.disabled(completion.movementSaved) }
+            linkedMovementsSection
             footer
         }
         .padding(24)
@@ -127,12 +143,14 @@ struct TransactionDetailSheet: View {
         }
         .onChange(of: draftPropertyID) { if draftPropertyID != nil { draftIncluded = false } }
         .onChange(of: draftIncluded) { if draftIncluded { draftPropertyID = nil } }
+        .onChange(of: transaction.lastModifiedAt) { loadLinkedMovements() }
         .task {
             promotionsModel.reload(context: modelContext, includeTransactions: false)
             originalPromotionIDs = attributedPromotionIDs
             draftPromotionIDs = originalPromotionIDs
             loadPropertyDraft()
         }
+        .task(id: linkSignature) { loadLinkedMovements() }
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
             promotionsModel.scheduleReload(context: modelContext, includeTransactions: false)
         }
@@ -145,6 +163,209 @@ struct TransactionDetailSheet: View {
                 pendingKeyword = keyword
                 categoryDidChange = true
             }
+        }
+        .sheet(item: $linkPickerMode) { mode in
+            TransactionLinkPickerSheet(mode: mode) { selected in
+                acceptLink(selected, mode: mode)
+            }
+        }
+        .sheet(item: $selectedLinkedMovement) { linkedMovement in
+            TransactionDetailSheet(
+                transaction: linkedMovement,
+                onCategoryAssigned: onCategoryAssigned,
+                onSaved: onSaved
+            )
+        }
+    }
+
+    private var linkSignature: String {
+        let links = transactionLinks.map {
+            "\($0.identityKey):\($0.lastModifiedAt.timeIntervalSince1970):\($0.deletedAt?.timeIntervalSince1970 ?? 0)"
+        }.joined(separator: "|")
+        let endpointRevisions = linkedMovements.values.sorted { $0.id.uuidString < $1.id.uuidString }.map {
+            "\($0.id.uuidString):\($0.lastModifiedAt.timeIntervalSince1970)"
+        }.joined(separator: "|")
+        return "\(transaction.id.uuidString):\(transaction.lastModifiedAt.timeIntervalSince1970)|\(links)|\(endpointRevisions)"
+    }
+
+    /// Un reembolso candidato: positivo, vivo y de cuenta de activo o crédito
+    /// de tarjeta. La elegibilidad completa se evalúa contra cada compra.
+    private var isEligibleRefundMovement: Bool {
+        transaction.deletedAt == nil
+            && !transaction.isDuplicate
+            && !transaction.isTransfer
+            && transaction.amount > 0
+    }
+
+    private var canLinkFromPurchase: Bool {
+        transaction.amount < 0 && TransactionLinkService.isEligiblePurchaseCandidate(transaction)
+    }
+
+    private var canLinkFromRefund: Bool {
+        transaction.amount > 0 && isEligibleRefundMovement
+    }
+
+    private var activeRefundLinks: [TransactionLink] {
+        transactionLinks.filter {
+            $0.kindRaw == TransactionLinkKind.refund.rawValue
+                && $0.deletedAt == nil
+                && ($0.sourceTransactionID == transaction.id || $0.targetTransactionID == transaction.id)
+        }
+    }
+
+    private var linkedMovementsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Linked movements")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if canLinkFromPurchase || canLinkFromRefund {
+                    Menu {
+                        if canLinkFromPurchase {
+                            Button("Link refund") { linkPickerMode = .refundForPurchase(purchase: transaction) }
+                        }
+                        if canLinkFromRefund {
+                            Button("Link purchase") { linkPickerMode = .purchaseForRefund(refund: transaction) }
+                        }
+                    } label: {
+                        Label("Link", systemImage: "link")
+                    }
+                    .menuStyle(.borderlessButton)
+                }
+            }
+
+            if transaction.amount < 0, let refundProjection {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Original amount")
+                        Text("Refunds")
+                        Text("Net spending").fontWeight(.semibold)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text(MoneyFormat.string(abs(transaction.amount), code: transaction.currency))
+                        Text(MoneyFormat.string(refundProjection.refundedAmount, code: transaction.currency))
+                            .foregroundStyle(.green)
+                        Text(MoneyFormat.string(refundProjection.netExpenseAmount, code: transaction.currency))
+                            .fontWeight(.semibold)
+                    }
+                    .monospacedDigit()
+                }
+                .font(.caption)
+                if !refundProjection.isValid, let reason = refundProjection.invalidReason {
+                    Label(reason, systemImage: "exclamationmark.triangle")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+            }
+
+            ForEach(activeRefundLinks) { link in
+                linkedMovementRow(for: link)
+            }
+            if activeRefundLinks.isEmpty {
+                Text("No linked movements")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let linkError {
+                Text(linkError)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func linkedMovementRow(for link: TransactionLink) -> some View {
+        let otherID = link.sourceTransactionID == transaction.id ? link.targetTransactionID : link.sourceTransactionID
+        let otherMovement = linkedMovements[otherID]
+        let isValidRefund = refundValidityByPurchaseID[link.targetTransactionID] ?? false
+        return HStack(spacing: 8) {
+            Button {
+                selectedLinkedMovement = otherMovement
+            } label: {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(link.targetTransactionID == transaction.id ? "Refund received" : "Refund of")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text(otherMovement?.descriptionRaw ?? String(localized: "Movement unavailable"))
+                            .font(.caption).lineLimit(1).foregroundStyle(.primary)
+                        if let otherMovement {
+                            Text("\(otherMovement.account?.displayName ?? String(localized: "Unknown account")) · \(otherMovement.postedAt.formatted(date: .abbreviated, time: .omitted))")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    if let otherMovement {
+                        Text(MoneyFormat.string(otherMovement.amount, code: otherMovement.currency))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(otherMovement.amount >= 0 ? .green : .red)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if !isValidRefund {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help("This link is inactive because one of its movements no longer qualifies.")
+            }
+            Button("Remove link", systemImage: "xmark") {
+                remove(link)
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help("Remove link")
+        }
+        .padding(.vertical, 3)
+    }
+
+    private func loadLinkedMovements() {
+        linkError = nil
+        let links = activeRefundLinks
+        let endpointIDs = Set(links.flatMap { [$0.sourceTransactionID, $0.targetTransactionID] }.filter { $0 != transaction.id })
+        do {
+            linkedMovements = try TransactionLinkService.transactions(withIDs: endpointIDs, context: modelContext)
+            var validByPurchase: [UUID: Bool] = [:]
+            let purchaseIDs = Set(activeRefundLinks.map(\.targetTransactionID))
+                .union(transaction.amount < 0 && (TransactionLinkService.isEligiblePurchaseCandidate(transaction)
+                    || !activeRefundLinks.isEmpty) ? [transaction.id] : [])
+            for purchaseID in purchaseIDs {
+                guard let purchase = purchaseID == transaction.id ? transaction : linkedMovements[purchaseID] else { continue }
+                let projection = try TransactionLinkService.refundProjection(for: purchase, context: modelContext)
+                validByPurchase[purchaseID] = projection.isValid
+                if purchaseID == transaction.id { refundProjection = projection }
+            }
+            refundValidityByPurchaseID = validByPurchase
+        } catch {
+            linkError = String(localized: "Could not load linked movements: \(error.localizedDescription)")
+        }
+    }
+
+    /// El picker solo elige; el vínculo se crea aquí, ya con Aceptar.
+    private func acceptLink(_ selected: Transaction, mode: TransactionLinkPickerMode) {
+        linkError = nil
+        do {
+            switch mode {
+            case .purchaseForRefund(let refund):
+                try TransactionLinkService.linkRefund(refund: refund, purchase: selected, context: modelContext)
+            case .refundForPurchase(let purchase):
+                try TransactionLinkService.linkRefund(refund: selected, purchase: purchase, context: modelContext)
+            case .purchaseForNewRefund:
+                break // Solo la hoja de captura la presenta; el detalle nunca llega aquí.
+            }
+        } catch {
+            linkError = error.localizedDescription
+        }
+    }
+
+    private func remove(_ link: TransactionLink) {
+        linkError = nil
+        do {
+            try TransactionLinkService.removeRefund(refundID: link.sourceTransactionID, context: modelContext)
+        } catch {
+            linkError = String(localized: "Could not remove link: \(error.localizedDescription)")
         }
     }
 

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Vincular reembolsos con compras.** Al capturar un movimiento con la categoría Reembolso aparece la fila opcional «Vincular compra»: abre un selector de compras elegibles con orden por fecha/concepto/monto (por defecto la más reciente primero), filtro por cuenta y búsqueda; tocar una fila solo selecciona y «Aceptar» regresa al formulario — nada se vincula hasta guardar. Un reembolso vinculado deja de contarse como ingreso y descuenta el gasto de su compra: el gasto neto se atribuye a la fecha, categoría y cuenta de la compra (los meses pasados se recalculan al vincular), mientras el flujo de efectivo y el patrimonio conservan la fecha y cuenta reales del dinero. Los movimientos existentes (p. ej. reembolsos importados) se vinculan desde su hoja de detalle, con importe original, reembolsos aplicados y gasto neto; una compra admite varios reembolsos parciales con tope acumulado, y cada reembolso un solo vínculo activo.
+- SwiftData migra de V7 a V8 con `TransactionLink` (sidecar por ID de transacción, sin relaciones); los respaldos `.ftbackup` v15 conservan vínculos y desvinculaciones al combinar, y los respaldos anteriores mantienen sus estrategias existentes. Borrar una cuenta también limpia los vínculos de sus movimientos.
+
+### Fixed
+
+- Cadena de entrada completa en español para la vinculación de reembolsos (desgloses «Compra original / Reembolso / Gasto neto» incluidos).
+
 ## [0.18.3] - 2026-11-04
 
 ### Fixed
