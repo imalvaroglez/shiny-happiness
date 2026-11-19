@@ -914,11 +914,15 @@ struct HouseholdSettlementReportTests {
             let config = ModelConfiguration(schema: v5Schema, url: storeURL)
             let container = try ModelContainer(for: v5Schema, configurations: [config])
             let context = container.mainContext
-            let acct = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Checking")
+            // Frozen V5 types: writing with live (V8-era) types would drift the
+            // on-disk schema and the staged migration would reject the store.
+            let acct = FinanceTrackerSchemaV5.Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Checking")
             context.insert(acct)
-            let tx = Transaction(account: acct, postedAt: monthStart, amount: -1_000, descriptionRaw: "Dinner")
-            tx.setHouseholdScope(.included)
-            tx.setExpenseAssignment(.partner)
+            let tx = FinanceTrackerSchemaV5.Transaction(
+                account: acct, postedAt: monthStart, amount: -1_000, descriptionRaw: "Dinner",
+                expenseAssignmentRaw: ExpenseAssignment.partner.rawValue,
+                settlementPaidByRaw: HouseholdScope.included.rawValue
+            )
             context.insert(tx)
             try context.save()
             savedTxID = tx.id

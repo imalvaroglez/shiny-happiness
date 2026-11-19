@@ -732,6 +732,297 @@ enum FinanceTrackerSchemaV5: VersionedSchema {
             HouseholdPartnerIncomeEstimate.self,
         ]
     }
+
+    // Freeze the account-linked graph as it existed in V5. V5 previously used
+    // live model types, so leaving it that way would describe a drifted
+    // (post-V7) source schema and on-disk V5 stores would fail staged
+    // migration with an unknown model version. Shapes are identical to the
+    // V6 freeze — 0.9.0 only added SettlementDueDateOverride.
+    // Freeze the account-linked graph as it existed in V6. V6 previously used
+    // live model types, so leaving it that way would retroactively add archivedAt
+    // to the source schema instead of migrating V6 stores to V7.
+    @Model final class Account {
+        var id: UUID
+        var institution: String
+        var type: AccountType
+        var currency: String
+        var nickname: String
+        var accountNumber: String?
+        var openedAt: Date
+        var closedAt: Date?
+        var creditLimit: Decimal?
+        var statementDayOfMonth: Int?
+        var paymentDayOfMonth: Int?
+        var tintHex: String?
+        var manuallyCreatedAt: Date?
+        var retirementKindRaw: String?
+        var liquidityRaw: String?
+        var includeInNetWorth: Bool?
+        var includeInCashFlow: Bool?
+        var includeInRegularIncome: Bool?
+        var taxTrackingEnabled: Bool?
+        var lastModifiedAt: Date = Date.now
+
+        init(id: UUID = UUID(), institution: String, type: AccountType, currency: String = "MXN",
+             nickname: String? = nil, accountNumber: String? = nil, openedAt: Date = .now,
+             closedAt: Date? = nil, creditLimit: Decimal? = nil, statementDayOfMonth: Int? = nil,
+             paymentDayOfMonth: Int? = nil, tintHex: String? = nil, manuallyCreatedAt: Date? = nil,
+             retirementKindRaw: String? = nil, liquidityRaw: String? = nil,
+             includeInNetWorth: Bool? = nil, includeInCashFlow: Bool? = nil,
+             includeInRegularIncome: Bool? = nil, taxTrackingEnabled: Bool? = nil) {
+            self.id = id
+            self.institution = institution
+            self.type = type
+            self.currency = currency
+            self.nickname = nickname ?? institution
+            self.accountNumber = accountNumber
+            self.openedAt = openedAt
+            self.closedAt = closedAt
+            self.creditLimit = creditLimit
+            self.statementDayOfMonth = statementDayOfMonth
+            self.paymentDayOfMonth = paymentDayOfMonth
+            self.tintHex = tintHex
+            self.manuallyCreatedAt = manuallyCreatedAt
+            self.retirementKindRaw = retirementKindRaw
+            self.liquidityRaw = liquidityRaw
+            self.includeInNetWorth = includeInNetWorth
+            self.includeInCashFlow = includeInCashFlow
+            self.includeInRegularIncome = includeInRegularIncome
+            self.taxTrackingEnabled = taxTrackingEnabled
+        }
+    }
+
+    @Model final class AccountBalanceSnapshot {
+        var id: UUID
+        @Relationship(deleteRule: .nullify) var account: Account?
+        var date: Date
+        var amount: Decimal
+        var kind: AccountBalanceSnapshotKind
+        var note: String?
+        var createdAt: Date
+        var lastModifiedAt: Date = Date.now
+
+        init(id: UUID = UUID(), account: Account? = nil, date: Date = .now, amount: Decimal = 0,
+             kind: AccountBalanceSnapshotKind = .manualAdjustment, note: String? = nil,
+             createdAt: Date = .now) {
+            self.id = id
+            self.account = account
+            self.date = date
+            self.amount = amount
+            self.kind = kind
+            self.note = note
+            self.createdAt = createdAt
+        }
+    }
+
+    @Model final class Transaction {
+        var id: UUID
+        @Relationship(deleteRule: .nullify) var account: Account?
+        @Relationship(deleteRule: .nullify) var statement: Statement?
+        var postedAt: Date
+        var amount: Decimal
+        var currency: String
+        var descriptionRaw: String
+        var merchantNormalized: String
+        @Relationship(deleteRule: .nullify) var category: Category?
+        var fxRateToBase: Decimal
+        var isTransfer: Bool
+        var isDuplicate: Bool
+        var cardLast4: String?
+        var source: TransactionSource
+        var transferGroupID: UUID?
+        @Relationship(deleteRule: .nullify, inverse: \InstallmentPlan.installments) var installmentPlan: InstallmentPlan?
+        var flowKindRaw: String? = nil
+        var movementKindRaw: String?
+        var treatmentKindRaw: String?
+        var expenseAssignmentRaw: String?
+        var settlementPaidByRaw: String?
+        var splitMethodOverrideRaw: String?
+        var customUserPercent: Decimal?
+        var customPartnerPercent: Decimal?
+        var settlementNotes: String?
+        var lastModifiedAt: Date = Date.now
+        var deletedAt: Date? = nil
+
+        init(id: UUID = UUID(), account: Account? = nil, statement: Statement? = nil, postedAt: Date,
+             amount: Decimal, currency: String = "MXN", descriptionRaw: String,
+             merchantNormalized: String = "", category: Category? = nil, fxRateToBase: Decimal = 1,
+             isTransfer: Bool = false, isDuplicate: Bool = false, cardLast4: String? = nil,
+             source: TransactionSource = .imported, transferGroupID: UUID? = nil,
+             installmentPlan: InstallmentPlan? = nil, flowKindRaw: String? = nil,
+             movementKindRaw: String? = nil, treatmentKindRaw: String? = nil,
+             expenseAssignmentRaw: String? = nil, settlementPaidByRaw: String? = nil,
+             splitMethodOverrideRaw: String? = nil, customUserPercent: Decimal? = nil,
+             customPartnerPercent: Decimal? = nil, settlementNotes: String? = nil) {
+            self.id = id
+            self.account = account
+            self.statement = statement
+            self.postedAt = postedAt
+            self.amount = amount
+            self.currency = currency
+            self.descriptionRaw = descriptionRaw
+            self.merchantNormalized = merchantNormalized
+            self.category = category
+            self.fxRateToBase = fxRateToBase
+            self.isTransfer = isTransfer
+            self.isDuplicate = isDuplicate
+            self.cardLast4 = cardLast4
+            self.source = source
+            self.transferGroupID = transferGroupID
+            self.installmentPlan = installmentPlan
+            self.flowKindRaw = flowKindRaw
+            self.movementKindRaw = movementKindRaw
+            self.treatmentKindRaw = treatmentKindRaw
+            self.expenseAssignmentRaw = expenseAssignmentRaw
+            self.settlementPaidByRaw = settlementPaidByRaw
+            self.splitMethodOverrideRaw = splitMethodOverrideRaw
+            self.customUserPercent = customUserPercent
+            self.customPartnerPercent = customPartnerPercent
+            self.settlementNotes = settlementNotes
+        }
+    }
+
+    @Model final class Statement {
+        var id: UUID
+        @Relationship(deleteRule: .nullify) var account: Account?
+        var periodStart: Date
+        var periodEnd: Date
+        var sourceFileHash: String
+        var sourceFileName: String?
+        var sourceArchivedPath: String?
+        var importedAt: Date
+        var ocrUsed: Bool
+        var openingBalance: Decimal?
+        var closingBalance: Decimal?
+        var minimumPayment: Decimal?
+        var paymentForNoInterest: Decimal?
+        var paymentDueDate: Date?
+        var interestCharged: Decimal?
+        var feesCharged: Decimal?
+        var ivaCharged: Decimal?
+        @Relationship(deleteRule: .cascade, inverse: \Transaction.statement) var transactions: [Transaction] = []
+        var lastModifiedAt: Date = Date.now
+
+        init(id: UUID = UUID(), account: Account? = nil, periodStart: Date = .now,
+             periodEnd: Date = .now, sourceFileHash: String = "", sourceFileName: String? = nil,
+             sourceArchivedPath: String? = nil, importedAt: Date = .now, ocrUsed: Bool = false,
+             openingBalance: Decimal? = nil, closingBalance: Decimal? = nil,
+             minimumPayment: Decimal? = nil, paymentForNoInterest: Decimal? = nil,
+             paymentDueDate: Date? = nil, interestCharged: Decimal? = nil,
+             feesCharged: Decimal? = nil, ivaCharged: Decimal? = nil) {
+            self.id = id
+            self.account = account
+            self.periodStart = periodStart
+            self.periodEnd = periodEnd
+            self.sourceFileHash = sourceFileHash
+            self.sourceFileName = sourceFileName
+            self.sourceArchivedPath = sourceArchivedPath
+            self.importedAt = importedAt
+            self.ocrUsed = ocrUsed
+            self.openingBalance = openingBalance
+            self.closingBalance = closingBalance
+            self.minimumPayment = minimumPayment
+            self.paymentForNoInterest = paymentForNoInterest
+            self.paymentDueDate = paymentDueDate
+            self.interestCharged = interestCharged
+            self.feesCharged = feesCharged
+            self.ivaCharged = ivaCharged
+        }
+    }
+
+    @Model final class InstallmentPlan {
+        var id: UUID
+        @Relationship(deleteRule: .nullify) var account: Account?
+        @Relationship(deleteRule: .nullify) var originalPurchase: Transaction?
+        @Relationship(deleteRule: .nullify) var installments: [Transaction] = []
+        var originalAmount: Decimal
+        var totalMonths: Int
+        var currentMonth: Int
+        var monthlyAmount: Decimal
+        var ratePercent: Decimal
+        var firstChargeDate: Date
+        var merchantDescription: String
+        var lastModifiedAt: Date = Date.now
+
+        init(id: UUID = UUID(), account: Account? = nil, originalPurchase: Transaction? = nil,
+             installments: [Transaction] = [], originalAmount: Decimal = 0, totalMonths: Int = 0,
+             currentMonth: Int = 0, monthlyAmount: Decimal = 0, ratePercent: Decimal = 0,
+             firstChargeDate: Date = .now, merchantDescription: String = "") {
+            self.id = id
+            self.account = account
+            self.originalPurchase = originalPurchase
+            self.installments = installments
+            self.originalAmount = originalAmount
+            self.totalMonths = totalMonths
+            self.currentMonth = currentMonth
+            self.monthlyAmount = monthlyAmount
+            self.ratePercent = ratePercent
+            self.firstChargeDate = firstChargeDate
+            self.merchantDescription = merchantDescription
+        }
+    }
+
+    @Model final class PendingImport {
+        var id: UUID
+        @Relationship(deleteRule: .nullify) var account: Account?
+        @Relationship(deleteRule: .nullify) var statement: Statement?
+        var rawText: String
+        var reason: String
+        var parsedDate: Date?
+        var parsedAmount: Decimal?
+        var parsedDescription: String?
+        var cardLast4: String?
+        @Relationship(deleteRule: .nullify) var resolvedTransaction: Transaction?
+        var createdAt: Date
+        var lastModifiedAt: Date = Date.now
+        var matchedDeletedTransactionId: UUID?
+
+        init(id: UUID = UUID(), account: Account? = nil, statement: Statement? = nil,
+             rawText: String = "", reason: String = "", parsedDate: Date? = nil,
+             parsedAmount: Decimal? = nil, parsedDescription: String? = nil, cardLast4: String? = nil,
+             resolvedTransaction: Transaction? = nil, createdAt: Date = .now,
+             matchedDeletedTransactionId: UUID? = nil) {
+            self.id = id
+            self.account = account
+            self.statement = statement
+            self.rawText = rawText
+            self.reason = reason
+            self.parsedDate = parsedDate
+            self.parsedAmount = parsedAmount
+            self.parsedDescription = parsedDescription
+            self.cardLast4 = cardLast4
+            self.resolvedTransaction = resolvedTransaction
+            self.createdAt = createdAt
+            self.matchedDeletedTransactionId = matchedDeletedTransactionId
+        }
+    }
+
+    @Model final class StockPosition {
+        var id: UUID
+        @Relationship(deleteRule: .nullify) var account: Account?
+        var emisoraSerie: String
+        var name: String?
+        var shares: Decimal
+        var averageCost: Decimal
+        var lastPrice: Decimal?
+        var lastPriceAt: Date?
+        var createdAt: Date
+        var lastModifiedAt: Date = Date.now
+
+        init(id: UUID = UUID(), account: Account? = nil, emisoraSerie: String = "",
+             name: String? = nil, shares: Decimal = 0, averageCost: Decimal = 0,
+             lastPrice: Decimal? = nil, lastPriceAt: Date? = nil, createdAt: Date = .now) {
+            self.id = id
+            self.account = account
+            self.emisoraSerie = emisoraSerie
+            self.name = name
+            self.shares = shares
+            self.averageCost = averageCost
+            self.lastPrice = lastPrice
+            self.lastPriceAt = lastPriceAt
+            self.createdAt = createdAt
+        }
+    }
 }
 
 enum FinanceTrackerSchemaV6: VersionedSchema {
