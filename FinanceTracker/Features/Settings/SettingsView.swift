@@ -931,11 +931,10 @@ struct SettingsView: View {
     }
 
     private static let latestReleaseHighlights: [String] = [
-        "Editar un movimiento ya no le quita en silencio la propiedad atribuida: quitarla exige elegir «Ninguna» con el estado cargado.",
-        "Una edición inocente de una transacción con cálculo cerrado ya no se bloquea cuando la propiedad no alcanzó a cargar.",
-        "Consulta la cuenta de cada integrante: un desglose que suma a mano hasta el saldo y sugiere el pago neto.",
-        "Registra pagos sin bloqueos: una referencia dañada nunca detiene un cobro nuevo ni cuenta como dinero.",
-        "Cuentas archivadas o cerradas fuera de la captura, con validación fresca al guardar en todas las rutas.",
+        "Vincula reembolsos con sus compras: al capturar un Reembolso, la fila «Vincular compra» te deja elegir el gasto con orden, filtro por cuenta y búsqueda.",
+        "Un reembolso vinculado ya no infla tus ingresos: descuenta el gasto de su compra y el mes de la compra muestra lo que realmente gastaste.",
+        "El detalle de cada movimiento muestra importe original, reembolsos y gasto neto — también para reembolsos importados de estados de cuenta.",
+        "Varias devoluciones parciales de una misma compra, con tope acumulado; el flujo de efectivo y tu patrimonio no cambian.",
     ]
 
     private var backupsDirectory: URL {
