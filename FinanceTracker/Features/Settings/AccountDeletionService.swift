@@ -60,6 +60,7 @@ struct AccountDeletionService {
         let pendingImports: [PendingImport]
         let installmentPlans: [InstallmentPlan]
         let dueDateOverrides: [SettlementDueDateOverride]
+        let transactionLinks: [TransactionLink]
     }
 
     static func preview(account: Account, context: ModelContext) -> DeletionPreview {
@@ -82,6 +83,9 @@ struct AccountDeletionService {
         // Settlement due-date overrides are keyed by transactionID with no inverse
         // relationship, so they must be removed before their transactions.
         for override in linked.dueDateOverrides { context.delete(override) }
+        // Refund links are a transactionID sidecar too: remove them before the
+        // transactions they reference.
+        for link in linked.transactionLinks { context.delete(link) }
         for tx in linked.transactions { context.delete(tx) }
         for snapshot in linked.balanceSnapshots { context.delete(snapshot) }
         for position in linked.stockPositions { context.delete(position) }
@@ -120,6 +124,7 @@ struct AccountDeletionService {
         }
 
         let dueDateOverrides = fetchDueDateOverrides(context: context, transactionIDs: transactionIDs)
+        let transactionLinks = fetchTransactionLinks(context: context, transactionIDs: transactionIDs)
 
         return LinkedObjects(
             statements: statements,
@@ -128,7 +133,8 @@ struct AccountDeletionService {
             stockPositions: stockPositions,
             pendingImports: allPending,
             installmentPlans: allInstallments,
-            dueDateOverrides: dueDateOverrides
+            dueDateOverrides: dueDateOverrides,
+            transactionLinks: transactionLinks
         )
     }
 
@@ -179,6 +185,17 @@ struct AccountDeletionService {
         let ids = transactionIDs
         let descriptor = FetchDescriptor<SettlementDueDateOverride>(
             predicate: #Predicate<SettlementDueDateOverride> { ids.contains($0.transactionID) }
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    private static func fetchTransactionLinks(context: ModelContext, transactionIDs: Set<UUID>) -> [TransactionLink] {
+        guard !transactionIDs.isEmpty else { return [] }
+        let ids = transactionIDs
+        let descriptor = FetchDescriptor<TransactionLink>(
+            predicate: #Predicate<TransactionLink> {
+                ids.contains($0.sourceTransactionID) || ids.contains($0.targetTransactionID)
+            }
         )
         return (try? context.fetch(descriptor)) ?? []
     }

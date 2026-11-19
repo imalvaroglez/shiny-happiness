@@ -11,6 +11,7 @@ enum DashboardDataChangePolicy {
     /// labels the donut and category cards render.
     private static let relevantTypes: [AnyClass] = [
         Transaction.self,
+        TransactionLink.self,
         Account.self,
         Statement.self,
         AccountBalanceSnapshot.self,
@@ -19,8 +20,8 @@ enum DashboardDataChangePolicy {
     ]
 
     /// Pure decision over explicitly changed objects: relevant only when one
-    /// of them is a balance-relevant model (or a subclass of one).
-    static func isBalanceRelevant(changedObjects: [Any]) -> Bool {
+    /// of them affects dashboard output (or subclasses a relevant model).
+    static func isDashboardRelevant(changedObjects: [Any]) -> Bool {
         changedObjects.contains { object in
             guard let model = object as? any PersistentModel else { return false }
             var current: AnyClass? = Swift.type(of: model) as AnyClass
@@ -34,6 +35,10 @@ enum DashboardDataChangePolicy {
         }
     }
 
+    static func containsOnlyTransactionLinks(changedObjects: [Any]) -> Bool {
+        !changedObjects.isEmpty && changedObjects.allSatisfy { $0 is TransactionLink }
+    }
+
     /// Notification-level entry. SwiftData does not guarantee typed userInfo
     /// on `didSave` — payloads may be model objects, opaque persistent IDs, or
     /// absent entirely. Only concrete models can prove irrelevance; anything
@@ -43,7 +48,7 @@ enum DashboardDataChangePolicy {
     /// `container` scopes the decision: saves from side contexts of the same
     /// container (backup restores, the settings editor) must refresh too;
     /// anything from a different container is ignored.
-    static func isBalanceRelevant(_ notification: Notification, container: ModelContainer? = nil) -> Bool {
+    static func isDashboardRelevant(_ notification: Notification, container: ModelContainer? = nil) -> Bool {
         if let container,
            let savingContext = notification.object as? ModelContext,
            savingContext.container !== container {
@@ -59,7 +64,23 @@ enum DashboardDataChangePolicy {
         let models = changed.filter { $0 is any PersistentModel }
         // Opaque payloads (persistent IDs, tokens) can't be classified.
         guard !models.isEmpty else { return true }
-        return isBalanceRelevant(changedObjects: models)
+        return isDashboardRelevant(changedObjects: models)
+    }
+
+    static func containsOnlyTransactionLinks(_ notification: Notification, container: ModelContainer? = nil) -> Bool {
+        if let container,
+           let savingContext = notification.object as? ModelContext,
+           savingContext.container !== container {
+            return false
+        }
+        guard let userInfo = notification.userInfo, !userInfo.isEmpty else { return false }
+        var changed: [Any] = []
+        for value in userInfo.values {
+            collect(value, into: &changed)
+        }
+        let models = changed.filter { $0 is any PersistentModel }
+        guard !models.isEmpty, models.count == changed.count else { return false }
+        return containsOnlyTransactionLinks(changedObjects: models)
     }
 
     /// Flattens the handful of collection shapes a notification payload may

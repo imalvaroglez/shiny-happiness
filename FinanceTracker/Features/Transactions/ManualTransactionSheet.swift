@@ -36,7 +36,7 @@ struct ManualTransactionSheet: View {
     @State private var errorMessage: String?
     @State private var promotionsModel = PromotionLedgerViewModel()
     @State private var selectedPromotionIDs: Set<UUID> = []
-    @State private var attributionFailure: AttributionFailure?
+    @State var attributionFailure: AttributionFailure?
     @State private var propertyLedger = PropertyLedger()
     @State private var propertyID: UUID?
     @State private var propertyExpenseKind: PropertyExpenseKind = .operation
@@ -46,6 +46,12 @@ struct ManualTransactionSheet: View {
     @State private var propertyMaintenanceProgramID: UUID?
     @State private var pendingPropertyTransaction: Transaction?
     @State private var propertySaveError: String?
+    // Marcado interno para la extensión ManualTransactionSheetRefundLink.
+    @State var linkedPurchase: Transaction?
+    @State var showingLinkPicker = false
+    /// Movimiento guardado cuyo vínculo con la compra quedó pendiente de reintento.
+    @State var pendingLinkTransaction: Transaction?
+    @State var linkSaveError: String?
     @State private var didEditDate = false
     @State private var saveIntent: SaveAndNewFlow.Intent = .close
     @FocusState private var focusedField: SaveAndNewFlow.Field?
@@ -60,7 +66,7 @@ struct ManualTransactionSheet: View {
         return !locked.isAvailableForCapture
     }
 
-    private var selectedCategory: Category? {
+    var selectedCategory: Category? {
         categoryID.flatMap { id in categories.first { $0.id == id } }
     }
 
@@ -93,6 +99,10 @@ struct ManualTransactionSheet: View {
     }
 
     var body: some View {
+        behaviorModifiers(content)
+    }
+
+    private var content: some View {
         VStack(spacing: 18) {
             Text("Add Transaction")
                 .font(.headline)
@@ -109,31 +119,13 @@ struct ManualTransactionSheet: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
             )
+            // Con un vínculo pendiente el movimiento ya está guardado: congelar
+            // el borrador evita que un reintento diverja de lo persistido.
+            .disabled(pendingLinkTransaction != nil)
 
             promotionsSection
             attributionFailureAlert
-
-            if lockedAccountIsUnavailable {
-                Text("This account is archived or closed. Restore or reopen it in Settings → Accounts before adding a transaction.")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if let propertySaveError {
-                Label(propertySaveError, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
-                if pendingPropertyTransaction != nil {
-                    Button("Cerrar sin vincular") { dismiss() }
-                        .buttonStyle(.borderless)
-                }
-            }
+            errorBanners
 
             HStack {
                 Button("Cancel") { dismiss() }
@@ -143,7 +135,7 @@ struct ManualTransactionSheet: View {
                     saveIntent = .addAnother
                     save()
                 }
-                .disabled(activeAccounts.isEmpty || lockedAccountIsUnavailable || attributionFailure != nil)
+                .disabled(activeAccounts.isEmpty || lockedAccountIsUnavailable || attributionFailure != nil || pendingLinkTransaction != nil)
                 Button(attributionFailure == nil ? "Save" : "Guardada ✓") {
                     saveIntent = .close
                     save()
@@ -155,37 +147,29 @@ struct ManualTransactionSheet: View {
         }
         .padding(24)
         .frame(width: 560)
-        .onAppear {
-            do { propertyLedger = try PropertyLedgerStore.read() }
-            catch { propertySaveError = "No se pudo leer el registro de propiedades: \(error.localizedDescription)" }
-            accountID = preferredActiveAccountID
-            normalizeKindAndCategory()
-            updateCounterparty()
-            applyDateSuggestion()
+    }
+
+    /// Revisión de disponibilidad de cuentas para onChange (identidad +
+    /// archivo/cierre por cuenta).
+    private var accountAvailabilityKey: [String] {
+        accounts.map {
+            "\($0.id.uuidString):\($0.archivedAt?.timeIntervalSince1970 ?? 0):\($0.closedAt?.timeIntervalSince1970 ?? 0)"
         }
-        .onChange(of: accounts.map { "\($0.id.uuidString):\($0.archivedAt?.timeIntervalSince1970 ?? 0):\($0.closedAt?.timeIntervalSince1970 ?? 0)" }) {
-            // Re-select only while the account is still available for capture;
-            // archived and closed accounts drop out of the active list.
-            if selectedAccount == nil {
-                accountID = preferredActiveAccountID
-            }
-            updateCounterparty()
-        }
-        .onChange(of: accountID) {
-            normalizeKindAndCategory()
-            updateCounterparty()
-            purgeStalePromotionSelection()
-            applyDateSuggestion()
-            if selectedAccount?.currency != "MXN" { propertyID = nil }
-        }
-        .onChange(of: kind) {
-            normalizeKindAndCategory()
-            updateCounterparty()
-            purgeStalePromotionSelection()
-            if kind == .payment || kind == .transfer || kind == .cardCredit { propertyID = nil }
-            if kind == .income && propertyExpenseKind != .reimbursement { propertyExpenseKind = .operation }
-            if kind != .income && propertyExpenseKind == .reimbursement { propertyExpenseKind = .operation }
-        }
+    }
+
+    /// Ciclo de vida, normalización de borradores y hojas modales — separado
+    /// del contenido para mantener ambas expresiones type-chequeables.
+    private func behaviorModifiers(_ content: some View) -> some View {
+        lifecycleBehavior(sheetBehavior(content))
+    }
+
+    private func lifecycleBehavior(_ content: some View) -> some View {
+        content
+        .onAppear { appear() }
+        .onChange(of: accountAvailabilityKey) { availabilityChanged() }
+        .onChange(of: accountID) { accountChanged() }
+        .onChange(of: categoryID) { categoryChanged() }
+        .onChange(of: kind) { kindChanged() }
         .onChange(of: propertyID) { if propertyID != nil { includeInHousehold = false } }
         .onChange(of: includeInHousehold) { if includeInHousehold { propertyID = nil } }
         .onChange(of: propertyExpenseKind) { if propertyExpenseKind == .maintenance { propertyResponsibility = .owner } }
@@ -193,12 +177,107 @@ struct ManualTransactionSheet: View {
         .onReceive(NotificationCenter.default.publisher(for: PromotionLedgerStore.didChangeNotification)) { _ in
             promotionsModel.scheduleReload(context: modelContext, includeTransactions: false)
         }
+    }
+
+    private func appear() {
+        do { propertyLedger = try PropertyLedgerStore.read() }
+        catch { propertySaveError = "No se pudo leer el registro de propiedades: \(error.localizedDescription)" }
+        accountID = preferredActiveAccountID
+        normalizeKindAndCategory()
+        updateCounterparty()
+        applyDateSuggestion()
+    }
+
+    private func availabilityChanged() {
+        // Re-select only while the account is still available for capture;
+        // archived and closed accounts drop out of the active list.
+        if selectedAccount == nil {
+            accountID = preferredActiveAccountID
+        }
+        updateCounterparty()
+    }
+
+    private func accountChanged() {
+        normalizeKindAndCategory()
+        updateCounterparty()
+        purgeStalePromotionSelection()
+        applyDateSuggestion()
+        if selectedAccount?.currency != "MXN" { propertyID = nil }
+        if let purchase = linkedPurchase, purchase.currency != selectedAccount?.currency {
+            linkedPurchase = nil
+        }
+    }
+
+    private func categoryChanged() {
+        if !isSelectedCategoryRefund { linkedPurchase = nil }
+    }
+
+    private func kindChanged() {
+        normalizeKindAndCategory()
+        updateCounterparty()
+        purgeStalePromotionSelection()
+        if kind == .payment || kind == .transfer || kind == .cardCredit { propertyID = nil }
+        if kind == .income && propertyExpenseKind != .reimbursement { propertyExpenseKind = .operation }
+        if kind != .income && propertyExpenseKind == .reimbursement { propertyExpenseKind = .operation }
+    }
+
+    private func sheetBehavior(_ content: some View) -> some View {
+        content
         .sheet(isPresented: $showingCategoryPicker) {
             CategoryPickerView(
                 selectedCategoryID: categoryID,
                 allowedKinds: allowedCategoryKinds
             ) { category in
                 categoryID = category.id
+            }
+        }
+        .sheet(isPresented: $showingLinkPicker) {
+            TransactionLinkPickerSheet(
+                mode: .purchaseForNewRefund(
+                    currency: selectedAccount?.currency ?? "MXN",
+                    postedAt: date
+                )
+            ) { purchase in
+                linkedPurchase = purchase
+            }
+        }
+    }
+
+    /// Avisos y errores de guardado (captura, propiedad, vínculo de reembolso).
+    @ViewBuilder
+    private var errorBanners: some View {
+        if lockedAccountIsUnavailable {
+            Text("This account is archived or closed. Restore or reopen it in Settings → Accounts before adding a transaction.")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        if let errorMessage {
+            Text(errorMessage)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+            if let propertySaveError {
+                Label(propertySaveError, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+                if pendingPropertyTransaction != nil {
+                    Button("Cerrar sin vincular") {
+                        closeAfterPropertyFailure()
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+
+        if let linkSaveError {
+            Label(linkSaveError, systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+            if pendingLinkTransaction != nil {
+                Button("Cerrar sin vincular") {
+                    finishAfterLinkResolution()
+                }
+                .buttonStyle(.borderless)
             }
         }
     }
@@ -330,8 +409,22 @@ struct ManualTransactionSheet: View {
         applyResolution(SaveAndNewFlow.resolve(intent: saveIntent))
     }
 
-    private func finishAfterSuccess() {
+    func finishAfterSuccess() {
         applyResolution(SaveAndNewFlow.resolve(intent: saveIntent))
+    }
+
+    /// «Cerrar sin vincular» de la propiedad: descarta esa atribución pero
+    /// intenta el vínculo del reembolso antes de cerrar — tampoco se pierde.
+    private func closeAfterPropertyFailure() {
+        guard let pending = pendingPropertyTransaction else {
+            dismiss()
+            return
+        }
+        linkRefundAfterSave(pending, context: modelContext)
+        pendingPropertyTransaction = nil
+        propertySaveError = nil
+        if pendingLinkTransaction != nil { return }
+        dismiss()
     }
 
     private func applyResolution(_ resolution: SaveAndNewFlow.Resolution) {
@@ -363,6 +456,9 @@ struct ManualTransactionSheet: View {
         propertyMaintenanceProgramID = nil
         pendingPropertyTransaction = nil
         propertySaveError = nil
+        linkedPurchase = nil
+        pendingLinkTransaction = nil
+        linkSaveError = nil
         errorMessage = nil
         didEditDate = false
         applyDateSuggestion()
@@ -370,7 +466,7 @@ struct ManualTransactionSheet: View {
     }
 
     /// La tx ya se guardó; un fallo del ledger deja la hoja abierta con Reintentar/Más tarde.
-    private func applyAttributions(to transaction: Transaction) {
+    func applyAttributions(to transaction: Transaction) {
         guard !selectedPromotionIDs.isEmpty else { return }
         let outcome = AttributionSaver.apply(transactionID: transaction.id,
                                              currency: transaction.currency,
@@ -419,6 +515,10 @@ struct ManualTransactionSheet: View {
         if showCategory {
             panelDivider
             categoryPickerRow
+            if isSelectedCategoryRefund {
+                panelDivider
+                linkPurchaseRow
+            }
         }
         if kind == .expense || kind == .charge {
             panelDivider
@@ -627,7 +727,7 @@ struct ManualTransactionSheet: View {
         Divider().padding(.leading, 132)
     }
 
-    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+    func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             Text(label).frame(width: 116, alignment: .leading)
             content().frame(maxWidth: .infinity, alignment: .trailing)
@@ -667,8 +767,27 @@ struct ManualTransactionSheet: View {
                 try persistPropertyAttribution(for: pendingPropertyTransaction)
                 self.pendingPropertyTransaction = nil
                 propertySaveError = nil
+                // La propiedad ya se resolvió; el vínculo del reembolso no debe
+                // perderse por haber fallado antes la propiedad.
+                linkRefundAfterSave(pendingPropertyTransaction, context: modelContext)
+                if pendingLinkTransaction != nil { return }
                 finishAfterSuccess()
             } catch { propertySaveError = "El movimiento se guardó, pero falló la asociación con la propiedad: \(error.localizedDescription)" }
+            return
+        }
+        if let pendingLink = pendingLinkTransaction {
+            // El movimiento YA existe: este guardado solo reintenta el vínculo
+            // (o lo descarta si el usuario quitó la compra) — jamás crea otro.
+            if let purchase = linkedPurchase {
+                do {
+                    try TransactionLinkService.linkRefund(refund: pendingLink, purchase: purchase, context: modelContext)
+                    finishAfterLinkResolution()
+                } catch {
+                    linkSaveError = String(localized: "The movement was saved, but the refund link failed: \(error.localizedDescription)")
+                }
+            } else {
+                finishAfterLinkResolution()
+            }
             return
         }
         var createdTransaction: Transaction?
@@ -676,6 +795,17 @@ struct ManualTransactionSheet: View {
             switch kind {
             case .income:
                 guard let account = selectedAccount else { throw ManualAccountError.missingAccount }
+                // El vínculo es opcional pero se valida ANTES de persistir: un
+                // borrador inválido no guarda nada y conserva el estado capturado.
+                if let linkedPurchase {
+                    try TransactionLinkService.validateRefundDraft(
+                        amount: abs(amount),
+                        currency: account.currency,
+                        postedAt: date,
+                        purchase: linkedPurchase,
+                        context: modelContext
+                    )
+                }
                 createdTransaction = try ManualTransactionService.create(
                     account: account,
                     date: date,
@@ -760,6 +890,8 @@ struct ManualTransactionSheet: View {
                         return
                     }
                 }
+                linkRefundAfterSave(createdTransaction, context: modelContext)
+                if pendingLinkTransaction != nil { return }
                 applyAttributions(to: createdTransaction)
             }
             guard attributionFailure == nil else { return }

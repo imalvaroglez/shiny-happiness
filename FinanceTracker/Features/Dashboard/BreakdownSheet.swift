@@ -5,8 +5,8 @@ import SwiftData
 /// material needed to render its breakdown sheet — no extra fetches required.
 enum BreakdownRequest: Identifiable {
     case netWorth(period: DashboardPeriodContext, accounts: [AccountSummary])
-    case income(transactions: [Transaction], total: Decimal, interestAllocations: [InterestDailyAllocation], interestSources: [Transaction])
-    case expenses(transactions: [Transaction], total: Decimal)
+    case income(transactions: [Transaction], total: Decimal, interestAllocations: [InterestDailyAllocation], interestSources: [Transaction], linkedRefundIDs: Set<UUID>)
+    case expenses(transactions: [Transaction], total: Decimal, refundsByPurchaseID: [UUID: [Transaction]])
     case interest(total: Decimal, allocations: [InterestDailyAllocation], sources: [Transaction])
     case cashFlowPeriod(
         start: Date,
@@ -17,8 +17,8 @@ enum BreakdownRequest: Identifiable {
         matchedCardPaymentIDs: Set<UUID>,
         hasUnmatchedCardPayment: Bool
     )
-    case categorySpending(category: Category, amount: Decimal, transactions: [Transaction])
-    case categoryList(entries: [CategorySpending], currencyCode: String, transactions: [Transaction])
+    case categorySpending(category: Category, amount: Decimal, transactions: [Transaction], refundsByPurchaseID: [UUID: [Transaction]])
+    case categoryList(entries: [CategorySpending], currencyCode: String, transactions: [Transaction], refundsByPurchaseID: [UUID: [Transaction]])
 
     var id: String {
         switch self {
@@ -27,7 +27,7 @@ enum BreakdownRequest: Identifiable {
         case .expenses: return "expenses"
         case .interest: return "interest"
         case .cashFlowPeriod(let start, _, _, _, _, _, _): return "cash-flow-\(start)"
-        case .categorySpending(let cat, _, _): return "category-\(cat.id)"
+        case .categorySpending(let cat, _, _, _): return "category-\(cat.id)"
         case .categoryList: return "category-list"
         }
     }
@@ -41,7 +41,7 @@ enum BreakdownRequest: Identifiable {
         case .interest: return "Interest Earned"
         case .cashFlowPeriod(let start, let bucket, _, _, _, _, _):
             return dashboardBucketLabel(for: start, bucket: bucket)
-        case .categorySpending(let cat, _, _): return cat.localizedName
+        case .categorySpending(let cat, _, _, _): return cat.localizedName
         case .categoryList: return String(localized: "Category Breakdown")
         }
     }
@@ -176,17 +176,18 @@ struct BreakdownSheet: View {
         switch request {
         case .netWorth(let period, let summaries):
             accountsBreakdown(summaries: summaries, period: period)
-        case .income(let txs, let total, let allocations, let sources):
+        case .income(let txs, let total, let allocations, let sources, let linkedRefundIDs):
             transactionsBreakdown(
-                transactions: txs.filter { Self.includesInIncomeBreakdown($0) },
+                transactions: txs.filter { Self.includesInIncomeBreakdown($0) && !linkedRefundIDs.contains($0.id) },
                 interestAllocations: Self.incomeAllocations(allocations, sources: sources),
                 interestSources: sources,
                 total: total,
                 signed: false,
                 usesIncomeAllocation: true
             )
-        case .expenses(let txs, let total):
-            transactionsBreakdown(transactions: txs.filter { Self.includesInExpensesBreakdown($0) }, total: total, signed: true)
+        case .expenses(let txs, let total, let refundsByPurchaseID):
+            transactionsBreakdown(transactions: txs.filter { Self.includesInExpensesBreakdown($0) }, total: total, signed: true,
+                                  refundsByPurchaseID: refundsByPurchaseID)
         case .interest(let total, let allocations, let sources):
             transactionsBreakdown(
                 transactions: [], interestAllocations: allocations,
@@ -218,14 +219,17 @@ struct BreakdownSheet: View {
                     usesIncomeAllocation: true
                 )
             }
-        case .categorySpending(let cat, let total, let txs):
-            transactionsBreakdown(transactions: txs.filter { Self.includesInCategorySpendingBreakdown($0, category: cat) }, total: total, signed: true)
-        case .categoryList(let entries, let currencyCode, let transactions):
-            categoryList(entries: entries, currencyCode: currencyCode, transactions: transactions)
+        case .categorySpending(let cat, let total, let txs, let refundsByPurchaseID):
+            transactionsBreakdown(transactions: txs.filter { Self.includesInCategorySpendingBreakdown($0, category: cat) },
+                                  total: total, signed: true, refundsByPurchaseID: refundsByPurchaseID)
+        case .categoryList(let entries, let currencyCode, let transactions, let refundsByPurchaseID):
+            categoryList(entries: entries, currencyCode: currencyCode, transactions: transactions,
+                         refundsByPurchaseID: refundsByPurchaseID)
         }
     }
 
-    private func categoryList(entries: [CategorySpending], currencyCode: String, transactions: [Transaction]) -> some View {
+    private func categoryList(entries: [CategorySpending], currencyCode: String, transactions: [Transaction],
+                              refundsByPurchaseID: [UUID: [Transaction]]) -> some View {
         let sorted = entries.sorted { $0.amount > $1.amount }
         let total = sorted.reduce(Decimal.zero) { $0 + $1.amount }
         let colors = CategoryChartPalette.colors(for: sorted.map(\.id))
@@ -253,7 +257,8 @@ struct BreakdownSheet: View {
                         selectedCategory = .categorySpending(
                             category: entry.category,
                             amount: entry.amount,
-                            transactions: transactions
+                            transactions: transactions,
+                            refundsByPurchaseID: refundsByPurchaseID
                         )
                     }
                 }
@@ -356,7 +361,8 @@ struct BreakdownSheet: View {
         interestSources: [Transaction] = [],
         total: Decimal?,
         signed: Bool?,
-        usesIncomeAllocation: Bool = false
+        usesIncomeAllocation: Bool = false,
+        refundsByPurchaseID: [UUID: [Transaction]] = [:]
     ) -> some View {
         let sorted = transactions.sorted { $0.postedAt > $1.postedAt }
         let sortedAllocations = interestAllocations.sorted {
@@ -372,6 +378,8 @@ struct BreakdownSheet: View {
                     .font(.subheadline).foregroundStyle(.secondary)
             } else {
                 ForEach(sorted) { tx in
+                    let refunds = refundsByPurchaseID[tx.id] ?? []
+                    let netAmount = tx.amount + refunds.reduce(Decimal.zero) { $0 + $1.amount }
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(tx.descriptionRaw).lineLimit(2)
@@ -385,11 +393,21 @@ struct BreakdownSheet: View {
                                     Text("••••\(card)").font(.caption2).foregroundStyle(.tertiary)
                                 }
                             }
+                            if !refunds.isEmpty {
+                                Text("Original purchase · \(MoneyFormat.string(tx.amount, code: tx.currency))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                                ForEach(refunds) { refund in
+                                    Text("Refund · \(refund.postedAt.formatted(date: .abbreviated, time: .omitted)) · \(MoneyFormat.string(refund.amount, code: refund.currency))")
+                                        .font(.caption2).foregroundStyle(.green)
+                                }
+                                Text("Net spend · \(MoneyFormat.string(abs(netAmount), code: tx.currency))")
+                                    .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                            }
                         }
                         Spacer()
-                        Text(MoneyFormat.string(tx.amount, code: tx.currency))
+                        Text(MoneyFormat.string(netAmount, code: tx.currency))
                             .font(.body.bold().monospacedDigit())
-                            .foregroundStyle(tx.amount >= 0 ? .green : .red)
+                            .foregroundStyle(netAmount > 0 ? .green : (netAmount < 0 ? .red : .secondary))
                     }
                 }
                 if !sortedAllocations.isEmpty {

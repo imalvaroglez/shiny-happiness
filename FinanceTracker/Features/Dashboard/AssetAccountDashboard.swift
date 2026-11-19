@@ -190,11 +190,13 @@ struct AssetAccountDashboard: View {
                     transactions: snapshot.recentTransactions,
                     total: snapshot.totalIncome,
                     interestAllocations: snapshot.interestAllocations,
-                    interestSources: snapshot.interestSourceTransactions
+                    interestSources: snapshot.interestSourceTransactions,
+                    linkedRefundIDs: snapshot.linkedRefundIDs
                 )
             }
             SummaryCard(title: "Expenses", amount: abs(snapshot.totalExpenses), currencyCode: snapshot.currencyCode, tint: .red) {
-                breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses)
+                breakdown = .expenses(transactions: snapshot.recentTransactions, total: snapshot.totalExpenses,
+                                      refundsByPurchaseID: snapshot.refundsByPurchaseID)
             }
             fourthSummaryCard
         }
@@ -358,13 +360,16 @@ struct AssetAccountDashboard: View {
                     compactRows: true,
                     aggregatesOther: true,
                     onSelect: { entry in
-                        breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
+                        breakdown = .categorySpending(category: entry.category, amount: entry.amount,
+                                                      transactions: snapshot.recentTransactions,
+                                                      refundsByPurchaseID: snapshot.refundsByPurchaseID)
                     },
                     onSelectOther: {
                         breakdown = .categoryList(
                             entries: snapshot.spendingByCategory,
                             currencyCode: snapshot.currencyCode,
-                            transactions: snapshot.recentTransactions
+                            transactions: snapshot.recentTransactions,
+                            refundsByPurchaseID: snapshot.refundsByPurchaseID
                         )
                     }
                 )

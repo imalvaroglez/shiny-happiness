@@ -81,6 +81,43 @@ struct AccountDeletionServiceTests {
         #expect(try context.fetch(FetchDescriptor<PendingImport>()).isEmpty)
     }
 
+    @Test("Deleting an account removes refund links touching its transactions and keeps unrelated links")
+    func deletingAccountRemovesRefundLinksTouchingItsTransactions() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let doomed = Account(institution: "Doom Bank", type: .creditCard, currency: "MXN", nickname: "Doomed Card")
+        let survivorCard = Account(institution: "Keeper Bank", type: .creditCard, currency: "MXN", nickname: "Keeper Card")
+        let bank = Account(institution: "Bank", type: .checking, currency: "MXN", nickname: "Checking")
+        [doomed, survivorCard, bank].forEach(context.insert)
+
+        let doomedPurchase = Transaction(account: doomed, postedAt: .now, amount: -600, descriptionRaw: "Doomed purchase",
+                                         flowKindRaw: TransactionFlowKind.charge.rawValue,
+                                         movementKindRaw: TransactionMovementKind.expense.rawValue)
+        let keptPurchase = Transaction(account: survivorCard, postedAt: .now, amount: -300, descriptionRaw: "Kept purchase",
+                                       flowKindRaw: TransactionFlowKind.charge.rawValue,
+                                       movementKindRaw: TransactionMovementKind.expense.rawValue)
+        let doomedRefund = Transaction(account: bank, postedAt: .now.addingTimeInterval(3600), amount: 200,
+                                       descriptionRaw: "Refund of doomed",
+                                       flowKindRaw: TransactionFlowKind.income.rawValue,
+                                       movementKindRaw: TransactionMovementKind.income.rawValue)
+        let keptRefund = Transaction(account: bank, postedAt: .now.addingTimeInterval(7200), amount: 100,
+                                     descriptionRaw: "Refund of kept",
+                                     flowKindRaw: TransactionFlowKind.income.rawValue,
+                                     movementKindRaw: TransactionMovementKind.income.rawValue)
+        [doomedPurchase, keptPurchase, doomedRefund, keptRefund].forEach(context.insert)
+        try context.save()
+        try TransactionLinkService.linkRefund(refund: doomedRefund, purchase: doomedPurchase, context: context)
+        try TransactionLinkService.linkRefund(refund: keptRefund, purchase: keptPurchase, context: context)
+
+        try AccountDeletionService.delete(account: doomed, context: context)
+
+        let remainingLinks = try context.fetch(FetchDescriptor<TransactionLink>())
+        #expect(remainingLinks.count == 1)
+        #expect(remainingLinks[0].sourceTransactionID == keptRefund.id)
+        #expect(remainingLinks[0].targetTransactionID == keptPurchase.id)
+    }
+
     @Test("Archiving and restoring keeps every linked financial record intact")
     func archiveAndRestorePreservesLinkedRecords() throws {
         let container = try makeContainer()
@@ -174,6 +211,59 @@ struct AccountDeletionServiceTests {
         #expect(transaction.id == transactionID)
         #expect(transaction.account?.id == accountID)
         #expect(transaction.amount == -125)
+    }
+
+    @Test("V7 disk stores migrate to V8 and reopen without synthetic links")
+    func migratesV7StoreToV8() throws {
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("finance-transaction-links-v7-\(UUID()).store")
+        defer {
+            try? FileManager.default.removeItem(at: storeURL)
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: storeURL.path + "-wal"))
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: storeURL.path + "-shm"))
+        }
+
+        let accountID = UUID()
+        let transactionID = UUID()
+        do {
+            let v7Schema = Schema(versionedSchema: FinanceTrackerSchemaV7.self)
+            let config = ModelConfiguration(schema: v7Schema, url: storeURL)
+            let container = try ModelContainer(for: v7Schema, configurations: [config])
+            let context = container.mainContext
+            let account = Account(
+                id: accountID, institution: "Bank", type: .checking, nickname: "V7 account"
+            )
+            let transaction = Transaction(
+                id: transactionID, account: account, postedAt: .now, amount: -125,
+                descriptionRaw: "V7 transaction"
+            )
+            context.insert(account)
+            context.insert(transaction)
+            try context.save()
+        }
+
+        let config = ModelConfiguration(schema: AppSchema.schema, url: storeURL)
+        let migrated = try ModelContainer(
+            for: AppSchema.schema,
+            migrationPlan: FinanceTrackerMigrationPlan.self,
+            configurations: [config]
+        )
+        let context = migrated.mainContext
+        let account = try #require(try context.fetch(FetchDescriptor<Account>()).first)
+        let transaction = try #require(try context.fetch(FetchDescriptor<Transaction>()).first)
+        #expect(account.id == accountID)
+        #expect(transaction.id == transactionID)
+        #expect(transaction.account?.id == accountID)
+        #expect(transaction.amount == -125)
+        #expect(try context.fetchCount(FetchDescriptor<TransactionLink>()) == 0)
+
+        let reopened = try ModelContainer(
+            for: AppSchema.schema,
+            migrationPlan: FinanceTrackerMigrationPlan.self,
+            configurations: [config]
+        )
+        #expect(try reopened.mainContext.fetchCount(FetchDescriptor<TransactionLink>()) == 0)
+        #expect(try reopened.mainContext.fetch(FetchDescriptor<Transaction>()).first?.id == transactionID)
     }
 
     @Test("Deleting an account does not delete unrelated accounts or transactions")

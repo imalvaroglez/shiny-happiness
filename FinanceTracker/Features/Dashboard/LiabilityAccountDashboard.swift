@@ -496,7 +496,9 @@ struct LiabilityAccountDashboard: View {
                 showsLegend: false,
                 aggregatesOther: true,
                 onSelect: { entry in
-                breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
+                    breakdown = .categorySpending(category: entry.category, amount: entry.amount,
+                                                  transactions: snapshot.recentTransactions,
+                                                  refundsByPurchaseID: snapshot.refundsByPurchaseID)
                 },
                 onSelectOther: { showCategoryBreakdown() }
             )
@@ -523,7 +525,8 @@ struct LiabilityAccountDashboard: View {
         breakdown = .categoryList(
             entries: snapshot.spendingByCategory,
             currencyCode: snapshot.currencyCode,
-            transactions: snapshot.recentTransactions
+            transactions: snapshot.recentTransactions,
+            refundsByPurchaseID: snapshot.refundsByPurchaseID
         )
     }
 

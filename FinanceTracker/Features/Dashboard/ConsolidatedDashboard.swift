@@ -407,7 +407,9 @@ struct ConsolidatedDashboard: View {
                     currencyCode: snapshot.currencyCode,
                     limit: showAllCategories ? snapshot.spendingByCategory.count : 5
                 ) { entry in
-                    breakdown = .categorySpending(category: entry.category, amount: entry.amount, transactions: snapshot.recentTransactions)
+                    breakdown = .categorySpending(category: entry.category, amount: entry.amount,
+                                                  transactions: snapshot.recentTransactions,
+                                                  refundsByPurchaseID: snapshot.refundsByPurchaseID)
                 }
 
                 if let other = otherWarning {

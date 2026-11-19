@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import os
 
 struct MonthlyCashFlow: Identifiable {
     let month: Date
@@ -25,6 +26,27 @@ private struct DashboardTransactionMetrics {
     let interestAllocations: [InterestDailyAllocation]
     let interestSourceTransactions: [Transaction]
     let matchedCardPaymentTransactionIDs: Set<UUID>
+    let refundsByPurchaseID: [UUID: [Transaction]]
+    let linkedRefundIDs: Set<UUID>
+}
+
+private struct DashboardTransactionRevision: Hashable {
+    let id: UUID
+    let lastModifiedAt: Date
+    let accountLastModifiedAt: Date?
+    let categoryLastModifiedAt: Date?
+
+    init(_ transaction: Transaction) {
+        id = transaction.id
+        lastModifiedAt = transaction.lastModifiedAt
+        accountLastModifiedAt = transaction.account?.lastModifiedAt
+        categoryLastModifiedAt = transaction.category?.lastModifiedAt
+    }
+}
+
+private struct DashboardRefundDataCacheKey: Hashable {
+    let asOf: Date
+    let transactions: [DashboardTransactionRevision]
 }
 
 struct NetWorthPoint: Identifiable {
@@ -77,6 +99,7 @@ final class DashboardViewModel {
     var dateRange: DateRange = DashboardPeriodKind.all.resolvedRange()
     var periodKind: DashboardPeriodKind = .all
     var scope: DashboardScope = .consolidated
+    var refundProjectionError: String?
 
     private var context: ModelContext?
     private let transactionClassifier = TransactionClassifier()
@@ -84,6 +107,9 @@ final class DashboardViewModel {
     private var balanceChartAdjustmentCache: [UUID: (asOfDay: Date, adjustments: [AccountBalanceChartAdjustment])] = [:]
     private var consolidatedTransactionCache: (range: DateRange, transactions: [Transaction])?
     private var interestAccrualCache: (asOfDay: Date, allocations: [InterestDailyAllocation], sources: [Transaction])?
+    private var dashboardRefundDataCache: [DashboardRefundDataCacheKey: DashboardRefundData] = [:]
+    private var dashboardRefundDataCacheOrder: [DashboardRefundDataCacheKey] = []
+    private var dashboardClassificationCache: [UUID: (revision: DashboardTransactionRevision, value: TransactionClassification)] = [:]
     private var reuseBalanceSamplerCacheOnNextRefresh = false
     private var reuseSpendRequirementCacheOnNextRefresh = false
     private var spendRequirements: [UUID: SpendRequirement] = [:]
@@ -106,6 +132,9 @@ final class DashboardViewModel {
         balanceChartAdjustmentCache.removeAll()
         consolidatedTransactionCache = nil
         interestAccrualCache = nil
+        dashboardRefundDataCache.removeAll()
+        dashboardRefundDataCacheOrder.removeAll()
+        dashboardClassificationCache.removeAll()
         loadSpendRequirements(context: context)
         refresh()
     }
@@ -122,8 +151,8 @@ final class DashboardViewModel {
         refresh()
     }
 
-    /// Rebuilds the snapshot after underlying data changed (a `Transaction`,
-    /// `Statement`, `AccountBalanceSnapshot`, … was saved from anywhere).
+    /// Rebuilds the snapshot after dashboard data changed (a `Transaction`,
+    /// `TransactionLink`, `Statement`, `AccountBalanceSnapshot`, … was saved).
     ///
     /// Unlike a plain `refresh()`, this also drops the balance-sampler reuse
     /// flags — a save that happened after the last refresh must never be served
@@ -135,6 +164,24 @@ final class DashboardViewModel {
     func refreshAfterDataChange(now: Date = .now) {
         reuseBalanceSamplerCacheOnNextRefresh = false
         reuseSpendRequirementCacheOnNextRefresh = false
+        dashboardRefundDataCache.removeAll()
+        dashboardRefundDataCacheOrder.removeAll()
+        dashboardClassificationCache.removeAll()
+        periodNow = now
+        if periodKind != .custom {
+            dateRange = periodKind.resolvedRange(now: now)
+        }
+        refresh()
+    }
+
+    /// A link-only save changes spending and income projections, while the
+    /// transaction rows, interest accruals, and point-in-time balances remain
+    /// valid. Keep those caches warm and rebuild the affected dashboard data.
+    func refreshAfterTransactionLinksChanged(now: Date = .now) {
+        reuseBalanceSamplerCacheOnNextRefresh = true
+        reuseSpendRequirementCacheOnNextRefresh = true
+        dashboardRefundDataCache.removeAll()
+        dashboardRefundDataCacheOrder.removeAll()
         periodNow = now
         if periodKind != .custom {
             dateRange = periodKind.resolvedRange(now: now)
@@ -297,13 +344,15 @@ final class DashboardViewModel {
             : nil
         let period = dashboardPeriodContext(context: context, dataRange: dataRange)
         let transactions = windowedTransactions(context: context)
+        let refundData = dashboardRefundData(for: transactions, context: context)
 
         let metrics = computeTransactionMetrics(
             transactions,
             period: period,
             interestAllocations: interestData.allocations,
             interestSourceTransactions: interestData.sources,
-            allPeriodTransactions: transactions
+            allPeriodTransactions: transactions,
+            refundData: refundData
         )
 
         let netWorthAccounts = accounts.filter(\.effectiveIncludeInNetWorth)
@@ -340,7 +389,11 @@ final class DashboardViewModel {
             let previousTransactions = fetchTransactions(context: context, range: previousRange)
             spendingAnomaly = SpendingAnomalyBuilder.build(
                 current: metrics.spendingByCategory,
-                previous: computeSpendingByCategory(previousTransactions, kindFilter: nil),
+                previous: computeSpendingByCategory(
+                    previousTransactions,
+                    kindFilter: nil,
+                    refundData: dashboardRefundData(for: previousTransactions, context: context)
+                ),
                 totalExpenses: abs(metrics.expenses)
             )
         }
@@ -375,7 +428,9 @@ final class DashboardViewModel {
             interestAllocations: metrics.interestAllocations,
             interestSourceTransactions: metrics.interestSourceTransactions,
             hasUnmatchedCardPayment: hasUnmatchedCardPayment(in: transactions),
-            matchedCardPaymentTransactionIDs: metrics.matchedCardPaymentTransactionIDs
+            matchedCardPaymentTransactionIDs: metrics.matchedCardPaymentTransactionIDs,
+            refundsByPurchaseID: metrics.refundsByPurchaseID,
+            linkedRefundIDs: refundData.linkedRefundIDs
         )
     }
 
@@ -413,6 +468,7 @@ final class DashboardViewModel {
 
         let transactions = windowedTransactions(context: context, accountId: accountId)
         let allPeriodTransactions = windowedTransactions(context: context)
+        let refundData = dashboardRefundData(for: allPeriodTransactions, context: context)
         let balanceSampler = balanceSamplers(context: context, accounts: [account]).first
         let interestData = interestAccrualData(context: context, asOf: periodNow)
         let accountInterestAllocations = interestData.allocations.filter { $0.accountID == accountId }
@@ -436,6 +492,7 @@ final class DashboardViewModel {
                 period: period,
                 account: account,
                 transactions: transactions,
+                refundData: refundData,
                 latestBalanceStatement: latestBalanceStatement,
                 latestPaymentStatement: latestPaymentStatement,
                 currentBalance: currentBalance
@@ -447,6 +504,7 @@ final class DashboardViewModel {
                 account: account,
                 transactions: transactions,
                 allPeriodTransactions: allPeriodTransactions,
+                refundData: refundData,
                 interestAllocations: accountInterestAllocations,
                 interestSourceTransactions: interestData.sources.filter { $0.account?.id == accountId },
                 latestStatement: latestStatement,
@@ -462,6 +520,7 @@ final class DashboardViewModel {
         account: Account,
         transactions: [Transaction],
         allPeriodTransactions: [Transaction],
+        refundData: DashboardRefundData,
         interestAllocations: [InterestDailyAllocation],
         interestSourceTransactions: [Transaction],
         latestStatement: Statement?,
@@ -473,7 +532,8 @@ final class DashboardViewModel {
             period: period,
             interestAllocations: interestAllocations,
             interestSourceTransactions: interestSourceTransactions,
-            allPeriodTransactions: allPeriodTransactions
+            allPeriodTransactions: allPeriodTransactions,
+            refundData: refundData
         )
         let balanceSeries = computeBalanceSeries(
             context: context,
@@ -502,6 +562,9 @@ final class DashboardViewModel {
             interestAllocations: metrics.interestAllocations,
             interestSourceTransactions: metrics.interestSourceTransactions,
             matchedCardPaymentTransactionIDs: metrics.matchedCardPaymentTransactionIDs,
+            hasUnmatchedCardPayment: hasUnmatchedCardPayment(in: transactions),
+            refundsByPurchaseID: metrics.refundsByPurchaseID,
+            linkedRefundIDs: refundData.linkedRefundIDs
             // Scoped to this account's rows, like the consolidated flag is
             // scoped to the consolidated rows. A card-payment receipt (the only
             // row kind that can lack a matching bank withdrawal) lives on the
@@ -509,7 +572,6 @@ final class DashboardViewModel {
             // drill-down note ("payments without a bank withdrawal") can't be
             // truthfully raised from data this sheet doesn't show. Computed —
             // not hardcoded — so it stays correct if the scoping ever changes.
-            hasUnmatchedCardPayment: hasUnmatchedCardPayment(in: transactions)
         )
     }
 
@@ -573,12 +635,13 @@ final class DashboardViewModel {
         period: DashboardPeriodContext,
         account: Account,
         transactions: [Transaction],
+        refundData: DashboardRefundData,
         latestBalanceStatement: Statement?,
         latestPaymentStatement: Statement?,
         currentBalance: Decimal
     ) -> LiabilityAccountSnapshot {
         let chargesVsPayments = computeChargesVsPayments(transactions, period: period)
-        let spending = computeSpendingByCategory(transactions, kindFilter: nil)
+        let spending = computeSpendingByCategory(transactions, kindFilter: nil, refundData: refundData)
 
         let totalCharges = transactions
             .filter { !$0.isDuplicate && $0.amount < 0 && !isSynthesizedMSIPurchase($0) }
@@ -621,7 +684,8 @@ final class DashboardViewModel {
             sourceStatements: sourceStatements,
             recentTransactions: transactions,
             totalTransactions: transactions.count,
-            spendRequirementCard: spendRequirementCard
+            spendRequirementCard: spendRequirementCard,
+            refundsByPurchaseID: refundData.refundsByPurchaseID
         )
     }
 
@@ -705,7 +769,8 @@ final class DashboardViewModel {
         period: DashboardPeriodContext,
         interestAllocations: [InterestDailyAllocation],
         interestSourceTransactions: [Transaction],
-        allPeriodTransactions: [Transaction]
+        allPeriodTransactions: [Transaction],
+        refundData: DashboardRefundData
     ) -> DashboardTransactionMetrics {
         let calendar = Calendar.current
         let intervals = period.intervals(calendar: calendar)
@@ -726,13 +791,28 @@ final class DashboardViewModel {
         let periodInterestAllocations = interestAllocations.filter { $0.day >= rangeStart && $0.day <= rangeEnd }
         let periodInterestSourceIDs = Set(periodInterestAllocations.flatMap(\.sourceTransactionIDs))
         let periodInterestSourceTransactions = interestSourceTransactions.filter { periodInterestSourceIDs.contains($0.id) }
+        let hasRefundAdjustments = !refundData.refundedAmountByPurchaseID.isEmpty || !refundData.linkedRefundIDs.isEmpty
+        let hasRefundClassifications = !refundData.classificationsByTransactionID.isEmpty
 
         for tx in transactions {
-            let classification = transactionClassifier.classify(transaction: tx)
+            let classification: TransactionClassification
+            if hasRefundClassifications {
+                classification = refundData.classificationsByTransactionID[tx.id] ?? self.classification(for: tx)
+            } else {
+                classification = transactionClassifier.classify(transaction: tx)
+            }
             let isInterestIncome = tx.amount > 0 && CategorySemanticIdentity.matches(tx.category, name: "Interest")
+            let refundedAmount = hasRefundAdjustments ? (refundData.refundedAmountByPurchaseID[tx.id] ?? 0) : 0
+            let isLinkedRefund = hasRefundAdjustments && refundData.linkedRefundIDs.contains(tx.id)
 
-            if classification.countsAsRegularIncome && !isInterestIncome { income += tx.amount }
-            if classification.countsAsRegularExpense { expenses += tx.amount }
+            if classification.countsAsRegularIncome,
+               !isInterestIncome,
+               !isLinkedRefund {
+                income += tx.amount
+            }
+            if classification.countsAsRegularExpense {
+                expenses += tx.amount + refundedAmount
+            }
 
             if let movement = DashboardCashFlowClassifier.movement(
                 for: tx,
@@ -760,7 +840,10 @@ final class DashboardViewModel {
                 } else {
                     key = uncategorizedKey
                 }
-                spending[key, default: 0] += abs(tx.amount)
+                spending[key, default: 0] += max(
+                    Decimal.zero,
+                    abs(tx.amount) - refundedAmount
+                )
             }
 
             if !tx.isDuplicate {
@@ -786,7 +869,7 @@ final class DashboardViewModel {
                 return MonthlyCashFlow(month: interval.bucketStart, income: values.income, expenses: values.expenses)
             }
             : []
-        let categorySpending = spending.map { key, amount in
+        let categorySpending = spending.filter { $0.value > 0 }.map { key, amount in
             CategorySpending(category: categoryMap[key]!, amount: amount)
         }.sorted { $0.amount > $1.amount }
 
@@ -799,7 +882,9 @@ final class DashboardViewModel {
             interestCharged: interestCharged,
             interestAllocations: periodInterestAllocations,
             interestSourceTransactions: periodInterestSourceTransactions,
-            matchedCardPaymentTransactionIDs: matchedPaymentIDs
+            matchedCardPaymentTransactionIDs: matchedPaymentIDs,
+            refundsByPurchaseID: refundData.refundsByPurchaseID,
+            linkedRefundIDs: refundData.linkedRefundIDs
         )
     }
 
@@ -830,16 +915,28 @@ final class DashboardViewModel {
         }
     }
 
-    private func computeSpendingByCategory(_ transactions: [Transaction], kindFilter: CategoryKind?) -> [CategorySpending] {
+    private func computeSpendingByCategory(
+        _ transactions: [Transaction],
+        kindFilter: CategoryKind?,
+        refundData: DashboardRefundData
+    ) -> [CategorySpending] {
         var spending: [ObjectIdentifier: Decimal] = [:]
         var categoryMap: [ObjectIdentifier: Category] = [:]
 
         let uncategorizedSentinel = Category(name: "Uncategorized", kind: .expense)
         let uncategorizedKey = ObjectIdentifier(uncategorizedSentinel)
         categoryMap[uncategorizedKey] = uncategorizedSentinel
+        let hasRefundClassifications = !refundData.classificationsByTransactionID.isEmpty
+        let hasRefundAdjustments = !refundData.refundedAmountByPurchaseID.isEmpty
 
         for tx in transactions {
-            guard transactionClassifier.classify(transaction: tx).countsAsRegularExpense else { continue }
+            let classification: TransactionClassification
+            if hasRefundClassifications {
+                classification = refundData.classificationsByTransactionID[tx.id] ?? self.classification(for: tx)
+            } else {
+                classification = transactionClassifier.classify(transaction: tx)
+            }
+            guard classification.countsAsRegularExpense else { continue }
             let key: ObjectIdentifier
             if let cat = tx.category, cat.deletedAt == nil {
                 key = ObjectIdentifier(cat)
@@ -847,12 +944,117 @@ final class DashboardViewModel {
             } else {
                 key = uncategorizedKey
             }
-            spending[key, default: 0] += abs(tx.amount)
+            spending[key, default: 0] += max(
+                Decimal.zero,
+                abs(tx.amount) - (hasRefundAdjustments ? (refundData.refundedAmountByPurchaseID[tx.id] ?? 0) : 0)
+            )
         }
 
-        return spending.map { key, amount in
+        return spending.filter { $0.value > 0 }.map { key, amount in
             CategorySpending(category: categoryMap[key]!, amount: amount)
         }.sorted { $0.amount > $1.amount }
+    }
+
+    private func dashboardRefundData(for transactions: [Transaction], context: ModelContext) -> DashboardRefundData {
+        guard !transactions.isEmpty else {
+            // Sin movimientos no hay ajustes que cargar; también se retira
+            // cualquier aviso previo de proyección de reembolsos.
+            refundProjectionError = nil
+            return DashboardRefundData(
+                refundedAmountByPurchaseID: [:],
+                refundsByPurchaseID: [:],
+                linkedRefundIDs: [],
+                classificationsByTransactionID: [:]
+            )
+        }
+        do {
+            guard try TransactionLinkService.hasActiveRefundLinks(context: context) else {
+                refundProjectionError = nil
+                return DashboardRefundData(
+                    refundedAmountByPurchaseID: [:],
+                    refundsByPurchaseID: [:],
+                    linkedRefundIDs: [],
+                    classificationsByTransactionID: [:]
+                )
+            }
+        } catch {
+            refundProjectionError = String(localized: "Refund adjustments could not be loaded. Dashboard spending and income may be incomplete.")
+            Logger.app.error("Refund link lookup failed: \(error.localizedDescription)")
+            return DashboardRefundData(
+                refundedAmountByPurchaseID: [:],
+                refundsByPurchaseID: [:],
+                linkedRefundIDs: [],
+                classificationsByTransactionID: [:]
+            )
+        }
+        let key = DashboardRefundDataCacheKey(
+            asOf: periodNow,
+            transactions: transactions.map(DashboardTransactionRevision.init)
+        )
+        if let cached = dashboardRefundDataCache[key] { return cached }
+        let data: DashboardRefundData
+        do {
+            data = try TransactionLinkService.dashboardRefundData(
+            for: transactions,
+            context: context,
+            asOf: periodNow,
+            classificationFor: { [weak self] in self?.cachedClassification(for: $0) }
+            )
+            refundProjectionError = nil
+        } catch {
+            refundProjectionError = String(localized: "Refund adjustments could not be loaded. Dashboard spending and income may be incomplete.")
+            Logger.app.error("Refund projection failed: \(error.localizedDescription)")
+            return DashboardRefundData(
+                refundedAmountByPurchaseID: [:],
+                refundsByPurchaseID: [:],
+                linkedRefundIDs: [],
+                classificationsByTransactionID: [:]
+            )
+        }
+        var transactionByID = Dictionary(
+            transactions.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let outsidePeriodIDs = Set(data.classificationsByTransactionID.keys).subtracting(transactionByID.keys)
+        do {
+            let outsidePeriodTransactions = try TransactionLinkService.transactions(withIDs: outsidePeriodIDs, context: context)
+            transactionByID.merge(outsidePeriodTransactions) { first, _ in first }
+        } catch {
+            refundProjectionError = String(localized: "Refund adjustments could not be loaded. Dashboard spending and income may be incomplete.")
+            Logger.app.error("Linked movement lookup failed: \(error.localizedDescription)")
+            return DashboardRefundData(
+                refundedAmountByPurchaseID: [:],
+                refundsByPurchaseID: [:],
+                linkedRefundIDs: [],
+                classificationsByTransactionID: [:]
+            )
+        }
+        for (transactionID, classification) in data.classificationsByTransactionID {
+            guard let transaction = transactionByID[transactionID] else { continue }
+            dashboardClassificationCache[transactionID] = (
+                DashboardTransactionRevision(transaction),
+                classification
+            )
+        }
+        dashboardRefundDataCache[key] = data
+        dashboardRefundDataCacheOrder.append(key)
+        if dashboardRefundDataCacheOrder.count > 8 {
+            let expired = dashboardRefundDataCacheOrder.removeFirst()
+            dashboardRefundDataCache.removeValue(forKey: expired)
+        }
+        return data
+    }
+
+    private func cachedClassification(for transaction: Transaction) -> TransactionClassification? {
+        guard let cached = dashboardClassificationCache[transaction.id] else { return nil }
+        let revision = DashboardTransactionRevision(transaction)
+        guard cached.revision == revision else { return nil }
+        return cached.value
+    }
+
+    private func classification(for transaction: Transaction) -> TransactionClassification {
+        if let cached = cachedClassification(for: transaction) { return cached }
+        return transactionClassifier.classify(transaction: transaction)
     }
 
     // MARK: - Net worth + balance series + account summaries

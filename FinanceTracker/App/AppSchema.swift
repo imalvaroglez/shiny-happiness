@@ -1060,6 +1060,16 @@ enum FinanceTrackerSchemaV7: VersionedSchema {
     }
 }
 
+enum FinanceTrackerSchemaV8: VersionedSchema {
+    static let versionIdentifier = Schema.Version(0, 11, 0)
+    // AD-023: esta versión referencia tipos vivos (como V7). El primer cambio
+    // de esquema después de liberar esta build debe congelar copias anidadas
+    // de V8 (como hizo V6 en su momento) antes de tocar los tipos vivos.
+    static var models: [any PersistentModel.Type] {
+        FinanceTrackerSchemaV7.models + [TransactionLink.self]
+    }
+}
+
 enum FinanceTrackerMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -1070,11 +1080,12 @@ enum FinanceTrackerMigrationPlan: SchemaMigrationPlan {
             FinanceTrackerSchemaV5.self,
             FinanceTrackerSchemaV6.self,
             FinanceTrackerSchemaV7.self,
+            FinanceTrackerSchemaV8.self,
         ]
     }
 
     static var stages: [MigrationStage] {
-        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateV5toV6, migrateV6toV7]
+        [migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateV5toV6, migrateV6toV7, migrateV7toV8]
     }
 
     private static let migrateV4toV5 = MigrationStage.lightweight(
@@ -1090,6 +1101,11 @@ enum FinanceTrackerMigrationPlan: SchemaMigrationPlan {
     private static let migrateV6toV7 = MigrationStage.lightweight(
         fromVersion: FinanceTrackerSchemaV6.self,
         toVersion: FinanceTrackerSchemaV7.self
+    )
+
+    private static let migrateV7toV8 = MigrationStage.lightweight(
+        fromVersion: FinanceTrackerSchemaV7.self,
+        toVersion: FinanceTrackerSchemaV8.self
     )
 
     private static let migrateV3toV4 = MigrationStage.lightweight(
@@ -1223,11 +1239,12 @@ enum AppSchema {
             StockPosition.self,
             HouseholdPartnerIncomeEstimate.self,
             SettlementDueDateOverride.self,
+            TransactionLink.self,
         ]
     }
 
     static var schema: Schema {
-        Schema(versionedSchema: FinanceTrackerSchemaV7.self)
+        Schema(versionedSchema: FinanceTrackerSchemaV8.self)
     }
 
     static func makeContainer(isStoredInMemoryOnly: Bool = false) throws -> ModelContainer {

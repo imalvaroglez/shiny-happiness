@@ -29,6 +29,7 @@ struct AppDataResetService {
         StockPosition.self,
         HouseholdPartnerIncomeEstimate.self,
         SettlementDueDateOverride.self,
+        TransactionLink.self,
         Transaction.self,
         CategoryRule.self,
         InstallmentPlan.self,
@@ -44,6 +45,7 @@ struct AppDataResetService {
         try deleteAllObjects(of: StockPosition.self, from: context)
         try deleteAllObjects(of: HouseholdPartnerIncomeEstimate.self, from: context)
         try deleteAllObjects(of: SettlementDueDateOverride.self, from: context)
+        try deleteAllObjects(of: TransactionLink.self, from: context)
         try deleteAllObjects(of: Transaction.self, from: context)
         try deleteAllObjects(of: CategoryRule.self, from: context)
         try deleteAllObjects(of: InstallmentPlan.self, from: context)
@@ -80,11 +82,12 @@ struct AppDataResetService {
         let stockPositionCount = try context.fetchCount(FetchDescriptor<StockPosition>())
         let partnerEstimateCount = try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())
         let dueDateOverrideCount = try context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())
+        let linkCount = try context.fetchCount(FetchDescriptor<TransactionLink>())
 
-        let totalOrphans = txCount + stmtCount + snapCount + pendingCount + planCount + hintCount + stockPositionCount + partnerEstimateCount + dueDateOverrideCount
+        let totalOrphans = txCount + stmtCount + snapCount + pendingCount + planCount + hintCount + stockPositionCount + partnerEstimateCount + dueDateOverrideCount + linkCount
         guard totalOrphans > 0 else { return .noRepairNeeded }
 
-        logger.info("Repairing incomplete reset: \(totalOrphans) orphan rows (tx=\(txCount), stmt=\(stmtCount), snap=\(snapCount), pending=\(pendingCount), plan=\(planCount), hint=\(hintCount), stock=\(stockPositionCount), partnerEstimate=\(partnerEstimateCount))")
+        logger.info("Repairing incomplete reset: \(totalOrphans) orphan rows (tx=\(txCount), stmt=\(stmtCount), snap=\(snapCount), pending=\(pendingCount), plan=\(planCount), hint=\(hintCount), stock=\(stockPositionCount), partnerEstimate=\(partnerEstimateCount), links=\(linkCount))")
 
         try repairDeleteAll(from: context)
         try context.save()
@@ -98,10 +101,11 @@ struct AppDataResetService {
         let remainingStockPosition = try context.fetchCount(FetchDescriptor<StockPosition>())
         let remainingPartnerEstimate = try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())
         let remainingDueDateOverride = try context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())
-        let remainingTotal = remainingTx + remainingStmt + remainingSnap + remainingPending + remainingPlan + remainingHint + remainingStockPosition + remainingPartnerEstimate + remainingDueDateOverride
+        let remainingLink = try context.fetchCount(FetchDescriptor<TransactionLink>())
+        let remainingTotal = remainingTx + remainingStmt + remainingSnap + remainingPending + remainingPlan + remainingHint + remainingStockPosition + remainingPartnerEstimate + remainingDueDateOverride + remainingLink
 
         if remainingTotal > 0 {
-            logger.error("Batch repair left \(remainingTotal) rows (tx=\(remainingTx), stmt=\(remainingStmt), snap=\(remainingSnap), pending=\(remainingPending), plan=\(remainingPlan), hint=\(remainingHint), stock=\(remainingStockPosition), partnerEstimate=\(remainingPartnerEstimate)) — requesting hard reset")
+            logger.error("Batch repair left \(remainingTotal) rows (tx=\(remainingTx), stmt=\(remainingStmt), snap=\(remainingSnap), pending=\(remainingPending), plan=\(remainingPlan), hint=\(remainingHint), stock=\(remainingStockPosition), partnerEstimate=\(remainingPartnerEstimate), links=\(remainingLink)) — requesting hard reset")
             StoreFileResetService.requestHardReset(reason: "Batch repair left \(remainingTotal) rows")
             return .hardResetRequested
         }
@@ -124,6 +128,7 @@ struct AppDataResetService {
             ("StockPosition", try context.fetchCount(FetchDescriptor<StockPosition>())),
             ("HouseholdPartnerIncomeEstimate", try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>())),
             ("SettlementDueDateOverride", try context.fetchCount(FetchDescriptor<SettlementDueDateOverride>())),
+            ("TransactionLink", try context.fetchCount(FetchDescriptor<TransactionLink>())),
             ("Transaction", try context.fetchCount(FetchDescriptor<Transaction>())),
             ("Statement", try context.fetchCount(FetchDescriptor<Statement>())),
             ("CategoryRule", try context.fetchCount(FetchDescriptor<CategoryRule>())),

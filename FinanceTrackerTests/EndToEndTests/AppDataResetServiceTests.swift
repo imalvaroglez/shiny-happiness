@@ -33,6 +33,20 @@ struct AppDataResetServiceTests {
         tx.account = account
         tx.statement = statement
         context.insert(tx)
+        let refund = Transaction(postedAt: .now, amount: 40, descriptionRaw: "STORE refund",
+                                 flowKindRaw: TransactionFlowKind.income.rawValue,
+                                 movementKindRaw: TransactionMovementKind.income.rawValue)
+        refund.account = account
+        context.insert(refund)
+        let linkKey = TransactionLinkService.refundIdentityKey(refundID: refund.id)
+        context.insert(TransactionLink(
+            id: TransactionLink.stableID(for: linkKey),
+            identityKey: linkKey,
+            kind: .refund,
+            sourceTransactionID: refund.id,
+            targetTransactionID: tx.id,
+            lastModifiedAt: .now
+        ))
 
         let plan = InstallmentPlan(
             account: account,
@@ -101,6 +115,7 @@ struct AppDataResetServiceTests {
         #expect(try context.fetchCount(FetchDescriptor<StockPosition>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<HouseholdPartnerIncomeEstimate>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Transaction>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<TransactionLink>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<Statement>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<InstallmentPlan>()) == 0)
         #expect(try context.fetchCount(FetchDescriptor<PendingImport>()) == 0)
